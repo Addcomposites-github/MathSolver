@@ -65,9 +65,9 @@ def vessel_geometry_page():
         
         if dome_type == "Isotensoid":
             st.markdown("#### qrs-Parameterization (Koussios)")
-            q_factor = st.slider("q-factor", min_value=0.1, max_value=2.0, value=1.0, step=0.01)
-            r_factor = st.slider("r-factor", min_value=0.1, max_value=2.0, value=1.0, step=0.01)
-            s_factor = st.slider("s-factor", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
+            q_factor = st.slider("q-factor", min_value=0.1, max_value=20.0, value=2.0, step=0.1)
+            r_factor = st.slider("r-factor", min_value=-1.0, max_value=2.0, value=0.1, step=0.01)
+            s_factor = st.slider("s-factor", min_value=0.0, max_value=2.0, value=0.5, step=0.01)
         elif dome_type == "Elliptical":
             aspect_ratio = st.slider("Dome Aspect Ratio (height/radius)", min_value=0.1, max_value=2.0, value=1.0, step=0.01)
         

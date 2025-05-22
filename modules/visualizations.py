@@ -95,9 +95,12 @@ class VesselVisualizer:
             r_inner_list = r_inner.tolist()
             z_list = z.tolist()
         else:
-            r_inner_list = r_inner
-            z_list = z
-        z_at_max_r = z_list[r_inner_list.index(max_r)]
+            r_inner_list = list(r_inner)
+            z_list = list(z)
+        
+        # Find index of max radius more safely
+        max_r_idx = np.argmax(r_inner)
+        z_at_max_r = z_list[max_r_idx]
         
         # Diameter line
         ax.annotate('', xy=(z_at_max_r, max_r), xytext=(z_at_max_r, -max_r),
