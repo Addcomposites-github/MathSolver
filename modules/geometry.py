@@ -118,7 +118,136 @@ class VesselGeometry:
         Generate isotensoid dome profile using Koussios qrs-parameterization.
         Based on Koussios Thesis Chapter 4, Equations 4.12, 4.13, 4.20.
         """
-        return self._calculate_isotensoid_koussios_qrs_profile(num_points_dome)
+        print("\n--- Debugging _generate_isotensoid_profile ---")
+        from scipy.special import ellipkinc, ellipeinc
+        
+        q = self.q_factor
+        r = self.r_factor
+        print(f"Input q: {q}, r: {r}")
+        print(f"Vessel inner_radius (target equatorial for dome): {self.inner_radius} mm")
+
+        # Calculate dimensionless Y_min and Y_eq based on q, r (Koussios Thesis, Eq. 4.13)
+        den_Y_calc = 1 + q + 2 * q * r
+        if abs(den_Y_calc) < 1e-9:
+            print(f"ERROR: Denominator for Y_min/Y_eq calculation is near zero (den_Y_calc={den_Y_calc}). Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1  # Make it very flat to be obvious
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        num_Y_calc = 1 + q + 2 * q * r + q**2 * (1 + r**2)
+
+        r_limit = -(1 + q) / (2 * q) if q != 0 else (0 if 1 + q == 0 else -np.inf)
+        print(f"Calculated r_limit for q={q}: {r_limit}")
+        if r < r_limit - 1e-6:
+            print(f"ERROR: r_factor ({r:.4f}) is below the limit ({r_limit:.4f}) for q={q:.4f}. num_Y_calc might be negative.")
+            if num_Y_calc < 0:
+                print(f"ERROR: num_Y_calc is negative ({num_Y_calc:.4f}). Cannot proceed with sqrt. Fallback.")
+                R_dome_fallback = self.inner_radius
+                dome_h_fallback = R_dome_fallback * 0.1
+                t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+                return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+        
+        if num_Y_calc < 0:
+            num_Y_calc = 0  # Avoid math domain error if r is exactly at limit
+
+        Y_min_dimless_raw = math.sqrt(num_Y_calc / den_Y_calc)
+        print(f"Raw Y_min_dimless_raw: {Y_min_dimless_raw:.4f}")
+
+        if q <= 1e-9:
+            print("ERROR: q_factor is zero or too small for Y_eq calculation in isotensoid. Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        Y_eq_dimless_raw = Y_min_dimless_raw / math.sqrt(q)
+        print(f"Raw Y_eq_dimless_raw: {Y_eq_dimless_raw:.4f}")
+
+        if abs(Y_eq_dimless_raw) < 1e-6:
+            print("ERROR: Calculated Y_eq_dimless_raw is too small in isotensoid. Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        rho_0_adjusted = self.inner_radius / Y_eq_dimless_raw
+        print(f"Adjusted rho_0_adjusted: {rho_0_adjusted:.4f} mm")
+        
+        actual_dome_polar_radius_calc = Y_min_dimless_raw * rho_0_adjusted
+        actual_dome_equatorial_radius_calc = Y_eq_dimless_raw * rho_0_adjusted
+        print(f"Calculated dome polar radius: {actual_dome_polar_radius_calc:.4f} mm")
+        print(f"Calculated dome equatorial radius (should be inner_radius): {actual_dome_equatorial_radius_calc:.4f} mm")
+
+        theta_values = np.linspace(np.pi / 2.0, 0.0, num_points_dome)  # From pole (pi/2) to equator (0)
+
+        denom_m_elliptic = 1 + 2 * q * (1 + r)
+        if abs(denom_m_elliptic) < 1e-9:
+            print(f"ERROR: Denominator for m_elliptic is near zero ({denom_m_elliptic}). Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        m_elliptic = (q - 1) / denom_m_elliptic
+        print(f"Elliptic parameter m_elliptic: {m_elliptic:.4f}")
+
+        m_elliptic_clamped = np.clip(m_elliptic, 0.0, 1.0)  # Ensure m is in [0,1] for scipy
+        if not np.isclose(m_elliptic, m_elliptic_clamped):
+            print(f"Warning: m_elliptic ({m_elliptic:.4f}) was clamped to {m_elliptic_clamped:.4f}.")
+
+        try:
+            ell_F_values = ellipkinc(theta_values, m_elliptic_clamped)
+            ell_E_values = ellipeinc(theta_values, m_elliptic_clamped)
+        except Exception as e:
+            print(f"Error calculating elliptic integrals: {e}. Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        coeff_Z_den_sq_term = 1 + 2 * q * (1 + r)
+        if coeff_Z_den_sq_term < 0:
+            print(f"ERROR: Term under square root for Z coefficient is negative ({coeff_Z_den_sq_term}). Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+        
+        coeff_Z_factor = Y_min_dimless_raw / math.sqrt(coeff_Z_den_sq_term)
+        
+        term_E_component = (1 + 2 * q * (1 + r)) * ell_E_values
+        term_F_component = (1 + q + q * r) * ell_F_values
+        
+        Z_dimless_profile = coeff_Z_factor * (term_E_component - term_F_component)
+        print(f"Sample Z_dimless_profile (pole to equator): {Z_dimless_profile[:3]}...{Z_dimless_profile[-3:]}")
+
+        dome_height_dimless = Z_dimless_profile[0]  # Value at theta = pi/2 (pole)
+        if Z_dimless_profile[-1] > 1e-6:  # Value at theta = 0 (equator) should be close to 0
+            print(f"Warning: Z_dimless at equator (theta=0) is {Z_dimless_profile[-1]:.4f}, expected ~0.")
+        
+        actual_dome_height_m = dome_height_dimless * rho_0_adjusted
+        print(f"Calculated actual_dome_height_m: {actual_dome_height_m:.4f} mm")
+
+        rho_dimless_profile = np.sqrt(
+            Y_eq_dimless_raw**2 * np.cos(theta_values)**2 + 
+            Y_min_dimless_raw**2 * np.sin(theta_values)**2
+        )
+        rho_abs_profile = rho_dimless_profile * rho_0_adjusted
+        print(f"Sample rho_abs_profile (pole to equator): {rho_abs_profile[:3]}...{rho_abs_profile[-3:]}")
+
+        z_local_dome_abs = Z_dimless_profile * rho_0_adjusted  # From dome_height at pole, to 0 at equator
+        print(f"Sample z_local_dome_abs (pole to equator): {z_local_dome_abs[:3]}...{z_local_dome_abs[-3:]}")
+        
+        if actual_dome_height_m < 1e-3 or np.any(np.isnan(rho_abs_profile)) or np.any(np.isnan(z_local_dome_abs)):
+            print("ERROR: Calculated dome height is too small or NaN in profile. Fallback.")
+            R_dome_fallback = self.inner_radius
+            dome_h_fallback = R_dome_fallback * 0.1
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome)
+            return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        print("--- End Debugging _generate_isotensoid_profile ---\n")
+        return np.vstack((rho_abs_profile, z_local_dome_abs)).T, actual_dome_height_m
     
     def _calculate_isotensoid_koussios_qrs_profile(self, num_points_dome: int):
         """
