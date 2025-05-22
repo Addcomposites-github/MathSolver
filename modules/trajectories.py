@@ -131,7 +131,7 @@ class TrajectoryPlanner:
         Based on Koussios Thesis Ch. 8.1, Eq. 8.5.
         """
         profile_points = self.vessel.get_profile_points()
-        rho_geom_pole = profile_points['r_inner'][0]  # Geometric polar opening
+        rho_geom_pole = profile_points['r_inner_mm'][0]  # Geometric polar opening
         
         ecc_0 = self.roving_eccentricity_at_pole_m
         b = self.dry_roving_width_m
