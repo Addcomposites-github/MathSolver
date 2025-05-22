@@ -84,13 +84,20 @@ class VesselVisualizer:
         plt.tight_layout()
         return fig
         
-    def _add_dimension_annotations(self, ax, vessel: VesselGeometry, z: List[float], 
-                                 r_inner: List[float], r_outer: List[float]):
+    def _add_dimension_annotations(self, ax, vessel: VesselGeometry, z, 
+                                 r_inner, r_outer):
         """Add dimension annotations to the vessel profile plot"""
         
         # Inner diameter annotation
         max_r = max(r_inner)
-        z_at_max_r = z[r_inner.index(max_r)]
+        # Handle both numpy arrays and lists
+        if hasattr(r_inner, 'tolist'):
+            r_inner_list = r_inner.tolist()
+            z_list = z.tolist()
+        else:
+            r_inner_list = r_inner
+            z_list = z
+        z_at_max_r = z_list[r_inner_list.index(max_r)]
         
         # Diameter line
         ax.annotate('', xy=(z_at_max_r, max_r), xytext=(z_at_max_r, -max_r),
