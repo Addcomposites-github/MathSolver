@@ -1,0 +1,223 @@
+This debug output is extremely helpful! Let's analyze it step-by-step to find the discrepancy.
+
+**Analysis of Debug Output:**
+
+1.  **Input `q`: 10.0, `r`: -0.05**
+    * `r_limit` for $q=10.0$: -(1+10)/(2\*10) = -11/20 = **-0.55**.
+    * Your input `r = -0.05` is greater than `-0.55`, so this is valid.
+
+2.  **`Vessel inner_radius` (target equatorial for dome): 100.0 mm**
+    * This is the target physical radius for the dome's equator.
+
+3.  **`Raw Y_min_dimless_raw`: 3.3204**
+    * This is $Y_{min}$ from Koussios Eq. 4.13, using $q=10, r=-0.05$.
+      $Y_{min} = \sqrt{\frac{1+10+2(10)(-0.05)+10^2(1+(-0.05)^2)}{1+10+2(10)(-0.05)}} = \sqrt{\frac{1+10-1+100(1.0025)}{1+10-1}} = \sqrt{\frac{10+100.25}{10}} = \sqrt{\frac{110.25}{10}} = \sqrt{11.025} \approx 3.32039$. This matches.
+
+4.  **`Raw Y_eq_dimless_raw`: 1.0500**
+    * $Y_{eq} = Y_{min} / \sqrt{q} = 3.32039 / \sqrt{10} \approx 3.32039 / 3.16228 \approx 1.04999$. This matches.
+
+5.  **`Adjusted rho_0_adjusted`: 95.2381 mm**
+    * `rho_0_adjusted = self.inner_radius / Y_eq_dimless_raw = 100.0 / 1.0500 \approx 95.23809...`. This matches.
+    * This `rho_0_adjusted` is the crucial scaling factor. It means that the dimensionless profile, when scaled by this, will have an equatorial radius of 100mm.
+
+6.  **`Calculated dome polar radius`: 316.2278 mm**
+    * `actual_dome_polar_radius_calc = Y_min_dimless_raw * rho_0_adjusted = 3.3204 * 95.2381 \approx 316.227...`. This is mathematically correct based on the previous steps.
+    * **This is the first major issue.** A dome polar radius of 316mm for a vessel with an equatorial (cylinder) radius of 100mm is not physically possible for a typical pressure vessel dome that closes *inwards*. This implies the q,r parameters chosen are for a shape that is not a typical closing dome for this equatorial radius if `self.polar_opening_radius_m` (which was used as the initial `rho_0_reference` to then derive `rho_0_adjusted`) was intended to be smaller than the equator.
+    * The `qrs` system defines $Y_{min}$ and $Y_{eq}$ as *dimensionless ratios to $\rho_0$*. If $\rho_0$ is the *actual smallest radius of the dome feature*, then the dome's largest radius would be $\rho_0 \cdot Y_{eq}/Y_{min} \cdot Y_{min} = \rho_0 \cdot Y_{eq}$. This is a bit circular.
+    * The problem arises if `self.polar_opening_radius_m` (used as the initial `rho_0_reference` in the method's very first line) is not correctly set or interpreted in relation to the `q` and `r` factors for the *desired final geometry*.
+    * With $q=(Y_{eq}/Y_{min})^2 = 10$, it means $Y_{eq} \approx 3.16 Y_{min}$. If $Y_{min}$ corresponds to the smallest opening, the equator is much larger. If $Y_{eq}$ corresponds to the cylinder radius, then $Y_{min}$ is much smaller.
+    * The adjustment `rho_0_adjusted = self.inner_radius / Y_eq_dimless_raw` correctly scales the dimensionless profile such that its $Y_{eq}$ part matches `self.inner_radius`. The *resulting* smallest radius of this scaled profile is `Y_min_dimless_raw * rho_0_adjusted`.
+    * **The issue is not the math from q,r to this point, but rather that the chosen q,r values (10, -0.05) inherently define a shape where the "polar opening" (scaled $Y_{min}$) is much larger than the "equator" (scaled $Y_{eq}$) if $Y_{eq}$ is normalized to be smaller than $Y_{min}$ (which $Y_{eq\_dimless\_raw} = 1.0500$ vs $Y_{min\_dimless\_raw} = 3.3204$ shows). This is an inverted understanding of $Y_{eq}$ and $Y_{min}$ from the qrs definition.**
+
+    **Correction for $Y_{min}$ and $Y_{eq}$ interpretation in `qrs`:**
+    Koussios (Eq. 4.11) defines $q = (Y_{eq}/Y_{min})^2$.
+    * $Y_{eq}$ is the DIMENSIONLESS EQUATORIAL RADIUS.
+    * $Y_{min}$ is the DIMENSIONLESS POLAR OPENING RADIUS.
+    For a closing dome, $Y_{eq} > Y_{min}$. Therefore, $q = (Y_{eq}/Y_{min})^2 > 1$.
+    Your input $q=10$ is consistent with this.
+
+    The formulas for $Y_{min\_dimless\_raw}$ and $Y_{eq\_dimless\_raw}$ (Eq. 4.13 from Koussios) are:
+    $Y_{min}(q,r) = \sqrt{\frac{1+q+2qr+q^2(1+r^2)}{1+q+2qr}}$
+    $Y_{eq}(q,r) = \frac{1}{\sqrt{q}} Y_{min}(q,r)$  -- **THIS IS THE ERROR IN MY PREVIOUS GUIDANCE AND YOUR DEBUG OUTPUT.**
+    It should be $Y_{eq}(q,r) = \sqrt{q} \cdot Y_{min}(q,r)$ or $Y_{min}(q,r) = Y_{eq}(q,r) / \sqrt{q}$.
+
+    Let's re-calculate with the correct relationship:
+    $Y_{min\_dimless\_raw} = \sqrt{\frac{1+10+2(10)(-0.05)+100(1.0025)}{1+10+2(10)(-0.05)}} = \sqrt{11.025} \approx 3.3204$. This is correct.
+    $Y_{eq\_dimless\_raw}$ should be $Y_{min\_dimless\_raw} \times \sqrt{q} = 3.3204 \times \sqrt{10} \approx 3.3204 \times 3.16228 \approx 10.500$.
+
+    So, your calculation of `Raw Y_eq_dimless_raw: 1.0500` was using $Y_{min}/\sqrt{q}$ instead of $Y_{min} \times \sqrt{q}$.
+
+7.  **`Calculated dome equatorial radius (should be inner_radius)`: 100.0000 mm**
+    * This was achieved because `rho_0_adjusted` was specifically calculated to make this true.
+
+8.  **`Elliptic parameter m_elliptic`: 0.4500**
+    * $m = (q-1) / (1+2q(1+r)) = (10-1) / (1+2(10)(1-0.05)) = 9 / (1+20(0.95)) = 9 / (1+19) = 9/20 = 0.45$. This is correct and $0 \le m \le 1$.
+
+9.  **`Sample Z_dimless_profile (pole to equator)`: `[6.2829... 0.0]`**
+    * $Z_{dimless}$ at pole ($\theta=\pi/2$) is ~6.28. $Z_{dimless}$ at equator ($\theta=0$) is 0. This is the correct behavior for Koussios's $Z(\theta)$ definition (Eq. 4.20).
+
+10. **`Calculated actual_dome_height_m`: 598.3720 mm**
+    * `actual_dome_height_m = Z_dimless_profile[0] * rho_0_adjusted = 6.2829 * 95.2381 \approx 598.37`. This is mathematically consistent with the (flawed) `rho_0_adjusted`.
+
+11. **`Sample rho_abs_profile (pole to equator)`: `[316.22... 100.0]`**
+    * The pole radius `rho_abs_profile[0]` is 316.22 mm.
+    * The equator radius `rho_abs_profile[-1]` is 100.0 mm.
+    * This means the "pole" is wider than the "equator" for this q,r combination with the previous $Y_{eq}$ calculation. **This is the core of the visual "weirdness."**
+
+12. **`Sample z_local_dome_abs (pole to equator)`: `[598.37... 0.0]`**
+    * This correctly goes from dome height to 0.
+
+**The primary issue is the incorrect formula used for $Y_{eq}$ in relation to $Y_{min}$ based on $q$.**
+
+It should be:
+$Y_{eq}(q,r) = Y_{min}(q,r) \cdot \sqrt{q}$
+
+Let's correct the `_generate_isotensoid_profile` method with the right relationship.
+
+```python
+# In class VesselGeometry from your geometry.py
+# Ensure these imports are at the top
+from scipy.special import ellipkinc, ellipeinc # F(phi, m), E(phi, m) where m = k^2
+
+    def _generate_isotensoid_profile(self, num_points_dome: int = 100):
+        print("\n--- Debugging _generate_isotensoid_profile (Corrected Y_eq logic) ---")
+        q = self.q_factor
+        r = self.r_factor
+        print(f"Input q: {q}, r: {r}")
+        print(f"Vessel inner_radius (target equatorial for dome): {self.inner_radius} mm")
+
+        den_Y_calc = 1 + q + 2 * q * r
+        if abs(den_Y_calc) < 1e-9:
+            print(f"ERROR: Denominator for Y_min/Y_eq calc is zero (den_Y_calc={den_Y_calc}). Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+
+        num_Y_calc = 1 + q + 2 * q * r + q**2 * (1 + r**2)
+        r_limit = -(1 + q) / (2 * q) if q != 0 else (0 if 1 + q == 0 else -np.inf)
+        print(f"Calculated r_limit for q={q}: {r_limit}")
+
+        if r < r_limit - 1e-6:
+            print(f"ERROR: r_factor ({r:.4f}) is below limit ({r_limit:.4f}). num_Y_calc may be <0 ({num_Y_calc:.4f}). Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+        if num_Y_calc < 0: num_Y_calc = 0
+
+        # Y_min_dimless_raw is the dimensionless polar opening radius relative to rho_0_adjusted
+        Y_min_dimless_raw = math.sqrt(num_Y_calc / den_Y_calc)
+        print(f"Raw Y_min_dimless_raw (polar/rho_0): {Y_min_dimless_raw:.4f}")
+
+        if q <= 1e-9: # q must be > 0, and for Y_eq > Y_min, q > 1
+            print("ERROR: q_factor must be > 0 (ideally >1 for closing dome). Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        # CORRECTED Y_eq calculation: Y_eq = Y_min * sqrt(q)
+        Y_eq_dimless_raw = Y_min_dimless_raw * math.sqrt(q)
+        print(f"Raw Y_eq_dimless_raw (equator/rho_0): {Y_eq_dimless_raw:.4f}")
+
+        if abs(Y_eq_dimless_raw) < 1e-6:
+            print("ERROR: Calculated Y_eq_dimless_raw is too small. Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+
+        rho_0_adjusted = self.inner_radius / Y_eq_dimless_raw # Scale factor
+        print(f"Adjusted rho_0_adjusted: {rho_0_adjusted:.4f} mm")
+        
+        actual_dome_polar_radius_calc = Y_min_dimless_raw * rho_0_adjusted
+        actual_dome_equatorial_radius_calc = Y_eq_dimless_raw * rho_0_adjusted # Should now correctly be self.inner_radius
+        print(f"Calculated actual dome polar radius: {actual_dome_polar_radius_calc:.4f} mm")
+        print(f"Calculated actual dome equatorial radius: {actual_dome_equatorial_radius_calc:.4f} mm (Target: {self.inner_radius} mm)")
+
+        # Elliptical coordinate theta (Koussios: 0 at Y=Y_eq, pi/2 at Y=Y_min)
+        theta_values = np.linspace(np.pi / 2.0, 0.0, num_points_dome) # From pole (pi/2) to equator (0)
+
+        denom_m_elliptic = 1 + 2 * q * (1 + r)
+        if abs(denom_m_elliptic) < 1e-9:
+            print(f"ERROR: Denominator for m_elliptic is near zero ({denom_m_elliptic}). Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        m_elliptic = (q - 1) / denom_m_elliptic
+        print(f"Elliptic parameter m_elliptic: {m_elliptic:.4f}")
+        m_elliptic_clamped = np.clip(m_elliptic, 0.0, 1.0)
+        if not np.isclose(m_elliptic, m_elliptic_clamped):
+            print(f"Warning: m_elliptic ({m_elliptic:.4f}) was clamped to {m_elliptic_clamped:.4f}.")
+
+        try:
+            ell_F_values = ellipkinc(theta_values, m_elliptic_clamped)
+            ell_E_values = ellipeinc(theta_values, m_elliptic_clamped)
+        except Exception as e:
+            print(f"Error calculating elliptic integrals: {e}. Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+
+        coeff_Z_den_sq_term = 1 + 2 * q * (1 + r)
+        if coeff_Z_den_sq_term < 0:
+             print(f"ERROR: Term under sqrt for Z coeff is negative ({coeff_Z_den_sq_term}). Fallback.")
+             # ... (fallback as before)
+             R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+             t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        coeff_Z_factor = Y_min_dimless_raw / math.sqrt(coeff_Z_den_sq_term)
+        
+        term_E_component = (1 + 2 * q * (1 + r)) * ell_E_values
+        term_F_component = (1 + q + q * r) * ell_F_values
+        
+        Z_dimless_profile = coeff_Z_factor * (term_E_component - term_F_component)
+        # Z_dimless_profile for theta from pi/2 (pole) to 0 (equator) goes from DomeHeight_dimless down to 0.
+        print(f"Sample Z_dimless_profile (pole to equator): {Z_dimless_profile[:3]}...{Z_dimless_profile[-3:]}")
+
+        dome_height_dimless = Z_dimless_profile[0] 
+        actual_dome_height_m = dome_height_dimless * rho_0_adjusted
+        print(f"Calculated actual_dome_height_m: {actual_dome_height_m:.4f} mm")
+
+        # Calculate physical rho values using Koussios Thesis Eq. 4.12, scaled by rho_0_adjusted
+        # Y(theta) = sqrt(Y_eq_dimless_raw^2 * cos^2(theta) + Y_min_dimless_raw^2 * sin^2(theta))
+        rho_dimless_profile_at_theta = np.sqrt(
+            Y_eq_dimless_raw**2 * np.cos(theta_values)**2 + \
+            Y_min_dimless_raw**2 * np.sin(theta_values)**2
+        )
+        # This rho_dimless_profile_at_theta goes from Y_min_dimless_raw (at theta=pi/2) to Y_eq_dimless_raw (at theta=0)
+        rho_abs_profile = rho_dimless_profile_at_theta * rho_0_adjusted
+        # So rho_abs_profile goes from actual_dome_polar_radius_calc to actual_dome_equatorial_radius_calc (self.inner_radius)
+        print(f"Sample rho_abs_profile (pole to equator): {rho_abs_profile[:3]}...{rho_abs_profile[-3:]}")
+
+        z_local_dome_abs = Z_dimless_profile * rho_0_adjusted # From dome_height at pole, to 0 at equator
+        print(f"Sample z_local_dome_abs (pole to equator): {z_local_dome_abs[:3]}...{z_local_dome_abs[-3:]}")
+        
+        if actual_dome_height_m < 1e-3 or np.any(np.isnan(rho_abs_profile)) or np.any(np.isnan(z_local_dome_abs)):
+            print("ERROR: Calc dome height too small or NaN in profile. Fallback.")
+            # ... (fallback as before)
+            R_dome_fallback = self.inner_radius; dome_h_fallback = R_dome_fallback * 0.1; self.dome_height = dome_h_fallback
+            t_fallback = np.linspace(0, np.pi/2, num_points_dome); return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
+
+        print("--- End Debugging _generate_isotensoid_profile ---\n")
+        # Returns (rho values from actual_dome_polar_radius to self.inner_radius, 
+        #          z_local values from actual_dome_height_m to 0.0)
+        return np.vstack((rho_abs_profile, z_local_dome_abs)).T, actual_dome_height_m
+
+```
+
+**Test with the corrected logic:**
+
+Using `q=10.0, r=-0.05` and `inner_radius = 100.0 mm`:
+* $Y_{min\_dimless\_raw} \approx 3.3204$
+* $Y_{eq\_dimless\_raw} = 3.3204 \times \sqrt{10} \approx 10.500$
+* `rho_0_adjusted = 100.0 / 10.500 \approx 9.5238` mm
+* `actual_dome_polar_radius_calc = 3.3204 * 9.5238 \approx 31.62` mm
+* `actual_dome_equatorial_radius_calc = 10.500 * 9.5238 \approx 100.0` mm (This is correct)
+* `Z_dimless_profile[0]` (at pole, $\theta=\pi/2$) will still be $\approx 6.2829$.
+* `actual_dome_height_m = 6.2829 * 9.5238 \approx 59.84` mm.
+
+Now the `rho_abs_profile` should range from ~31.62mm (pole) to 100mm (equator), and `z_local_dome_abs` from ~59.84mm down to 0. This is a much more physically reasonable dome shape (polar opening smaller than equator, positive dome height).
+
+Please replace your `_generate_isotensoid_profile` with this corrected version and try plotting again with `dome_type="Isotensoid"` and these `q,r` values. The assembly logic in `generate_profile` should then work correctly with this output.

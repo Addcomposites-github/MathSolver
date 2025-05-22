@@ -161,8 +161,9 @@ class VesselGeometry:
             t_fallback = np.linspace(0, np.pi/2, num_points_dome)
             return np.vstack((R_dome_fallback * np.sin(t_fallback), dome_h_fallback * np.cos(t_fallback))).T, dome_h_fallback
 
-        Y_eq_dimless_raw = Y_min_dimless_raw / math.sqrt(q)
-        print(f"Raw Y_eq_dimless_raw: {Y_eq_dimless_raw:.4f}")
+        # CORRECTED Y_eq calculation: Y_eq = Y_min * sqrt(q)
+        Y_eq_dimless_raw = Y_min_dimless_raw * math.sqrt(q)
+        print(f"Raw Y_eq_dimless_raw (equator/rho_0): {Y_eq_dimless_raw:.4f}")
 
         if abs(Y_eq_dimless_raw) < 1e-6:
             print("ERROR: Calculated Y_eq_dimless_raw is too small in isotensoid. Fallback.")
