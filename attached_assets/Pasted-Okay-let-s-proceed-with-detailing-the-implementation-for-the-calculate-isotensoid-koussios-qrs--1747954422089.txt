@@ -1,0 +1,194 @@
+Okay, let's proceed with detailing the implementation for the **`_calculate_isotensoid_koussios_qrs_profile()`** method in your `geometry.py`'s `VesselGeometry` class.
+
+This profile is based on the `qrs`-parameterization developed by Koussios, which uses an elliptical coordinate transformation and results in solutions involving incomplete elliptic integrals. The primary reference is Koussios Thesis, Chapter 4, specifically equations 4.12, 4.13, 4.14, 4.18, and 4.20.
+
+**Input Parameters Needed by the Method (from `self`):**
+
+1.  `self.polar_opening_radius_m` ($\rho_0$): This is the reference radius for the `qrs` system.
+2.  `self.q_factor` ($q$): Shape factor.
+3.  `self.r_factor` ($r$): Axial load factor.
+    * Note: The `s_factor` (dimensionless cylindrical length) is not directly used for the dome profile itself but for the overall vessel length and properties.
+4.  `num_points_dome`: Number of points to generate for the dome profile.
+
+**Internal Derived Parameters for the Profile Calculation:**
+
+* **Dimensionless Equatorial Radius ($Y_{eq}$):**
+    * $Y_{eq}(q,r) = \frac{1}{\sqrt{q}} \sqrt{\frac{1+q+2qr+q^2(1+r^2)}{1+q+2qr}}$ (Koussios Thesis, Eq. 4.13).
+* **Dimensionless Actual Polar Opening ($Y_{min}$):**
+    * $Y_{min}(q,r) = \sqrt{\frac{1+q+2qr+q^2(1+r^2)}{1+q+2qr}}$ (Koussios Thesis, Eq. 4.13).
+    * Note: With this definition, $Y_{min}$ is the start of the dome, and $Y = \rho / \rho_0$. So $\rho_{actual\_polar} = Y_{min} \cdot \rho_0$. If `self.polar_opening_radius_m` *is* $\rho_0$, then $Y_{min}$ from the formula is the effective dimensionless start. This needs careful handling of the reference radius. For the `qrs` system, $\rho_0$ is often the *actual* polar opening that the $Y_{min}$ from the formula refers to. Let's assume `self.polar_opening_radius_m` is the reference $\rho_0$ that the $Y_{min}$ and $Y_{eq}$ from the formula scale. The dome starts at $\rho = Y_{min} \cdot \rho_0$ and ends at $\rho = Y_{eq} \cdot \rho_0$.
+
+* **Elliptical Coordinate ($\theta$):**
+    * Ranges from $0$ (where $Y=Y_{eq}$, i.e., cylinder junction) to $\pi/2$ (where $Y=Y_{min}$, i.e., polar opening for the `qrs` dome definition). (Koussios Thesis, Eq. 4.12 context).
+    * The relationship is $Y(\theta) = \sqrt{Y_{eq}^2 \cos^2\theta + Y_{min}^2 \sin^2\theta}$ (Koussios Thesis, Eq. 4.12).
+* **Parameter $m$ for Elliptic Integrals:**
+    * $m = \frac{q-1}{1+2q(1+r)}$ (Koussios Thesis, used in Eq. 4.20).
+
+**Function for $Z(q,r,\theta)$:**
+
+This is directly given by Koussios Thesis, Eq. 4.20:
+$Z(q,r,\theta) = \frac{Y_{min}}{\sqrt{1+2q(1+r)}} \left[ (1+2q(1+r))\text{ellE}(\theta, m) - (1+q+qr)\text{ellF}(\theta, m) \right]$
+where:
+* `ellE` is the incomplete elliptic integral of the second kind.
+* `ellF` is the incomplete elliptic integral of the first kind.
+* $Z$ is the dimensionless axial coordinate $z/\rho_0$.
+* This $Z(\theta)$ gives the axial coordinate measured from the point where $\theta=0$ (which corresponds to $Y=Y_{eq}$, the cylinder junction). $Z(0)=0$. As $\theta$ goes to $\pi/2$, $Z$ increases, giving the dome height.
+
+**Method `_calculate_isotensoid_koussios_qrs_profile` in `VesselGeometry`:**
+
+```python
+# In class VesselGeometry
+def _calculate_isotensoid_koussios_qrs_profile(self, num_points_dome: int):
+    """
+    Calculates the Koussios qrs-parameterized isotensoid dome profile.
+    Profile is from (polar_opening_radius, dome_height) to (cylinder_radius, 0 - local z).
+    Uses dimensionless coordinates Y = rho/rho_0, Z = z/rho_0.
+    rho_0 is self.polar_opening_radius_m (acting as the reference radius for qrs).
+    """
+    rho_0_reference = self.polar_opening_radius_m # This is the rho_0 for the qrs formulas
+    if rho_0_reference <= 1e-6:
+        print("Warning: Reference polar opening radius (rho_0) is zero or too small for qrs calculation.")
+        # Fallback to a simpler shape or raise error
+        R_dome = self.inner_radius
+        actual_dome_height = R_dome * 0.6 # Crude fallback
+        self.dome_height = actual_dome_height
+        # Generate some points from pole to equator
+        phi_angles = np.linspace(0, np.pi / 2, num_points_dome)
+        dome_rho_abs = R_dome * np.sin(phi_angles)
+        dome_z_local_abs = actual_dome_height * np.cos(phi_angles) # z from height at pole to 0 at base
+        return np.vstack((dome_rho_abs, dome_z_local_abs)).T, actual_dome_height
+
+    q = self.q_factor
+    r = self.r_factor
+    # s_factor is for cylinder length, not used in dome profile Z(theta) itself
+
+    # Calculate Y_min and Y_eq based on q, r (Koussios Thesis, Eq. 4.13)
+    # Denominator for Y_min, Y_eq calculation
+    den_Y_calc = 1 + q + 2 * q * r
+    if abs(den_Y_calc) < 1e-9:
+        raise ValueError("Denominator for Y_min/Y_eq calculation is near zero in qrs profile. Check q, r values.")
+
+    # Numerator for Y_min, Y_eq calculation
+    num_Y_calc = 1 + q + 2 * q * r + q**2 * (1 + r**2)
+    if num_Y_calc < 0:
+        # This can happen if r is very negative, check Koussios Eq. 4.15 for r limit
+        r_limit = -(1+q)/(2*q)
+        if r < r_limit:
+            raise ValueError(f"r_factor ({r}) is below the limit ({r_limit:.3f}) for q={q}. Real Y_min/Y_eq not possible.")
+        else: # Should be positive or zero if r is at limit
+             num_Y_calc = 0 # At the limit
+
+    Y_min_dimless = math.sqrt(num_Y_calc / den_Y_calc)
+    if q <= 1e-9: # Avoid division by zero if q is too small
+        raise ValueError("q_factor is zero or too small for Y_eq calculation.")
+    Y_eq_dimless = Y_min_dimless / math.sqrt(q)
+
+    # Actual radii for this dome segment
+    actual_polar_opening_dome_m = Y_min_dimless * rho_0_reference
+    actual_equatorial_dome_m = Y_eq_dimless * rho_0_reference
+    
+    # Check if the vessel's inner_radius matches the calculated actual_equatorial_dome_m
+    # This is an important consistency check for how qrs is used.
+    # Typically, self.inner_radius IS the equatorial radius. So, Y_eq_dimless * rho_0_reference should equal self.inner_radius
+    # This means rho_0_reference = self.inner_radius / Y_eq_dimless
+    # If self.polar_opening_radius_m is taken as the *actual* start of the winding, then it is rho_0_reference * Y_min_dimless
+    # This suggests rho_0_reference itself might need to be solved for, or q,r are chosen to match inner_radius and polar_opening_radius.
+
+    # For now, let's assume self.polar_opening_radius_m *is* the rho_0 reference for the qrs formulas,
+    # and the dome goes from rho_0*Y_min to rho_0*Y_eq.
+    # The cylinder then attaches at rho_0*Y_eq, so self.inner_radius must be this value.
+    if not np.isclose(self.inner_radius, actual_equatorial_dome_m):
+        print(f"Warning: Vessel inner_radius {self.inner_radius}m does not match calculated qrs equatorial dome radius {actual_equatorial_dome_m}m "
+              f"based on input polar_opening_radius {rho_0_reference}m as qrs rho_0. Using calculated equatorial radius for dome.")
+        # Or, adjust rho_0_reference such that actual_equatorial_dome_m = self.inner_radius
+        # rho_0_reference_adjusted = self.inner_radius / Y_eq_dimless
+        # actual_polar_opening_dome_m = Y_min_dimless * rho_0_reference_adjusted
+        # This seems more consistent with how one might use q,r to define a dome for a given cylinder.
+        # For this calculation, let's use rho_0_reference_adjusted.
+        if Y_eq_dimless <= 1e-6:
+            raise ValueError("Calculated Y_eq_dimless is too small for qrs reference adjustment.")
+        rho_0_ref_adj = self.inner_radius / Y_eq_dimless
+        actual_polar_opening_dome_m = Y_min_dimless * rho_0_ref_adj
+        # Re-evaluate if this new actual_polar_opening matches the desired self.polar_opening_radius_m
+        # This highlights a potential iterative step or careful parameter definition for qrs.
+        # For this function, we will proceed using the Y_min, Y_eq derived from q,r and an effective rho_0.
+        # Let's define the dome profile from its own pole (Y_min_dimless * rho_0_ref_adj) to its equator (Y_eq_dimless * rho_0_ref_adj = self.inner_radius)
+
+    # Elliptical coordinate theta (Koussios: 0 at Y=Y_eq, pi/2 at Y=Y_min)
+    # We want points from pole to equator for the profile (rho increasing, local z decreasing from dome_height)
+    theta_values = np.linspace(np.pi / 2.0, 0.0, num_points_dome) # From pole (pi/2) to equator (0)
+
+    # Parameter m for elliptic integrals (Koussios Thesis, Eq. 4.20)
+    m_elliptic = (q - 1) / (1 + 2 * q * (1 + r)) # Denominator: (1+2q(1+r))
+    if abs(1 + 2 * q * (1 + r)) < 1e-9:
+        raise ValueError("Denominator for m_elliptic is near zero in qrs profile. Check q, r values.")
+
+    from ..utils.numerical_tools import incomplete_elliptic_integral_first_kind, incomplete_elliptic_integral_second_kind
+
+    ell_F = incomplete_elliptic_integral_first_kind(theta_values, m_elliptic)
+    ell_E = incomplete_elliptic_integral_second_kind(theta_values, m_elliptic)
+
+    coeff_Z_num = Y_min_dimless # Using Y_min from q,r definition
+    coeff_Z_den_sq = 1 + 2 * q * (1 + r)
+    if coeff_Z_den_sq < 0 : # Should not happen given r_limit check for Y_min
+        raise ValueError("Term under square root for Z coefficient is negative in qrs profile.")
+    
+    coeff_Z = coeff_Z_num / math.sqrt(coeff_Z_den_sq)
+
+    term_E = (1 + 2 * q * (1 + r)) * ell_E
+    term_F = (1 + q + q * r) * ell_F
+    
+    Z_dimless_profile = coeff_Z * (term_E - term_F)
+    # This Z is axial distance from equator (Z(theta=0)=0) towards pole (Z(theta=pi/2)=DomeHeight_dimless)
+    
+    dome_height_dimless = Z_dimless_profile[0] # Z at theta=pi/2 (pole)
+    if Z_dimless_profile[-1] > 1e-6: # Z at theta=0 (equator) should be close to 0
+        print(f"Warning: Z at equator (theta=0) is {Z_dimless_profile[-1]}, expected ~0.")
+
+    actual_dome_height_m = dome_height_dimless * rho_0_ref_adj # Scale by adjusted reference radius
+    self.dome_height = actual_dome_height_m
+
+    # Calculate Y(theta) for rho values
+    # Y_theta_profile = np.sqrt(Y_eq_dimless**2 * np.cos(theta_values)**2 + Y_min_dimless**2 * np.sin(theta_values)**2)
+    # This Y_theta_profile goes from Y_min (at theta=pi/2) to Y_eq (at theta=0)
+    
+    # Let's be explicit with rho calculation using Y_min_dimless, Y_eq_dimless:
+    # Theta from pi/2 (pole) to 0 (equator)
+    rho_dimless_profile = np.sqrt(Y_eq_dimless**2 * np.cos(theta_values)**2 + Y_min_dimless**2 * np.sin(theta_values)**2)
+    rho_abs_profile = rho_dimless_profile * rho_0_ref_adj # rho from actual_polar_opening_dome_m to self.inner_radius
+
+    # z_local_dome: from dome_height_m at pole, to 0 at cylinder junction
+    # Z_dimless_profile is from DomeHeight_dimless (at theta=pi/2) down to 0 (at theta=0)
+    z_local_dome_abs = Z_dimless_profile * rho_0_ref_adj
+
+    # Return (rho, z_local_dome) ordered from pole to cylinder junction
+    return np.vstack((rho_abs_profile, z_local_dome_abs)).T, actual_dome_height_m
+
+```
+
+**Key Implementation Details for Koussios `qrs` Isotensoid:**
+
+1.  **Reference Radius $\rho_0$**: The `qrs` equations are dimensionless based on a reference $\rho_0$.
+    * The inputs `q` and `r` define dimensionless $Y_{min}$ and $Y_{eq}$ (Eq. 4.13).
+    * If `self.polar_opening_radius_m` is treated as this $\rho_0$, then the dome starts at $\rho_0 Y_{min}$ and ends at $\rho_0 Y_{eq}$.
+    * More practically, `self.inner_radius` (cylinder radius) *is* the equatorial radius of the dome. So, an effective $\rho_{0,eff} = \text{self.inner\_radius} / Y_{eq}(q,r)$ needs tobe used to scale the dimensionless $Z$ and $Y$ profiles. The dome then starts at $\rho_{0,eff} Y_{min}(q,r)$ and ends at $\text{self.inner\_radius}$.
+    * The code attempts to use an `rho_0_ref_adj` to align the calculated $Y_{eq}$ with `self.inner_radius`.
+2.  **Elliptical Coordinate $\theta$**:
+    * Koussios defines $\theta=0$ at the equator ($Y=Y_{eq}$) and $\theta=\pi/2$ at the pole ($Y=Y_{min}$).
+    * The `np.linspace` for `theta_values` in the code goes from $\pi/2$ down to $0$ to generate profile points from the pole towards the equator.
+3.  **$Z(\theta)$ Calculation (Eq. 4.20):**
+    * This is the core equation providing the dimensionless axial coordinate $Z = z/\rho_{0,eff}$.
+    * It requires functions for incomplete elliptic integrals $F(\theta|m)$ and $E(\theta|m)$, which are wrapped in `utils.numerical_tools`.
+    * The $Z$ calculated by Eq. 4.20 is the axial distance from the equator ($Z=0$ at $\theta=0$) towards the pole. $Z(\pi/2)$ gives the dimensionless dome height.
+4.  **Output Points (`rho`, `z_local_dome`):**
+    * $\rho_{abs} = Y(\theta) \times \rho_{0,eff}$.
+    * $z_{local\_dome} = Z(\theta) \times \rho_{0,eff}$. This gives z from 0 at equator to DomeHeight at pole. For our standard output (pole to cylinder, z from DomeHeight to 0), this will need to be ordered correctly or adjusted. The current code calculates $Z_{dimless\_profile}$ which goes from DomeHeight (at pole, $\theta=\pi/2$) to 0 (at equator, $\theta=0$). So $z_{local\_dome\_abs} = Z_{dimless\_profile} \times \rho_{0,eff}$ already has the correct local-z sense (height at pole, 0 at cyl).
+5.  **Numerical Stability:**
+    * Checks for denominators being zero in $Y_{min}/Y_{eq}$ and $m_{elliptic}$ calculations.
+    * The elliptic integral functions in `scipy.special` expect $m=k^2$ where $k$ is the modulus. Ensure the parameter `m_elliptic` is correctly passed. $0 \le m \le 1$.
+
+This implementation requires the `incomplete_elliptic_integral_first_kind` and `incomplete_elliptic_integral_second_kind` functions to be correctly working in `numerical_tools.py`. The SciPy functions `ellipkinc` ($F$) and `ellipeinc` ($E$) take `phi` (our $\theta$) and `m` (our `m_elliptic`) directly.
+
+This covers the implementation plan for the Koussios `qrs` isotensoid. It's more complex due to the coordinate transformation and special functions.
+
+What's next? Shall we look at the actual Python code for the `numerical_tools.py` to ensure the elliptic integrals are correctly wrapped, or proceed to another section?

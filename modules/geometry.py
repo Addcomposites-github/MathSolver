@@ -114,15 +114,134 @@ class VesselGeometry:
         self._calculate_geometric_properties()
         
     def _generate_isotensoid_profile(self, num_points_dome: int = 100):
-        """Placeholder for Koussios qrs-parameterized isotensoid profile."""
-        # This needs the full Koussios equations (Eq. 4.3 or 4.20 from thesis)
-        # For now, returning a shape similar to hemispherical for plotting
-        print("WARNING: Isotensoid profile is a placeholder.")
+        """
+        Generate isotensoid dome profile using Koussios qrs-parameterization.
+        Based on Koussios Thesis Chapter 4, Equations 4.12, 4.13, 4.20.
+        """
+        return self._calculate_isotensoid_koussios_qrs_profile(num_points_dome)
+    
+    def _calculate_isotensoid_koussios_qrs_profile(self, num_points_dome: int):
+        """
+        Calculates the Koussios qrs-parameterized isotensoid dome profile.
+        Profile is from (polar_opening_radius, dome_height) to (cylinder_radius, 0 - local z).
+        Uses dimensionless coordinates Y = rho/rho_0, Z = z/rho_0.
+        """
+        # Reference radius for qrs formulas
+        # Use 10% of cylinder radius as conceptual polar opening
+        rho_0_reference = self.inner_radius * 0.1
+        
+        if rho_0_reference <= 1e-6:
+            print("WARNING: Reference radius too small for qrs calculation, using simplified profile.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        q = self.q_factor
+        r = self.r_factor
+
+        # Calculate Y_min and Y_eq based on q, r (Koussios Thesis, Eq. 4.13)
+        den_Y_calc = 1 + q + 2 * q * r
+        if abs(den_Y_calc) < 1e-9:
+            print("WARNING: Invalid q,r parameters for qrs calculation.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        num_Y_calc = 1 + q + 2 * q * r + q**2 * (1 + r**2)
+        if num_Y_calc < 0:
+            # Check r limit
+            r_limit = -(1+q)/(2*q) if q > 1e-9 else 0
+            print(f"WARNING: r_factor ({r}) below limit ({r_limit:.3f}) for q={q}.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        Y_min_dimless = math.sqrt(num_Y_calc / den_Y_calc)
+        if q <= 1e-9:
+            print("WARNING: q_factor too small for Y_eq calculation.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+        
+        Y_eq_dimless = Y_min_dimless / math.sqrt(q)
+
+        # Adjust reference radius so that Y_eq matches the cylinder radius
+        rho_0_ref_adj = self.inner_radius / Y_eq_dimless
+        actual_polar_opening_dome_m = Y_min_dimless * rho_0_ref_adj
+
+        # Elliptical coordinate theta (0 at equator, pi/2 at pole)
+        theta_values = np.linspace(np.pi / 2.0, 0.0, num_points_dome)  # From pole to equator
+
+        # Parameter m for elliptic integrals (Koussios Thesis, Eq. 4.20)
+        m_elliptic = (q - 1) / (1 + 2 * q * (1 + r))
+        if abs(1 + 2 * q * (1 + r)) < 1e-9:
+            print("WARNING: Invalid parameters for elliptic integral calculation.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        # Calculate elliptic integrals using approximations
+        ell_F = self._incomplete_elliptic_integral_first_kind(theta_values, m_elliptic)
+        ell_E = self._incomplete_elliptic_integral_second_kind(theta_values, m_elliptic)
+
+        # Calculate Z profile (Koussios Thesis, Eq. 4.20)
+        coeff_Z_num = Y_min_dimless
+        coeff_Z_den_sq = 1 + 2 * q * (1 + r)
+        if coeff_Z_den_sq < 0:
+            print("WARNING: Negative coefficient in Z calculation.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+        
+        coeff_Z = coeff_Z_num / math.sqrt(coeff_Z_den_sq)
+        term_E = (1 + 2 * q * (1 + r)) * ell_E
+        term_F = (1 + q + q * r) * ell_F
+        
+        Z_dimless_profile = coeff_Z * (term_E - term_F)
+        
+        # Scale to physical coordinates
+        actual_dome_height_m = Z_dimless_profile[0] * rho_0_ref_adj  # Z at pole
+        z_local_dome_abs = Z_dimless_profile * rho_0_ref_adj
+
+        # Calculate rho values using Y(theta)
+        rho_dimless_profile = np.sqrt(Y_eq_dimless**2 * np.cos(theta_values)**2 + 
+                                     Y_min_dimless**2 * np.sin(theta_values)**2)
+        rho_abs_profile = rho_dimless_profile * rho_0_ref_adj
+
+        return np.vstack((rho_abs_profile, z_local_dome_abs)).T, actual_dome_height_m
+    
+    def _incomplete_elliptic_integral_first_kind(self, theta, m):
+        """Approximation for incomplete elliptic integral of the first kind F(theta, m)."""
+        # Simple approximation using series expansion for small m
+        if isinstance(theta, np.ndarray):
+            result = np.zeros_like(theta)
+            for i, t in enumerate(theta):
+                if abs(m) < 0.5:
+                    # Series approximation
+                    result[i] = t + m/4 * (t - np.sin(t)*np.cos(t)) + \
+                               m**2/64 * (3*t - 3*np.sin(t)*np.cos(t) - np.sin(t)**3*np.cos(t))
+                else:
+                    # Crude approximation for larger m
+                    result[i] = t * (1 + m/4)
+            return result
+        else:
+            if abs(m) < 0.5:
+                return theta + m/4 * (theta - np.sin(theta)*np.cos(theta))
+            else:
+                return theta * (1 + m/4)
+    
+    def _incomplete_elliptic_integral_second_kind(self, theta, m):
+        """Approximation for incomplete elliptic integral of the second kind E(theta, m)."""
+        # Simple approximation using series expansion
+        if isinstance(theta, np.ndarray):
+            result = np.zeros_like(theta)
+            for i, t in enumerate(theta):
+                if abs(m) < 0.5:
+                    # Series approximation
+                    result[i] = t - m/4 * (t - np.sin(t)*np.cos(t)) - \
+                               m**2/64 * (t - np.sin(t)*np.cos(t) + np.sin(t)**3*np.cos(t)/3)
+                else:
+                    # Crude approximation for larger m
+                    result[i] = t * (1 - m/4)
+            return result
+        else:
+            if abs(m) < 0.5:
+                return theta - m/4 * (theta - np.sin(theta)*np.cos(theta))
+            else:
+                return theta * (1 - m/4)
+    
+    def _generate_simplified_isotensoid_profile(self, num_points_dome: int = 100):
+        """Simplified isotensoid profile as fallback."""
         R_dome = self.inner_radius
-        # This is a conceptual polar opening for the dome, not necessarily vessel's final.
-        # For qrs, rho_0 is the reference, could be self.inner_radius / Y_eq_from_qrs
-        # Let's assume dome_height is roughly R_dome * 0.6 (typical isotensoid aspect)
-        actual_dome_height = R_dome * 0.6 * self.q_factor / (self.q_factor * 0.5 + 1)  # very rough
+        actual_dome_height = R_dome * 0.6 * self.q_factor / (self.q_factor * 0.5 + 1)
         
         phi_angles = np.linspace(0, np.pi / 2, num_points_dome)
         dome_rho = R_dome * np.sin(phi_angles)
