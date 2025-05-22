@@ -45,10 +45,20 @@ class MaterialDatabase:
         if not fiber_props or not resin_props:
             raise ValueError(f"Material properties not found for {fiber_type} or {resin_type}")
         
+        # Input validation
+        if not (0 <= fiber_volume_fraction <= 1):
+            raise ValueError(f"Fiber volume fraction ({fiber_volume_fraction}) must be between 0 and 1.")
+        if not (0 <= void_content < 1):
+            raise ValueError(f"Void content ({void_content}) must be between 0 and 1.")
+        
         # Volume fractions (accounting for voids)
         V_f = fiber_volume_fraction * (1 - void_content)
         V_m = (1 - fiber_volume_fraction) * (1 - void_content)
         V_v = void_content
+        
+        # Ensure V_f is valid for sqrt operations
+        if V_f < 0:
+            V_f = 0.01  # Minimum safe value
         
         # Extract properties
         E_f = fiber_props.get('tensile_modulus_gpa', 70.0)

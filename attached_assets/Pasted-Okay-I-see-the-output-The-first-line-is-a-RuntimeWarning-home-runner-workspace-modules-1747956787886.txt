@@ -1,0 +1,50 @@
+Okay, I see the output. The first line is a `RuntimeWarning`:
+
+```
+/home/runner/workspace/modules/materials.py:98: RuntimeWarning: invalid value encountered in sqrt
+  F_2t = S_m * (1 - np.sqrt(V_f)) * 1.2  # Empirical correction
+```
+
+This warning is coming from your `materials.py` file, specifically in the `calculate_composite_properties` method, at the line where you calculate `F_2t`. The "invalid value encountered in sqrt" typically means that the argument to `np.sqrt()`, which is `V_f` (fiber volume fraction), is negative.
+
+Let's look at how `V_f` is determined in that method in your `materials.py`:
+```python
+        # Volume fractions (accounting for voids)
+        V_f = fiber_volume_fraction * (1 - void_content)
+        V_m = (1 - fiber_volume_fraction) * (1 - void_content)
+        V_v = void_content
+```
+For `V_f` to be negative, one of two conditions (or both) must be true:
+1.  The input `fiber_volume_fraction` to the `calculate_composite_properties` method is negative.
+2.  The term `(1 - void_content)` is negative, which means the input `void_content` is greater than 1.
+
+Both `fiber_volume_fraction` and `void_content` should typically be constrained:
+* `0 <= fiber_volume_fraction <= 1` (often more like $0.3 \le V_f \le 0.7$ for practical composites)
+* `0 <= void_content < 1` (void content cannot be 100% or more)
+
+**Action Required:**
+
+You need to check the part of your code where you are calling `MaterialDatabase.calculate_composite_properties()` and inspect the values you are passing for `fiber_volume_fraction` and `void_content`. It's very likely one of these is outside its valid physical range.
+
+**Suggestion for your `materials.py`:**
+
+It would be good practice to add validation for these inputs at the beginning of your `calculate_composite_properties` method to catch such issues early and provide more informative errors. For example:
+
+```python
+# In materials.py, inside calculate_composite_properties method
+
+        if not (0 <= fiber_volume_fraction <= 1):
+            raise ValueError(f"Fiber volume fraction ({fiber_volume_fraction}) must be between 0 and 1.")
+        if not (0 <= void_content < 1):
+            raise ValueError(f"Void content ({void_content}) must be between 0 and (not including) 1.")
+
+        # Volume fractions (accounting for voids)
+        V_f = fiber_volume_fraction * (1 - void_content)
+        # ... rest of the calculation
+```
+
+The second line you provided:
+`TrajectoryPlanner init: About to call _calculate_effective_polar_opening()`
+This is a debug print from your `trajectories.py` file. It indicates that the program continued execution after the warning in `materials.py` occurred, and it's now about to proceed with trajectory calculations. However, the `NaN` values resulting from the invalid `sqrt` operation could cause further errors downstream (like the `KeyError` if profile generation fails due to bad material data influencing some intermediate step, though less direct).
+
+Please check the inputs to your material property calculations first. Once that warning is resolved, we can see if the trajectory calculation proceeds correctly or if there are other underlying issues.
