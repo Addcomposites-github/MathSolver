@@ -125,15 +125,10 @@ class VesselGeometry:
         Calculates the Koussios qrs-parameterized isotensoid dome profile.
         Profile is from (polar_opening_radius, dome_height) to (cylinder_radius, 0 - local z).
         Uses dimensionless coordinates Y = rho/rho_0, Z = z/rho_0.
+        Based on Koussios Thesis Ch. 4, Equations 4.12, 4.13, and 4.20.
         """
-        # Reference radius for qrs formulas
-        # Use 10% of cylinder radius as conceptual polar opening
-        rho_0_reference = self.inner_radius * 0.1
+        from scipy.special import ellipkinc, ellipeinc  # F(phi, m), E(phi, m)
         
-        if rho_0_reference <= 1e-6:
-            print("WARNING: Reference radius too small for qrs calculation, using simplified profile.")
-            return self._generate_simplified_isotensoid_profile(num_points_dome)
-
         q = self.q_factor
         r = self.r_factor
 
@@ -144,13 +139,18 @@ class VesselGeometry:
             return self._generate_simplified_isotensoid_profile(num_points_dome)
 
         num_Y_calc = 1 + q + 2 * q * r + q**2 * (1 + r**2)
-        if num_Y_calc < 0:
-            # Check r limit
-            r_limit = -(1+q)/(2*q) if q > 1e-9 else 0
-            print(f"WARNING: r_factor ({r}) below limit ({r_limit:.3f}) for q={q}.")
+        
+        # Check r_limit based on Koussios Eq. 4.15
+        r_limit = -(1 + q) / (2 * q) if q > 1e-9 else 0
+        if r < r_limit - 1e-6:
+            print(f"WARNING: r_factor ({r:.3f}) below limit ({r_limit:.3f}) for q={q:.3f}.")
             return self._generate_simplified_isotensoid_profile(num_points_dome)
 
-        Y_min_dimless = math.sqrt(num_Y_calc / den_Y_calc)
+        if num_Y_calc < 0:
+            print("WARNING: Invalid geometry parameters for isotensoid.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        Y_min_dimless = math.sqrt(max(0, num_Y_calc) / den_Y_calc)
         if q <= 1e-9:
             print("WARNING: q_factor too small for Y_eq calculation.")
             return self._generate_simplified_isotensoid_profile(num_points_dome)
@@ -158,43 +158,58 @@ class VesselGeometry:
         Y_eq_dimless = Y_min_dimless / math.sqrt(q)
 
         # Adjust reference radius so that Y_eq matches the cylinder radius
-        rho_0_ref_adj = self.inner_radius / Y_eq_dimless
-        actual_polar_opening_dome_m = Y_min_dimless * rho_0_ref_adj
+        if abs(Y_eq_dimless) < 1e-6:
+            print("WARNING: Calculated Y_eq_dimless too small.")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
+            
+        rho_0_adjusted = self.inner_radius / Y_eq_dimless
+        actual_dome_polar_radius = Y_min_dimless * rho_0_adjusted
+        actual_dome_equatorial_radius = Y_eq_dimless * rho_0_adjusted  # Should equal self.inner_radius
 
         # Elliptical coordinate theta (0 at equator, pi/2 at pole)
         theta_values = np.linspace(np.pi / 2.0, 0.0, num_points_dome)  # From pole to equator
 
         # Parameter m for elliptic integrals (Koussios Thesis, Eq. 4.20)
-        m_elliptic = (q - 1) / (1 + 2 * q * (1 + r))
-        if abs(1 + 2 * q * (1 + r)) < 1e-9:
+        denom_m_elliptic = 1 + 2 * q * (1 + r)
+        if abs(denom_m_elliptic) < 1e-9:
             print("WARNING: Invalid parameters for elliptic integral calculation.")
             return self._generate_simplified_isotensoid_profile(num_points_dome)
+            
+        m_elliptic = (q - 1) / denom_m_elliptic
+        m_elliptic_clamped = np.clip(m_elliptic, 0, 1)  # Ensure valid range for elliptic integrals
 
-        # Calculate elliptic integrals using approximations
-        ell_F = self._incomplete_elliptic_integral_first_kind(theta_values, m_elliptic)
-        ell_E = self._incomplete_elliptic_integral_second_kind(theta_values, m_elliptic)
+        try:
+            # Calculate elliptic integrals using SciPy
+            ell_F_values = ellipkinc(theta_values, m_elliptic_clamped)  # F(theta | m)
+            ell_E_values = ellipeinc(theta_values, m_elliptic_clamped)  # E(theta | m)
+        except Exception as e:
+            print(f"WARNING: Error calculating elliptic integrals: {e}")
+            return self._generate_simplified_isotensoid_profile(num_points_dome)
 
         # Calculate Z profile (Koussios Thesis, Eq. 4.20)
-        coeff_Z_num = Y_min_dimless
-        coeff_Z_den_sq = 1 + 2 * q * (1 + r)
-        if coeff_Z_den_sq < 0:
+        coeff_Z_den_sq_term = 1 + 2 * q * (1 + r)
+        if coeff_Z_den_sq_term < 0:
             print("WARNING: Negative coefficient in Z calculation.")
             return self._generate_simplified_isotensoid_profile(num_points_dome)
+
+        coeff_Z_factor = Y_min_dimless / math.sqrt(coeff_Z_den_sq_term)
         
-        coeff_Z = coeff_Z_num / math.sqrt(coeff_Z_den_sq)
-        term_E = (1 + 2 * q * (1 + r)) * ell_E
-        term_F = (1 + q + q * r) * ell_F
+        term_E_component = (1 + 2 * q * (1 + r)) * ell_E_values
+        term_F_component = (1 + q + q * r) * ell_F_values
         
-        Z_dimless_profile = coeff_Z * (term_E - term_F)
+        Z_dimless_profile = coeff_Z_factor * (term_E_component - term_F_component)
         
         # Scale to physical coordinates
-        actual_dome_height_m = Z_dimless_profile[0] * rho_0_ref_adj  # Z at pole
-        z_local_dome_abs = Z_dimless_profile * rho_0_ref_adj
+        dome_height_dimless = Z_dimless_profile[0]  # Value at theta = pi/2 (pole)
+        actual_dome_height_m = dome_height_dimless * rho_0_adjusted
+        z_local_dome_abs = Z_dimless_profile * rho_0_adjusted
 
-        # Calculate rho values using Y(theta)
-        rho_dimless_profile = np.sqrt(Y_eq_dimless**2 * np.cos(theta_values)**2 + 
-                                     Y_min_dimless**2 * np.sin(theta_values)**2)
-        rho_abs_profile = rho_dimless_profile * rho_0_ref_adj
+        # Calculate rho values using Koussios Thesis Eq. 4.12
+        rho_dimless_profile = np.sqrt(
+            Y_eq_dimless**2 * np.cos(theta_values)**2 + 
+            Y_min_dimless**2 * np.sin(theta_values)**2
+        )
+        rho_abs_profile = rho_dimless_profile * rho_0_adjusted
 
         return np.vstack((rho_abs_profile, z_local_dome_abs)).T, actual_dome_height_m
     
