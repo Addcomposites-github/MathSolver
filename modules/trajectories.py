@@ -9,7 +9,10 @@ class TrajectoryPlanner:
     Implements geodesic and non-geodesic winding patterns.
     """
     
-    def __init__(self, vessel_geometry: VesselGeometry):
+    def __init__(self, vessel_geometry: VesselGeometry, 
+                 dry_roving_width_m: float = 0.003,
+                 dry_roving_thickness_m: float = 0.0002,
+                 roving_eccentricity_at_pole_m: float = 0.0):
         """
         Initialize trajectory planner with vessel geometry.
         
@@ -17,10 +20,185 @@ class TrajectoryPlanner:
         -----------
         vessel_geometry : VesselGeometry
             Vessel geometry object containing profile data
+        dry_roving_width_m : float
+            True width of the dry roving/band (default 3mm)
+        dry_roving_thickness_m : float  
+            True thickness of the dry roving/band (default 0.2mm)
+        roving_eccentricity_at_pole_m : float
+            Offset of the roving centerline from geometric polar opening
         """
         self.vessel = vessel_geometry
+        self.dry_roving_width_m = dry_roving_width_m
+        self.dry_roving_thickness_m = dry_roving_thickness_m
+        self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m
         self.trajectory_data = None
         
+        # Geodesic calculation properties
+        self.effective_polar_opening_radius_m = None
+        self.alpha_profile_deg = None  # Array of winding angles
+        self.phi_profile_rad = None    # Array of parallel angles
+        self.turn_around_angle_rad = None
+        self.alpha_eq_deg = None       # Winding angle at equator
+        
+        # Calculate effective polar opening for geodesic paths
+        self._calculate_effective_polar_opening()
+    
+    def _get_slope_dz_drho_at_rho(self, rho_target: float) -> float:
+        """
+        Numerically estimates the slope dz/d(rho) of the inner vessel profile at a given rho.
+        Uses central differences for geodesic calculations.
+        """
+        profile_points = self.vessel.get_profile_points()
+        rho_profile = profile_points['r_inner']
+        z_profile = profile_points['z']
+
+        if len(rho_profile) < 2:
+            return 0.0
+
+        # Find the closest point to rho_target
+        idx = np.argmin(np.abs(rho_profile - rho_target))
+        
+        # Use forward/backward difference at boundaries
+        if idx == 0 and len(rho_profile) > 1:
+            drho = rho_profile[1] - rho_profile[0]
+            if abs(drho) > 1e-9:
+                return (z_profile[1] - z_profile[0]) / drho
+        elif idx == len(rho_profile) - 1 and len(rho_profile) > 1:
+            drho = rho_profile[-1] - rho_profile[-2]
+            if abs(drho) > 1e-9:
+                return (z_profile[-1] - z_profile[-2]) / drho
+        elif idx > 0 and idx < len(rho_profile) - 1:
+            # Central difference
+            drho = rho_profile[idx + 1] - rho_profile[idx - 1]
+            if abs(drho) > 1e-9:
+                return (z_profile[idx + 1] - z_profile[idx - 1]) / drho
+        
+        return 0.0
+
+    def _calculate_effective_polar_opening(self):
+        """
+        Calculates the effective polar opening radius (Clairaut's constant, c_eff)
+        that the centerline of the roving "sees", accounting for roving width,
+        thickness, and eccentricity at the pole.
+        Based on Koussios Thesis Ch. 8.1, Eq. 8.5.
+        """
+        profile_points = self.vessel.get_profile_points()
+        rho_geom_pole = profile_points['r_inner'][0]  # Geometric polar opening
+        
+        ecc_0 = self.roving_eccentricity_at_pole_m
+        b = self.dry_roving_width_m
+        t_rov = self.dry_roving_thickness_m
+
+        # Calculate dz/drho at the geometric pole
+        dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole)
+        
+        # Handle infinite slope (vertical tangent)
+        if np.isinf(dz_drho_pole):
+            dz_drho_pole = 1e6  # Use large finite number
+
+        # Koussios formula: c_eff = rho_pole + ecc + (b/2)*sqrt(1+(dz/drho)^2) - (t/2)*(dz/drho)
+        term_width = (b / 2.0) * math.sqrt(1 + dz_drho_pole**2)
+        term_thickness = (t_rov / 2.0) * dz_drho_pole
+        
+        self.effective_polar_opening_radius_m = rho_geom_pole + ecc_0 + term_width - term_thickness
+        
+        # Ensure c_eff is positive and reasonable
+        if self.effective_polar_opening_radius_m < 0:
+            self.effective_polar_opening_radius_m = 1e-6
+            
+        return self.effective_polar_opening_radius_m
+
+    def calculate_geodesic_alpha_at_rho(self, rho_m: float) -> Optional[float]:
+        """
+        Calculates geodesic winding angle (radians) at a given radius rho_m.
+        Uses Clairaut's theorem: rho * sin(alpha) = c_eff
+        """
+        if self.effective_polar_opening_radius_m is None:
+            self._calculate_effective_polar_opening()
+        
+        c_eff = self.effective_polar_opening_radius_m
+        
+        if rho_m < c_eff - 1e-9:
+            return None  # Geodesic cannot reach this radius
+
+        # Clairaut's theorem: sin(alpha) = c_eff / rho
+        asin_arg = c_eff / rho_m
+        asin_arg = np.clip(asin_arg, -1.0, 1.0)  # Ensure valid range
+        
+        try:
+            alpha_rad = math.asin(asin_arg)
+            return alpha_rad
+        except ValueError:
+            return None
+
+    def generate_geodesic_trajectory(self, num_points_half_circuit: int = 100) -> Dict:
+        """
+        Generates geodesic path points (rho, z, alpha, phi) for one half circuit.
+        Based on Koussios geodesic theory with Clairaut's theorem.
+        """
+        profile_points = self.vessel.get_profile_points()
+        rho_profile = profile_points['r_inner']
+        z_profile = profile_points['z']
+        
+        # Find dome section (typically first half of profile)
+        dome_end_idx = len(rho_profile) // 2
+        rho_dome = rho_profile[:dome_end_idx]
+        z_dome = z_profile[:dome_end_idx]
+        
+        # Generate points from effective polar opening to equator
+        c_eff = self.effective_polar_opening_radius_m
+        rho_max = max(rho_dome)
+        
+        # Create rho points for geodesic calculation
+        rho_points = np.linspace(c_eff + 1e-6, min(rho_max, self.vessel.inner_radius), num_points_half_circuit)
+        
+        # Calculate geodesic properties at each point
+        alpha_values = []
+        phi_values = []
+        z_values = []
+        
+        phi_cumulative = 0.0
+        
+        for i, rho in enumerate(rho_points):
+            # Calculate winding angle using Clairaut's theorem
+            alpha = self.calculate_geodesic_alpha_at_rho(rho)
+            if alpha is None:
+                continue
+                
+            alpha_values.append(math.degrees(alpha))
+            
+            # Interpolate z coordinate from vessel profile
+            z_interp = np.interp(rho, rho_dome, z_dome)
+            z_values.append(z_interp)
+            
+            # Calculate incremental parallel angle (simplified)
+            if i > 0:
+                drho = rho - rho_points[i-1]
+                if abs(drho) > 1e-9 and not np.isclose(alpha, np.pi/2):
+                    dphi = drho / (rho * math.tan(alpha)) if math.tan(alpha) != 0 else 0
+                    phi_cumulative += dphi
+            
+            phi_values.append(phi_cumulative)
+        
+        # Store calculated profiles
+        self.alpha_profile_deg = np.array(alpha_values)
+        self.phi_profile_rad = np.array(phi_values)
+        self.turn_around_angle_rad = phi_cumulative if len(phi_values) > 0 else 0
+        
+        # Calculate equatorial winding angle
+        self.alpha_eq_deg = alpha_values[-1] if alpha_values else 0
+        
+        return {
+            'rho_points': rho_points[:len(alpha_values)],
+            'z_points': np.array(z_values),
+            'alpha_deg': np.array(alpha_values),
+            'phi_rad': np.array(phi_values),
+            'c_eff_m': c_eff,
+            'turn_around_angle_deg': math.degrees(self.turn_around_angle_rad),
+            'alpha_equator_deg': self.alpha_eq_deg,
+            'pattern_type': 'Geodesic'
+        }
+
     def calculate_trajectory(self, params: Dict) -> Dict:
         """
         Calculate winding trajectory based on parameters.
@@ -36,7 +214,9 @@ class TrajectoryPlanner:
         """
         pattern_type = params.get('pattern_type', 'Helical')
         
-        if pattern_type == 'Helical':
+        if pattern_type == 'Geodesic':
+            return self.generate_geodesic_trajectory(params.get('num_points', 100))
+        elif pattern_type == 'Helical':
             return self._calculate_helical_trajectory(params)
         elif pattern_type == 'Hoop':
             return self._calculate_hoop_trajectory(params)

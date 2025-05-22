@@ -1,0 +1,413 @@
+Okay, let's focus on implementing the **geodesic trajectory calculations** within your `trajectories.py` file, specifically for the `TrajectoryPlanner` class.
+
+This will primarily involve three key steps:
+
+1.  **Calculating the Effective Polar Opening Radius ($c_{eff}$ or $\mu_e \rho_0$):** This is crucial as it's the Clairaut's constant for geodesic paths on the specific dome. We'll use the logic from Koussios Thesis, Chapter 8.1.
+2.  **Calculating Geodesic Winding Angle $\alpha(Y)$ (or $\alpha(\rho)$):** Using Clairaut's theorem.
+3.  **Calculating Parallel Angle $\phi(Y)$ (or $\phi(\rho)$):** By numerically integrating $d\phi/dY$.
+4.  **Calculating Turn-Around Angle ($\Delta K$ or $\Phi_{total}$):** By summing/integrating $\Delta\phi$ over a full circuit.
+
+Here's how we can structure the `TrajectoryPlanner` class in `trajectories.py`:
+
+```python
+# copv_design_tool/winding/trajectory.py
+import numpy as np
+import math
+from typing import Dict, Tuple, List, Optional
+# Assuming VesselGeometry is in a sibling directory 'core'
+# If running trajectory.py standalone for testing, adjust path or ensure copv_design_tool is in PYTHONPATH
+try:
+    from ..core.vessel_geometry import VesselGeometry
+    from ..utils.numerical_tools import numerical_integrate_samples
+    from .. import constants
+except ImportError: # For standalone execution if needed
+    # This is a simplified fallback for direct execution/testing,
+    # proper packaging would handle this.
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from core.vessel_geometry import VesselGeometry
+    from utils.numerical_tools import numerical_integrate_samples
+    import constants
+
+
+class TrajectoryPlanner:
+    def __init__(self,
+                 vessel_geometry: VesselGeometry,
+                 dry_roving_width_m: float,
+                 dry_roving_thickness_m: float,
+                 roving_eccentricity_at_pole_m: float = 0.0):
+        """
+        Initialize trajectory planner.
+
+        Parameters:
+        -----------
+        vessel_geometry : VesselGeometry
+            The vessel profile object.
+        dry_roving_width_m : float
+            True width of the dry roving/band.
+        dry_roving_thickness_m : float
+            True thickness of the dry roving/band.
+        roving_eccentricity_at_pole_m : float
+            Offset of the roving centerline from the geometric polar opening edge.
+        """
+        self.vessel = vessel_geometry
+        if self.vessel.profile_points is None:
+            self.vessel.generate_profile() # Ensure profile is generated
+
+        self.dry_roving_width_m = dry_roving_width_m
+        self.dry_roving_thickness_m = dry_roving_thickness_m
+        self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m
+
+        self.effective_polar_opening_radius_m = None
+        self.alpha_profile_deg = None # Array of winding angles
+        self.phi_profile_rad = None   # Array of parallel angles (cumulative)
+        self.turn_around_angle_rad_DeltaK = None
+        self.alpha_eq_deg = None # Winding angle at equator
+
+        self._calculate_effective_polar_opening()
+
+    def _get_slope_dz_drho_at_rho(self, rho_target: float) -> float:
+        """
+        Numerically estimates the slope dz/d(rho) of the inner vessel profile at a given rho.
+        Uses central differences. rho_profile should be monotonic where queried.
+        """
+        rho_profile = self.vessel.profile_points['r_inner']
+        z_profile = self.vessel.profile_points['z']
+
+        if rho_target < rho_profile[0] or rho_target > rho_profile[-1]:
+             # Check order - assuming rho_profile is generally increasing if going from pole to equator
+            is_increasing = rho_profile[-1] > rho_profile[0]
+            if (is_increasing and (rho_target < rho_profile[0] or rho_target > rho_profile[-1])) or \
+               (not is_increasing and (rho_target > rho_profile[0] or rho_target < rho_profile[-1])):
+                #print(f"Warning: rho_target {rho_target} is outside profile range {rho_profile[0]}-{rho_profile[-1]}")
+                # Find closest point and use slope there, or extrapolate carefully
+                if rho_target < min(rho_profile): idx = np.argmin(rho_profile); return np.gradient(z_profile, rho_profile)[idx]
+                if rho_target > max(rho_profile): idx = np.argmax(rho_profile); return np.gradient(z_profile, rho_profile)[idx]
+
+
+        # Find indices for interpolation/gradient
+        # Ensure rho_profile is sorted if not already (it should be by sections from generate_profile)
+        # For a dome section (pole to equator), rho is increasing.
+        # Let's assume the relevant section is monotonic in rho.
+        try:
+            # This might fail if rho_profile is not strictly monotonic or rho_target is outside.
+            # For domes, rho usually goes from r_polar to r_cylinder.
+            # We need to select the correct segment of the profile.
+            # For effective polar opening, we are interested in the slope at the pole.
+            
+            # For Koussios Eq 8.5, Z'(1) refers to dZ/dY at Y=1 (dimensionless pole)
+            # This translates to dz/d(rho) at rho = geometric_polar_opening
+            
+            # A simpler approach for now: find the point closest to the geometric pole
+            # and use the slope there.
+            geometric_pole_rho = self.vessel.profile_points['r_inner'][0] # Assuming first point is pole
+            if np.isclose(rho_target, geometric_pole_rho):
+                # Use forward difference for the first point
+                if len(rho_profile) > 1 and not np.isclose(rho_profile[1] - rho_profile[0],0):
+                    return (z_profile[1] - z_profile[0]) / (rho_profile[1] - rho_profile[0])
+                else:
+                    return 0 # Vertical or single point - effectively vertical Z' for horizontal slope dz/drho
+
+            # For a more general rho_target on the dome:
+            # This requires finding the segment of the profile that contains rho_target
+            # For the pole, it's the very first segment.
+            # The definition of Z'(1) in Koussios needs careful interpretation.
+            # It's d(z/rho_0) / d(rho/rho_0) = dz/drho at rho=rho_0.
+
+            # Let's assume rho_target is the geometric polar opening from vessel init.
+            # And profile points are ordered pole -> equator for the first dome.
+            if len(rho_profile) > 1 and not np.isclose(rho_profile[1] - rho_profile[0], 0):
+                 slope = (z_profile[1] - z_profile[0]) / (rho_profile[1] - rho_profile[0])
+                 #print(f"Debug: Slope at pole approx: {slope}")
+                 return slope
+            elif len(rho_profile) == 1: # Single point, e.g. flat plate
+                return 0.0 
+            else: # rho_profile[1] - rho_profile[0] is zero (vertical tangent at pole for rho)
+                return np.inf # dz/drho is infinite (horizontal tangent for z)
+        except Exception as e:
+            print(f"Error calculating slope: {e}")
+            return 0.0 # Default to flat if error
+
+    def _calculate_effective_polar_opening(self):
+        """
+        Calculates the effective polar opening radius (Clairaut's constant, c_eff)
+        that the centerline of the roving "sees", accounting for roving width,
+        thickness, and eccentricity at the pole.
+        Based on Koussios Thesis Ch. 8.1, Eq. 8.5 vicinity.
+        $\mu_e \approx 1 + E_0 + B \sqrt{1+(Z'(1))^2}/2 - \delta Z'(1)/2$ (dimensionless form)
+        We will use absolute dimensions.
+        c_eff = rho_geom_pole + ecc_0 + (b/2)*sqrt(1+(dz/drho_pole)^2) - (t_rov/2)*(dz/drho_pole)
+        """
+        rho_geom_pole = self.vessel.profile_points['r_inner'][0] # Actual radius of first point on profile
+        ecc_0 = self.roving_eccentricity_at_pole_m
+        b = self.dry_roving_width_m
+        t_rov = self.dry_roving_thickness_m
+
+        # Calculate dz/drho at the geometric pole (rho_geom_pole)
+        # This is slope of meridian z(rho). Z'(1) in Koussios dimensionless form.
+        dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole)
+        # print(f"Debug: rho_geom_pole={rho_geom_pole}, dz_drho_pole={dz_drho_pole}")
+
+        if np.isinf(dz_drho_pole): # Horizontal tangent for z (vertical for rho)
+            # This case means sqrt(1+(dz/drho)^2) is also infinite, which is not right for the formula.
+            # If dz/drho is infinite, it means d(rho)/dz = 0 (vertical wall at pole in r-z plane for profile).
+            # Koussios Z'(1) is d(z/rho0)/d(rho/rho0). If meridian is vertical AT THE POLE (rho=rho_geom_pole),
+            # then dz/drho is infinite. If it's horizontal, dz/drho = 0.
+            # For most domes, at the very pole point r_inner[0], the tangent dz/drho would be infinite
+            # if the profile is smooth and closes to r=0 with a vertical tangent there.
+            # However, Koussios's Y=1 is the *start* of the physical opening.
+            # Let's assume for a typical dome opening, the meridian is not perfectly vertical there.
+            # If it *is* perfectly vertical (e.g. straight cut cylinder end), dz_drho_pole=inf.
+            # Then c_eff = rho_geom_pole + ecc_0 + (b/2)*sqrt(1+inf) - (t_rov/2)*inf -- problematic.
+            # The term sqrt(1+(dz/drho)^2) is ds/drho.
+            # The term dz/drho is tan(beta_slope_angle_with_rho_axis)
+            # Let's assume if dz/drho is huge, the term (t_rov/2)*(dz/drho_pole) dominates or cancels.
+            # If the pole is a flat surface perpendicular to Z axis, dz/drho = 0.
+            print(f"Warning: Slope dz/drho at pole is {dz_drho_pole}. Using 0 for safety in c_eff calc if inf.")
+            if np.isinf(dz_drho_pole): dz_drho_pole = 1e8 # A very large number instead of actual inf
+            # A more robust way is to use the angle. If beta is angle with Z axis.
+            # dz/drho = cot(beta_from_z_axis)
+            # Koussios's Z'(1) is with respect to dimensionless Y.
+            # For a typical closing dome, dz/drho near the axis tends to infinity.
+            # For an open polar boss, it's the slope of the boss face or dome start.
+            # We use the numerically calculated slope.
+            pass
+
+
+        term_width = (b / 2.0) * math.sqrt(1 + dz_drho_pole**2)
+        term_thickness = (t_rov / 2.0) * dz_drho_pole
+        
+        self.effective_polar_opening_radius_m = rho_geom_pole + ecc_0 + term_width - term_thickness
+        # Ensure c_eff is not less than 0, or not excessively large if slope was huge
+        if self.effective_polar_opening_radius_m < 0: self.effective_polar_opening_radius_m = 1e-3
+
+        print(f"Debug: Effective polar opening c_eff: {self.effective_polar_opening_radius_m:.4f} m")
+        if self.effective_polar_opening_radius_m > self.vessel.inner_radius:
+            print(f"Warning: Effective polar opening ({self.effective_polar_opening_radius_m:.4f}m) "
+                  f"is greater than cylinder radius ({self.vessel.inner_radius:.4f}m). "
+                  "Geodesic path might not turn around or alpha_eq calc will fail.")
+        return self.effective_polar_opening_radius_m
+
+    def calculate_geodesic_alpha_at_rho(self, rho_m: float) -> Optional[float]:
+        """Calculates geodesic winding angle (radians) at a given radius rho_m."""
+        if self.effective_polar_opening_radius_m is None:
+            self._calculate_effective_polar_opening()
+        
+        c_eff = self.effective_polar_opening_radius_m
+        
+        if rho_m < c_eff - 1e-9 : # Allow for small numerical precision
+            # print(f"Warning: Target radius rho_m ({rho_m:.4f}) is less than c_eff ({c_eff:.4f}). Geodesic angle undefined (or path cannot reach).")
+            return None # Or handle as error / return Pi/2 if considering it the turnaround point
+
+        # Ensure argument for asin is within [-1, 1]
+        asin_arg = c_eff / rho_m
+        if asin_arg > 1.0:
+            asin_arg = 1.0
+        elif asin_arg < -1.0: # Should not happen with positive radii
+            asin_arg = -1.0
+            
+        try:
+            alpha_rad = math.asin(asin_arg) # Clairaut's Theorem: rho * sin(alpha) = c_eff
+            return alpha_rad
+        except ValueError:
+            print(f"Error: math.asin argument {asin_arg} out of range for rho={rho_m}, c_eff={c_eff}")
+            return None
+
+
+    def generate_geodesic_trajectory(self, num_points_half_circuit: int = 100):
+        """
+        Generates geodesic path points (rho, z, alpha, phi) for one half circuit (pole-to-pole).
+        Assumes vessel profile is symmetric about z=0 (equator).
+        """
+        if self.vessel.profile_points is None:
+            print("Error: Vessel profile not generated.")
+            return None
+        if self.effective_polar_opening_radius_m is None:
+            self._calculate_effective_polar_opening()
+            if self.effective_polar_opening_radius_m is None:
+                print("Error: Effective polar opening could not be calculated.")
+                return None
+        
+        # Use the inner wall profile points
+        # Ensure it's sorted by z for forward pass (pole to other pole)
+        profile_r = self.vessel.profile_points['r_inner']
+        profile_z = self.vessel.profile_points['z']
+
+        # We need G(rho) and E(rho) for d(phi)/d(rho)
+        # G(rho) = 1 + (dz/drho)^2 (if rho is independent variable for meridian)
+        # E(rho) = rho^2
+        # d(phi)/d(rho) = sqrt(G/E) * tan(alpha) / (d(rho)/d(rho)) = (1/rho) * sqrt(1+(dz/drho)^2) * tan(alpha)
+
+        path_rho = []
+        path_z = []
+        path_alpha_rad = []
+        path_phi_rad = []
+        
+        # Integrate phi from one pole to the other.
+        # Let's use the existing profile points as integration steps.
+        # The profile goes from fwd pole -> fwd cyl junction -> aft cyl junction -> aft pole
+        
+        current_phi = 0.0
+        
+        # Calculate alpha at equator for B_eff calculation later
+        alpha_at_eq_rad = self.calculate_geodesic_alpha_at_rho(self.vessel.inner_radius)
+        if alpha_at_eq_rad is not None:
+            self.alpha_eq_deg = math.degrees(alpha_at_eq_rad)
+        else:
+            print("Warning: Could not calculate alpha at equator. Geodesic path may not reach equator.")
+            self.alpha_eq_deg = None
+
+
+        for i in range(len(profile_r)):
+            rho_i = profile_r[i]
+            z_i = profile_z[i]
+            
+            alpha_i = self.calculate_geodesic_alpha_at_rho(rho_i)
+            
+            if alpha_i is None: # Path cannot geodesically reach this radius
+                # This often happens if c_eff > rho_i (trying to go inside the effective pole)
+                # Or if c_eff > cylinder_radius and we are at cylinder.
+                # For plotting, we might stop or use previous valid alpha.
+                # For now, if it's the start, make it pi/2 if rho_i is close to c_eff
+                if i == 0 and np.isclose(rho_i, self.effective_polar_opening_radius_m):
+                    alpha_i = constants.PI / 2.0
+                elif path_alpha_rad: # Use last valid alpha
+                    alpha_i = path_alpha_rad[-1]
+                else: # Still no valid alpha, skip point or error
+                    print(f"Skipping point {i} due to undefined geodesic alpha at rho={rho_i}")
+                    continue
+            
+            path_rho.append(rho_i)
+            path_z.append(z_i)
+            path_alpha_rad.append(alpha_i)
+
+            if i > 0:
+                # Integrate d(phi) numerically
+                rho_mid = (profile_r[i] + profile_r[i-1]) / 2.0
+                # drho = profile_r[i] - profile_r[i-1] # This can be negative if profile reverses locally
+                # dz = profile_z[i] - profile_z[i-1]
+                # Need dz/drho at rho_mid.
+                # For numerical integration of d(phi)/d(rho) * drho
+                
+                # d(phi)/ds = (1/rho) * tan(alpha) where ds is meridional arc length
+                # ds = sqrt(drho^2 + dz^2)
+                # d(phi) = (1/rho) * tan(alpha) * ds
+                
+                d_rho = profile_r[i] - profile_r[i-1]
+                d_z = profile_z[i] - profile_z[i-1]
+                ds_segment = math.sqrt(d_rho**2 + d_z**2)
+                
+                # Use alpha at the start of the segment (alpha_i_minus_1) or average
+                alpha_segment = path_alpha_rad[i-1] # or (path_alpha_rad[i-1] + alpha_i)/2
+                rho_segment = profile_r[i-1] # or rho_mid
+
+                if abs(rho_segment) < 1e-6 or math.isclose(math.cos(alpha_segment), 0): # Avoid division by zero
+                    delta_phi = 0
+                else:
+                    # d(phi)/d(rho) = (1/rho) * sqrt(1 + (dz/drho)^2) * tan(alpha)
+                    # delta_phi = d(phi)/d(rho) * d_rho
+                    # Simpler from Koussios Eq 2.39: d(phi) = sqrt(G/E) * tan(alpha) * d(theta_meridian)
+                    # Here d(theta_meridian) is related to ds. G = (ds/dtheta_m)^2, E = rho^2
+                    # So, d(phi) = ( (ds/dtheta_m) / rho ) * tan(alpha) * dtheta_m
+                    # d(phi) = (ds / rho) * tan(alpha)
+                    delta_phi = (ds_segment / rho_segment) * math.tan(alpha_segment)
+                current_phi += delta_phi
+            path_phi_rad.append(current_phi)
+
+        self.alpha_profile_deg = np.degrees(np.array(path_alpha_rad))
+        self.phi_profile_rad = np.array(path_phi_rad)
+        
+        # Turn around angle for a full circuit (pole-equator-pole-equator-pole)
+        # If profile_z covers one half (e.g. fwd pole to aft pole), then current_phi is for half circuit.
+        # The current profile_z goes from +Zmax (fwd pole) to -Zmax (aft pole)
+        # So self.phi_profile_rad[-1] is the phi accumulation over one pass (pole to pole).
+        # A full winding circuit typically involves 2 such passes (e.g., pole-pole-pole).
+        # For pattern calcs, typically interested in angular shift after one full mandrel rotation
+        # relative to the starting fiber band.
+        # Koussios Delta_K is Phi_total mod 2*pi.
+        # Phi_total (Koussios Eq 4.28) is 4*phi_dome + 2*phi_cyl (for symm. vessel)
+        # Our current_phi is integral over half vessel length (one dome + half_cyl + other dome + half_cyl if it wraps around)
+        # More simply, it's the phi change from one pole to the other.
+        
+        phi_at_aft_pole = self.phi_profile_rad[-1]
+        # This is the phi change going from forward pole to aft pole.
+        # For a complete circuit (e.g. fwd pole -> aft pole -> fwd pole again for pattern analysis)
+        # The path is mirrored. The total phi change over a full circuit (2 passes pole-to-pole) would be 2 * phi_at_aft_pole.
+        self.turn_around_angle_rad_DeltaK = (2 * phi_at_aft_pole) % (2 * constants.PI) 
+        # Ensure it's the smallest positive angle
+        if self.turn_around_angle_rad_DeltaK > constants.PI:
+            self.turn_around_angle_rad_DeltaK -= 2 * constants.PI
+        # Or keep it positive:
+        # self.turn_around_angle_rad_DeltaK = self.turn_around_angle_rad_DeltaK
+        
+        # Koussios Eq. 8.11: DeltaK = Phi_total mod (2*pi) for the actual angular shift.
+        # For a symmetric vessel, Phi_total for one circuit (fwd_pole -> aft_pole -> fwd_pole)
+        # is 2 * (phi_value_at_aft_pole_from_fwd_pole_start)
+        # Let's call the one-way (pole-to-pole) phi accumulation Phi_pass
+        Phi_pass = self.phi_profile_rad[-1]
+        Phi_circuit_total = 2 * Phi_pass # Total change in phi after winding from pole A to B and back to A (or equivalent start for next pattern band)
+        
+        # The actual Delta_K for pattern calculation is the net shift from the starting band's orientation
+        # after one full cycle of the pattern generating unit length.
+        # This is typically Phi_circuit_total mod (2*pi)
+        self.turn_around_angle_rad_DeltaK = Phi_circuit_total % (2 * math.pi)
+        # Koussios uses min(|mod(2pi)|, |mod(-2pi)|) in Peters Bk Ch.3 Eq 3.37
+        # For now, let's use the direct modulo.
+
+        return {
+            "rho_m": np.array(path_rho),
+            "z_m": np.array(path_z),
+            "alpha_deg": self.alpha_profile_deg,
+            "phi_rad_cumulative": self.phi_profile_rad,
+            "effective_polar_opening_m": self.effective_polar_opening_radius_m,
+            "turn_around_angle_DeltaK_rad": self.turn_around_angle_rad_DeltaK,
+            "alpha_at_equator_deg": self.alpha_eq_deg
+        }
+
+    # Placeholder for non-geodesic
+    def generate_nongeodesic_trajectory(self, mu_friction: float, num_points_half_circuit: int = 100):
+        print("Non-geodesic trajectory calculation not yet implemented.")
+        # This will involve solving the ODE for alpha(Y) using mu_friction
+        # Then integrating for phi(Y)
+        return None
+
+```
+
+**Explanation and Key Points for Geodesic Trajectory:**
+
+1.  **`_get_slope_dz_drho_at_rho()`**:
+    * This helper is needed for `_calculate_effective_polar_opening()`.
+    * It numerically estimates the slope $dz/d\rho$ of the *inner vessel profile* at a specific radius $\rho$.
+    * For the effective polar opening calculation, we need this slope at the *geometric polar opening* of the dome.
+    * The current implementation is very basic (forward difference at the first point). For a more robust solution, especially if the profile isn't smooth or has vertical tangents at the pole, this might need refinement (e.g., using a local polynomial fit or looking at the angle $\beta$ from Koussios's work if the profile is defined parametrically $z(t), \rho(t)$).
+
+2.  **`_calculate_effective_polar_opening()`**:
+    * Implements the core logic from Koussios Thesis Ch. 8.1 (vicinity of Eq. 8.5) to find $c_{eff}$.
+        $c_{eff} = \rho_{geom\_pole} + ecc_0 + (b/2)\sqrt{1+(dz/d\rho_{pole})^2} - (t_{rov}/2)(dz/d\rho_{pole})$.
+    * Uses the calculated slope $dz/d\rho_{pole}$.
+    * This $c_{eff}$ becomes the constant in Clairaut's theorem ($\rho \sin\alpha = c_{eff}$).
+    * Includes a warning if $c_{eff}$ becomes larger than the cylinder radius, as this would mean the geodesic path cannot turn around on the dome or reach the cylinder as expected.
+
+3.  **`calculate_geodesic_alpha_at_rho()`**:
+    * Directly applies Clairaut's theorem: $\alpha = \arcsin(c_{eff} / \rho)$.
+    * Handles cases where $\rho < c_{eff}$ (path cannot reach this radius geodesically).
+
+4.  **`generate_geodesic_trajectory()`**:
+    * Iterates along the vessel's inner profile points (`profile_r`, `profile_z`).
+    * For each point $\rho_i$, it calculates the local geodesic winding angle $\alpha_i$.
+    * It then numerically integrates $d\phi = (1/\rho) \tan(\alpha) ds$ to find the cumulative parallel angle $\phi_i$.
+        * $ds = \sqrt{d\rho^2 + dz^2}$ is the meridional arc length segment.
+        * The integration `delta_phi = (ds_segment / rho_segment) * math.tan(alpha_segment)` is a first-order approximation for each segment.
+    * **Turn-Around Angle ($\Delta K$)**: The total $\phi$ accumulated over a full pass from one pole to the other and back (which is $2 \times \phi_{pole-to-pole}$) is taken modulo $2\pi$ to find the net angular shift for pattern calculations. Koussios (Thesis Ch. 8, Eq. 8.11 and Peters Bk Ch. 3, Eq. 3.37) often uses $\Delta K = \min\{|\text{mod}_{(2\pi)}(\Phi_{tot})|, |\text{mod}_{(-2\pi)}(\Phi_{tot})|\}$ for the smallest positive or negative shift, then uses its absolute value. The current implementation is a simple modulo.
+    * Stores $\alpha_{eq}$ (winding angle at the equator) which will be needed for calculating $B_{eff}$.
+
+**To test this:**
+
+* You'll need a `VesselGeometry` object with a generated profile.
+* Instantiate `TrajectoryPlanner` with this vessel and typical roving dimensions.
+* Call `generate_geodesic_trajectory()`.
+* Print the output dictionary, especially `effective_polar_opening_m`, `turn_around_angle_DeltaK_rad`, and `alpha_at_equator_deg`.
+* Plot `phi_rad_cumulative` vs `z_m` and `alpha_deg` vs `z_m` (or vs `rho_m`) to visualize.
+
+This provides the core for geodesic path definition. The accuracy of `_get_slope_dz_drho_at_rho` and the numerical integration for $\phi$ will influence the final $\Delta K$.
