@@ -75,68 +75,51 @@ class TrajectoryPlanner:
         Numerically estimates the slope dz/d(rho) of the inner vessel profile at a given rho.
         Uses central differences for geodesic calculations.
         """
-        print("\n--- Debugging _get_slope_dz_drho_at_rho ---")
-        print(f"rho_target: {rho_target}")
-        
-        # Debug the vessel profile_points structure
-        if hasattr(self.vessel, 'profile_points'):
-            print(f"Type of self.vessel.profile_points: {type(self.vessel.profile_points)}")
-            if isinstance(self.vessel.profile_points, dict):
-                print(f"Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+        print(f"\nDEBUG trajectories.py: --- INSIDE _get_slope_dz_drho_at_rho ---")
+        print(f"  rho_target_m for slope calculation: {rho_target}")
+        print(f"  Type of self.vessel.profile_points at this point: {type(self.vessel.profile_points)}")
+        if isinstance(self.vessel.profile_points, dict):
+            print(f"  Keys in self.vessel.profile_points at this point: {list(self.vessel.profile_points.keys())}")
+            if 'r_inner' not in self.vessel.profile_points:
+                print("  CRITICAL ERROR: 'r_inner' IS MISSING when _get_slope_dz_drho_at_rho is entered!")
             else:
-                print(f"self.vessel.profile_points is NOT a dict: {self.vessel.profile_points}")
+                print(f"  'r_inner' IS PRESENT. Length: {len(self.vessel.profile_points['r_inner'])}")
         else:
-            print("self.vessel has no profile_points attribute")
-        
-        # Try the get_profile_points method
+            print(f"  CRITICAL ERROR: self.vessel.profile_points is NOT a dict here! It is: {self.vessel.profile_points}")
+
         try:
-            profile_points = self.vessel.get_profile_points()
-            print(f"Type of get_profile_points(): {type(profile_points)}")
-            if isinstance(profile_points, dict):
-                print(f"Keys in get_profile_points(): {list(profile_points.keys())}")
-            else:
-                print(f"get_profile_points() returned: {profile_points}")
-        except Exception as e:
-            print(f"Error calling get_profile_points(): {e}")
-            # Fallback: try direct access
-            if hasattr(self.vessel, 'profile_points') and self.vessel.profile_points is not None:
-                profile_points = self.vessel.profile_points
-            else:
-                print("No valid profile data available, returning 0 slope")
-                return 0.0
-        
-        # Try to access the profile data
-        try:
-            rho_profile = profile_points['r_inner']
-            z_profile = profile_points['z']
-            print(f"Successfully accessed profile data: {len(rho_profile)} points")
+            # Ensure units are consistent. If VesselGeometry stores in mm and planner uses m:
+            rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3  # Error likely here if key missing
+            z_profile_m = self.vessel.profile_points['z'] * 1e-3
+            print(f"  Successfully accessed profile data: {len(rho_profile_m)} points")
         except KeyError as e:
-            print(f"CRITICAL DEBUG: KeyError accessing profile_points keys. Available keys: {list(profile_points.keys()) if isinstance(profile_points, dict) else 'Not a dict'}")
+            print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: KeyError '{e}' accessing profile_points.")
+            print(f"  Available keys at point of error: {list(self.vessel.profile_points.keys())}")
             return 0.0
         except Exception as e:
-            print(f"CRITICAL DEBUG: Other error accessing profile_points: {e}")
+            print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: Other error '{e}' accessing profile_points.")
             return 0.0
 
-        if len(rho_profile) < 2:
+        if len(rho_profile_m) < 2:
             return 0.0
 
         # Find the closest point to rho_target
-        idx = np.argmin(np.abs(rho_profile - rho_target))
+        idx = np.argmin(np.abs(rho_profile_m - rho_target))
         
         # Use forward/backward difference at boundaries
-        if idx == 0 and len(rho_profile) > 1:
-            drho = rho_profile[1] - rho_profile[0]
+        if idx == 0 and len(rho_profile_m) > 1:
+            drho = rho_profile_m[1] - rho_profile_m[0]
             if abs(drho) > 1e-9:
-                return (z_profile[1] - z_profile[0]) / drho
-        elif idx == len(rho_profile) - 1 and len(rho_profile) > 1:
-            drho = rho_profile[-1] - rho_profile[-2]
+                return (z_profile_m[1] - z_profile_m[0]) / drho
+        elif idx == len(rho_profile_m) - 1 and len(rho_profile_m) > 1:
+            drho = rho_profile_m[-1] - rho_profile_m[-2]
             if abs(drho) > 1e-9:
-                return (z_profile[-1] - z_profile[-2]) / drho
-        elif idx > 0 and idx < len(rho_profile) - 1:
+                return (z_profile_m[-1] - z_profile_m[-2]) / drho
+        elif idx > 0 and idx < len(rho_profile_m) - 1:
             # Central difference
-            drho = rho_profile[idx + 1] - rho_profile[idx - 1]
+            drho = rho_profile_m[idx + 1] - rho_profile_m[idx - 1]
             if abs(drho) > 1e-9:
-                return (z_profile[idx + 1] - z_profile[idx - 1]) / drho
+                return (z_profile_m[idx + 1] - z_profile_m[idx - 1]) / drho
         
         return 0.0
 

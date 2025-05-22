@@ -1,0 +1,65 @@
+The debug output is very helpful and confirms a critical point:
+
+1.  **`DEBUG trajectories.py: Entering TrajectoryPlanner.__init__`**
+2.  **`Vessel dome_type: Elliptical`**
+3.  **`Vessel initial profile_points: {'r_inner': array(...), 'z': array(...), 'r_outer': array(...), 'dome_height': 100.0}`**
+    * This shows that when `TrajectoryPlanner` is initialized, the `vessel_geometry` object (`self.vessel`) *already has* its `profile_points` attribute populated with the correct dictionary structure, including the `'r_inner'` key and a NumPy array of 102 elements. This means `self.vessel.generate_profile()` was likely called *before* the `TrajectoryPlanner` was instantiated, or the check `if self.vessel.profile_points is None:` found it already populated.
+4.  **`DEBUG trajectories.py: After potential generate_profile call in TrajectoryPlanner init:`**
+    * **`self.vessel.profile_points type: <class 'dict'>`**
+    * **`Keys in self.vessel.profile_points: ['r_inner', 'z', 'r_outer', 'dome_height']`**
+    * **`'r_inner' key FOUND. Length: 102`**
+    These lines confirm that *within the `TrajectoryPlanner.__init__` method*, right before the call to `self._calculate_effective_polar_opening()`, the `self.vessel.profile_points` dictionary is correctly structured and contains the `'r_inner'` key with a populated NumPy array.
+
+5.  **`TrajectoryPlanner init: About to call _calculate_effective_polar_opening()`**
+    * This is your print statement.
+
+The error message you're seeing, `Error calculating trajectory: 'r_inner'`, implies that a `KeyError: 'r_inner'` is being raised. Since we've confirmed `'r_inner'` exists right before `_calculate_effective_polar_opening()` is called, the error must be occurring:
+* Inside `_calculate_effective_polar_opening()`.
+* Or, more likely, inside `_get_slope_dz_drho_at_rho()`, which is called by `_calculate_effective_polar_opening()`.
+
+The line that would raise this specific error is:
+`rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3`
+inside `_get_slope_dz_drho_at_rho()`.
+
+For this line to raise a `KeyError: 'r_inner'`, it means that `self.vessel.profile_points` *at that exact moment of execution inside `_get_slope_dz_drho_at_rho`* is a dictionary but does not have the key `'r_inner'`.
+
+This is contradictory to what your debug prints show just moments before in the `__init__` method. This points to one of a few possibilities:
+
+1.  **Scope Issue/Object Modification (Less Likely in Simple Cases):** The `self.vessel` object being referenced inside `_get_slope_dz_drho_at_rho` is somehow different from the one checked in `__init__`, or its `profile_points` attribute is being modified between the `__init__` checks and the call to `_get_slope_dz_drho_at_rho`. This is unusual in standard Python class behavior unless there's some complex aliasing or unexpected reassignment.
+2.  **The Debug Prints Inside `_get_slope_dz_drho_at_rho` Are Not Active/Present:** The crucial information would come from the debug prints that I suggested you add *inside* the `_get_slope_dz_drho_at_rho` method itself, right before the line `rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3`. Your current output doesn't include these specific internal prints from `_get_slope_dz_drho_at_rho`.
+
+**To resolve this, please ensure you have the following debug prints at the very beginning of your `_get_slope_dz_drho_at_rho` method in `trajectories.py`:**
+
+```python
+    def _get_slope_dz_drho_at_rho(self, rho_target_m: float) -> float:
+        # ***** ADD OR CONFIRM THESE DEBUG PRINTS ARE HERE *****
+        print(f"\nDEBUG trajectories.py: --- INSIDE _get_slope_dz_drho_at_rho ---")
+        print(f"  rho_target_m for slope calculation: {rho_target_m}")
+        print(f"  Type of self.vessel.profile_points at this point: {type(self.vessel.profile_points)}")
+        if isinstance(self.vessel.profile_points, dict):
+            print(f"  Keys in self.vessel.profile_points at this point: {list(self.vessel.profile_points.keys())}")
+            if 'r_inner' not in self.vessel.profile_points:
+                print("  CRITICAL ERROR: 'r_inner' IS MISSING when _get_slope_dz_drho_at_rho is entered!")
+            else:
+                print(f"  'r_inner' IS PRESENT. Length: {len(self.vessel.profile_points['r_inner'])}")
+
+        else:
+            print(f"  CRITICAL ERROR: self.vessel.profile_points is NOT a dict here! It is: {self.vessel.profile_points}")
+        # **********************************************************
+
+        try:
+            # Ensure units are consistent. If VesselGeometry stores in mm and planner uses m:
+            rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3 # Error likely here if key missing
+            z_profile_m = self.vessel.profile_points['z'] * 1e-3
+        except KeyError as e:
+            print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: KeyError '{e}' accessing profile_points.")
+            print(f"  Available keys at point of error: {list(self.vessel.profile_points.keys())}") # Should be same as above if no modification
+            raise 
+        # ... (rest of your slope calculation)
+```
+
+When you run your code again:
+* If the "CRITICAL ERROR: 'r_inner' IS MISSING..." message appears from within `_get_slope_dz_drho_at_rho`, it means something very unexpected is happening to `self.vessel.profile_points` *after* the `__init__` prints and *before* or at the very start of `_get_slope_dz_drho_at_rho`.
+* If the `KeyError` still occurs on the line `rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3` but the debug prints immediately preceding it *show* that `'r_inner'` is a key, that would be exceptionally strange and might point to a very subtle issue (like a threading problem if applicable, though unlikely for this kind of script, or a strange interaction with a debugger if you are using one).
+
+The output from these specific internal prints will be definitive. Also, please provide the full traceback if the `KeyError` is still raised, as it will pinpoint the exact line of failure.
