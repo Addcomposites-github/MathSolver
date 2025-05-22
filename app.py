@@ -187,7 +187,7 @@ def trajectory_planning_page():
         st.subheader("Winding Parameters")
         
         # Winding pattern type
-        pattern_type = st.selectbox("Winding Pattern", ["Helical", "Hoop", "Polar", "Transitional"])
+        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Helical", "Hoop", "Polar", "Transitional"])
         
         if pattern_type in ["Helical", "Transitional"]:
             winding_angle = st.slider("Winding Angle (degrees)", min_value=5.0, max_value=85.0, value=55.0, step=1.0)
@@ -203,22 +203,39 @@ def trajectory_planning_page():
         carriage_speed = st.number_input("Carriage Speed (mm/min)", min_value=1.0, value=100.0, step=1.0)
         
         # Pattern parameters
-        if pattern_type == "Helical":
+        if pattern_type == "Geodesic":
+            st.markdown("### Geodesic Parameters")
+            roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
+            roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
+            polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+            num_points = st.number_input("Number of Path Points", min_value=50, value=100, step=10)
+        elif pattern_type == "Helical":
             st.markdown("### Pattern Parameters")
             circuits_to_close = st.number_input("Circuits to Close Pattern", min_value=1, value=8, step=1)
             overlap_allowance = st.slider("Overlap Allowance (%)", min_value=-10.0, max_value=50.0, value=10.0, step=1.0)
         
         if st.button("Calculate Trajectory", type="primary"):
             try:
-                planner = TrajectoryPlanner(st.session_state.vessel_geometry)
-                
-                trajectory_params = {
-                    'pattern_type': pattern_type,
-                    'band_width': band_width,
-                    'num_tows': num_tows,
-                    'mandrel_speed': mandrel_speed,
-                    'carriage_speed': carriage_speed
-                }
+                if pattern_type == "Geodesic":
+                    planner = TrajectoryPlanner(
+                        st.session_state.vessel_geometry,
+                        dry_roving_width_m=roving_width/1000,
+                        dry_roving_thickness_m=roving_thickness/1000,
+                        roving_eccentricity_at_pole_m=polar_eccentricity/1000
+                    )
+                    trajectory_params = {
+                        'pattern_type': pattern_type,
+                        'num_points': int(num_points)
+                    }
+                else:
+                    planner = TrajectoryPlanner(st.session_state.vessel_geometry)
+                    trajectory_params = {
+                        'pattern_type': pattern_type,
+                        'band_width': band_width,
+                        'num_tows': num_tows,
+                        'mandrel_speed': mandrel_speed,
+                        'carriage_speed': carriage_speed
+                    }
                 
                 if pattern_type in ["Helical", "Transitional"]:
                     trajectory_params['winding_angle'] = winding_angle
