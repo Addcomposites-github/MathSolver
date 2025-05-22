@@ -111,6 +111,18 @@ class VesselGeometry:
             'r_outer': np.array(profile_r_inner) + self.wall_thickness,
             'dome_height': self.dome_height
         }
+        
+        print(f"DEBUG geometry.py, generate_profile(): self.profile_points JUST ASSIGNED.")
+        print(f"  Type: {type(self.profile_points)}")
+        if isinstance(self.profile_points, dict):
+            print(f"  Keys: {list(self.profile_points.keys())}")
+            for key, value in self.profile_points.items():
+                print(f"    Key '{key}' type: {type(value)}, Length (if applicable): {len(value) if hasattr(value, '__len__') else 'N/A'}")
+                if key == 'r_inner' and hasattr(value, '__len__') and len(value) == 0:
+                    print(f"    WARNING: '{key}' is empty!")
+        else:
+            print(f"  CRITICAL: self.profile_points is NOT a dict here!")
+        
         self._calculate_geometric_properties()
         
     def _generate_isotensoid_profile(self, num_points_dome: int = 100):

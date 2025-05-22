@@ -40,6 +40,32 @@ class TrajectoryPlanner:
         self.turn_around_angle_rad = None
         self.alpha_eq_deg = None       # Winding angle at equator
         
+        print("\nDEBUG trajectories.py: Entering TrajectoryPlanner.__init__")
+        print(f"  Vessel dome_type: {self.vessel.dome_type}")
+        print(f"  Vessel initial profile_points: {self.vessel.profile_points}")
+
+        if self.vessel.profile_points is None:
+            print("DEBUG trajectories.py: Vessel profile_points is None, calling self.vessel.generate_profile().")
+            self.vessel.generate_profile()
+            if self.vessel.profile_points is None:
+                raise ValueError("Vessel profile_points is STILL None after calling generate_profile() in TrajectoryPlanner.")
+            else:
+                print("DEBUG trajectories.py: self.vessel.generate_profile() CALLED from TrajectoryPlanner.")
+        
+        print(f"DEBUG trajectories.py: After potential generate_profile call in TrajectoryPlanner init:")
+        print(f"  self.vessel.profile_points type: {type(self.vessel.profile_points)}")
+        if isinstance(self.vessel.profile_points, dict):
+            print(f"  Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+            if 'r_inner' not in self.vessel.profile_points:
+                print("  CRITICAL DEBUG trajectories.py: 'r_inner' key IS MISSING from self.vessel.profile_points dict HERE!")
+            elif not hasattr(self.vessel.profile_points['r_inner'], '__len__') or len(self.vessel.profile_points['r_inner']) == 0:
+                print("  CRITICAL DEBUG trajectories.py: 'r_inner' IS EMPTY or not array-like in self.vessel.profile_points!")
+            else:
+                print(f"  'r_inner' key FOUND. Length: {len(self.vessel.profile_points['r_inner'])}")
+        else:
+            print(f"  CRITICAL DEBUG trajectories.py: self.vessel.profile_points is NOT a dict HERE! It is: {self.vessel.profile_points}")
+            raise TypeError("Vessel profile_points is not a dictionary as expected in TrajectoryPlanner.")
+
         # Calculate effective polar opening for geodesic paths
         print("TrajectoryPlanner init: About to call _calculate_effective_polar_opening()")
         self._calculate_effective_polar_opening()

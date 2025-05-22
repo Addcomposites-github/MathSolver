@@ -1,0 +1,159 @@
+You're right to focus on the state of `self.vessel.profile_points`. A `KeyError: 'r_inner'` is very specific and means that `profile_points` is a dictionary, but that particular key is absent.
+
+Given the user's output:
+1.  `Error calculating trajectory: 'r_inner'` (This is likely from a `try-except KeyError` block in their main script around where `TrajectoryPlanner` is used or its methods are called).
+2.  `TrajectoryPlanner init: About to call _calculate_effective_polar_opening()` (This is a debug print from within `TrajectoryPlanner.__init__`).
+
+This sequence implies that the `TrajectoryPlanner` object is successfully instantiated (or at least its `__init__` method begins execution), and the error is hit *during* the execution of `__init__`, specifically when `_calculate_effective_polar_opening()` is called, which in turn calls `_get_slope_dz_drho_at_rho()`.
+
+The debug prints I suggested in the previous turn should be placed strategically to capture the state of `self.vessel.profile_points`.
+
+**Let's refine the debug print strategy to be absolutely certain about when and how `profile_points` is being set and accessed:**
+
+**1. In `geometry.py` (your `VesselGeometry` class):**
+
+   Inside the `generate_profile` method, *immediately after* `self.profile_points` is assigned its dictionary structure:
+   ```python
+   # In VesselGeometry.generate_profile()
+   # ... after lists are assembled ...
+   self.profile_points = {
+       'r_inner': np.array(profile_r_inner_list),
+       'z': np.array(profile_z_values_list),
+       'r_outer': np.array(profile_r_inner_list) + self.wall_thickness, # Ensure list conversion for safety
+       'dome_height': self.dome_height 
+   }
+   print(f"DEBUG geometry.py, generate_profile(): self.profile_points JUST ASSIGNED.")
+   print(f"  Type: {type(self.profile_points)}")
+   if isinstance(self.profile_points, dict):
+       print(f"  Keys: {list(self.profile_points.keys())}")
+       for key, value in self.profile_points.items():
+           print(f"    Key '{key}' type: {type(value)}, Length (if applicable): {len(value) if hasattr(value, '__len__') else 'N/A'}")
+           if key == 'r_inner' and hasattr(value, '__len__') and len(value) == 0:
+               print(f"    WARNING: '{key}' is empty!")
+   else:
+       print(f"  CRITICAL: self.profile_points is NOT a dict here!")
+   
+   self._calculate_geometric_properties()
+   ```
+
+**2. In `trajectories.py` (your `TrajectoryPlanner` class):**
+
+   Modify the `__init__` method:
+   ```python
+   # In TrajectoryPlanner.__init__()
+   def __init__(self,
+                vessel_geometry: VesselGeometry,
+                dry_roving_width_m: float, # Expecting meters directly
+                dry_roving_thickness_m: float, # Expecting meters directly
+                roving_eccentricity_at_pole_m: float = 0.0): # Expecting meters directly
+       
+       print("\nDEBUG trajectories.py: Entering TrajectoryPlanner.__init__")
+       self.vessel = vessel_geometry
+
+       print("DEBUG trajectories.py: Vessel object received.")
+       print(f"  Vessel dome_type: {self.vessel.dome_type}")
+       print(f"  Vessel initial profile_points: {self.vessel.profile_points}") # Check its state *before* explicit generate_profile call
+
+       if self.vessel.profile_points is None:
+           print("DEBUG trajectories.py: Vessel profile_points is None, calling self.vessel.generate_profile().")
+           self.vessel.generate_profile() # num_points_per_dome will use its default
+           if self.vessel.profile_points is None:
+               raise ValueError("Vessel profile_points is STILL None after calling generate_profile() in TrajectoryPlanner.")
+           else:
+               print("DEBUG trajectories.py: self.vessel.generate_profile() CALLED from TrajectoryPlanner.")
+       
+       print(f"DEBUG trajectories.py: After potential generate_profile call in TrajectoryPlanner init:")
+       print(f"  self.vessel.profile_points type: {type(self.vessel.profile_points)}")
+       if isinstance(self.vessel.profile_points, dict):
+           print(f"  Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+           if 'r_inner' not in self.vessel.profile_points:
+               print("  CRITICAL DEBUG trajectories.py: 'r_inner' key IS MISSING from self.vessel.profile_points dict HERE!")
+           elif not hasattr(self.vessel.profile_points['r_inner'], '__len__') or len(self.vessel.profile_points['r_inner']) == 0 :
+               print("  CRITICAL DEBUG trajectories.py: 'r_inner' IS EMPTY or not array-like in self.vessel.profile_points!")
+           else:
+                print(f"  'r_inner' key FOUND. Length: {len(self.vessel.profile_points['r_inner'])}")
+
+       else:
+           print(f"  CRITICAL DEBUG trajectories.py: self.vessel.profile_points is NOT a dict HERE! It is: {self.vessel.profile_points}")
+           raise TypeError("Vessel profile_points is not a dictionary as expected in TrajectoryPlanner.")
+
+       self.dry_roving_width_m = dry_roving_width_m
+       self.dry_roving_thickness_m = dry_roving_thickness_m
+       self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m
+
+       self.effective_polar_opening_radius_m = None
+       # ... other initializations
+
+       # User's print statement was here, indicating this point is reached
+       print("TrajectoryPlanner init: About to call _calculate_effective_polar_opening()") 
+       self._calculate_effective_polar_opening()
+   ```
+
+   And in `_get_slope_dz_drho_at_rho` within `TrajectoryPlanner`:
+   ```python
+   def _get_slope_dz_drho_at_rho(self, rho_target_m: float) -> float:
+       print("\nDEBUG trajectories.py: Entering _get_slope_dz_drho_at_rho")
+       print(f"  rho_target_m: {rho_target_m}")
+       print(f"  Accessing self.vessel.profile_points. Type: {type(self.vessel.profile_points)}")
+       if isinstance(self.vessel.profile_points, dict):
+           print(f"  Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+       else:
+           print(f"  self.vessel.profile_points is NOT a dict here: {self.vessel.profile_points}")
+           raise TypeError("_get_slope_dz_drho_at_rho: profile_points is not a dictionary.")
+
+       try:
+           # Ensure units are consistent. If VesselGeometry stores in mm and planner uses m:
+           rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3 # Error occurs here if 'r_inner' is missing
+           z_profile_m = self.vessel.profile_points['z'] * 1e-3
+       except KeyError as e:
+           print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: KeyError '{e}' accessing profile_points.")
+           print(f"  Available keys: {list(self.vessel.profile_points.keys())}")
+           raise # Re-raise to see the original traceback
+       except TypeError as e: # If profile_points was None or not a dict
+           print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: TypeError '{e}' accessing profile_points (was it None?).")
+           raise
+
+       # ... rest of the slope calculation logic ...
+       if len(rho_profile_m) == 0:
+           print("CRITICAL DEBUG _get_slope_dz_drho_at_rho: rho_profile_m is empty!")
+           return 0.0 # Or raise error
+       # ...
+       # (The existing logic for slope calculation using rho_profile_m and z_profile_m)
+       # Make sure to handle empty arrays if they pass the key check
+       if len(rho_profile_m) < 2:
+            print("Warning: Profile has less than 2 points in _get_slope_dz_drho_at_rho. Cannot calculate slope. Returning 0.")
+            return 0.0
+       
+       if np.isclose(rho_target_m, rho_profile_m[0]):
+           if not np.isclose(rho_profile_m[1] - rho_profile_m[0], 0):
+               slope = (z_profile_m[1] - z_profile_m[0]) / (rho_profile_m[1] - rho_profile_m[0])
+               return slope
+           else: 
+               return np.inf
+       # ... (simplified rest of slope logic for brevity, ensure it's robust) ...
+       print(f"Warning: Slope calculation for rho_target_m {rho_target_m} not at pole using approx.")
+       idx = np.argmin(np.abs(rho_profile_m - rho_target_m)) # Simple fallback
+       if idx == 0 and len(rho_profile_m)>1 and not np.isclose(rho_profile_m[1] - rho_profile_m[0],0): return (z_profile_m[1] - z_profile_m[0]) / (rho_profile_m[1] - rho_profile_m[0])
+       elif idx > 0 and not np.isclose(rho_profile_m[idx] - rho_profile_m[idx-1],0): return (z_profile_m[idx] - z_profile_m[idx-1]) / (rho_profile_m[idx] - rho_profile_m[idx-1])
+       return 0.0
+
+   ```
+
+**Units Note:**
+I've made an assumption in `TrajectoryPlanner` that inputs like `dry_roving_width_m` are passed in meters (hence the `_m` suffix). Your `VesselGeometry` class seems to work in `mm` internally and stores profile points in `mm`. The `TrajectoryPlanner` methods (`_get_slope_dz_drho_at_rho`, `_calculate_effective_polar_opening`) then convert these `mm` profile points to `m` for their internal calculations. Ensure this unit handling is consistent with how you are calling the `TrajectoryPlanner`. I've updated the `TrajectoryPlanner` constructor to assume its direct inputs are already in meters to simplify things, so the `* 1e-3` conversion was removed from there, but kept for when accessing vessel profile points.
+
+**What to look for in the new output:**
+
+1.  **`DEBUG geometry.py, generate_profile(): self.profile_points JUST ASSIGNED.`** section:
+    * Does it say "Keys are: \['r\_inner', 'z', 'r\_outer', 'dome\_height'\]"?
+    * Is the length of `'r_inner'` non-zero?
+2.  **`DEBUG trajectories.py: After potential generate_profile call in TrajectoryPlanner init:`** section:
+    * Does it show that `self.vessel.profile_points` is a dictionary?
+    * Does it list `'r_inner'` as one of the keys?
+    * Is `'r_inner'` an empty list/array here?
+3.  **`DEBUG trajectories.py: Entering _get_slope_dz_drho_at_rho`** section:
+    * What are the type and keys reported here, just before the error?
+
+This should give us a very clear picture of where the `profile_points` dictionary loses its `'r_inner'` key or if it was never properly assigned with content.
+
+The `RuntimeWarning` from `materials.py` is a separate issue that should still be addressed by checking the inputs to `calculate_composite_properties` (specifically `fiber_volume_fraction` and `void_content`) in your main script, as it could lead to `NaN` values that might indirectly cause problems if those material properties were used in some unexpected way during geometry setup. However, the `KeyError` is more direct.
