@@ -185,8 +185,8 @@ class TrajectoryPlanner:
         Based on Koussios geodesic theory with Clairaut's theorem.
         """
         profile_points = self.vessel.get_profile_points()
-        rho_profile = profile_points['r_inner']
-        z_profile = profile_points['z']
+        rho_profile = profile_points['r_inner_mm']
+        z_profile = profile_points['z_mm']
         
         # Find dome section (typically first half of profile)
         dome_end_idx = len(rho_profile) // 2
