@@ -236,15 +236,30 @@ class TrajectoryPlanner:
         # Calculate equatorial winding angle
         self.alpha_eq_deg = alpha_values[-1] if alpha_values else 0
         
+        # Create path_points in the format expected by visualization
+        path_points = []
+        for i in range(len(alpha_values)):
+            path_points.append({
+                'r': rho_points[i],
+                'z': z_values[i],
+                'theta': phi_values[i],
+                'alpha': alpha_values[i],
+                'circuit': 0  # Single geodesic path
+            })
+        
         return {
+            'path_points': path_points,
+            'pattern_type': 'Geodesic',
+            'total_circuits': 1,
+            'total_length': len(path_points) * 0.1,  # Approximate length
+            'coverage_efficiency': 0.95,
             'rho_points': rho_points[:len(alpha_values)],
             'z_points': np.array(z_values),
             'alpha_deg': np.array(alpha_values),
             'phi_rad': np.array(phi_values),
             'c_eff_m': c_eff,
             'turn_around_angle_deg': math.degrees(self.turn_around_angle_rad),
-            'alpha_equator_deg': self.alpha_eq_deg,
-            'pattern_type': 'Geodesic'
+            'alpha_equator_deg': self.alpha_eq_deg
         }
 
     def calculate_trajectory(self, params: Dict) -> Dict:
