@@ -54,80 +54,80 @@ class VesselGeometry:
         """Set parameters for elliptical dome"""
         self.elliptical_aspect_ratio = aspect_ratio
         
-    def generate_profile(self):
-        """Generate the complete 2D meridian profile of the vessel"""
-        if self.dome_type == "Isotensoid":
-            self._generate_isotensoid_profile()
+    def generate_profile(self, num_points_per_dome: int = 50):
+        """Generate the complete 2D meridian profile of the vessel.
+           Origin (z=0) is at the center of the cylindrical section.
+           Profile points are for the inner surface.
+        """
+        profile_r_inner = []
+        profile_z_values = []
+
+        # Generate dome profile (local coordinates: rho from 0 at pole, z_local from height at pole to 0 at base)
+        if self.dome_type == "Hemispherical":
+            local_dome_pts, dome_h = self._generate_hemispherical_profile(num_points_per_dome)
         elif self.dome_type == "Elliptical":
-            self._generate_elliptical_profile()
-        elif self.dome_type == "Hemispherical":
-            self._generate_hemispherical_profile()
+            local_dome_pts, dome_h = self._generate_elliptical_profile(num_points_per_dome)
+        elif self.dome_type == "Isotensoid":
+            local_dome_pts, dome_h = self._generate_isotensoid_profile(num_points_per_dome)
         elif self.dome_type == "Geodesic":
-            self._generate_geodesic_profile()
+            # Use hemispherical as placeholder for now
+            local_dome_pts, dome_h = self._generate_hemispherical_profile(num_points_per_dome)
         else:
             raise ValueError(f"Unsupported dome type: {self.dome_type}")
-            
+        
+        self.dome_height = dome_h
+
+        # Forward Dome (Top: z positive)
+        # local_dome_pts[:,0] is rho (pole to cyl_radius)
+        # local_dome_pts[:,1] is z_local (dome_height at pole, to 0 at cyl_radius)
+        # We need to plot from z = cyl_len/2 + dome_height (pole) down to z = cyl_len/2 (cyl_junction)
+        # So, z_abs = self.cylindrical_length / 2.0 + local_dome_pts[:,1]
+        # And rho is local_dome_pts[:,0]
+        profile_r_inner.extend(local_dome_pts[:,0])
+        profile_z_values.extend(self.cylindrical_length / 2.0 + local_dome_pts[:,1])
+
+        # Cylindrical Section
+        # Last point of dome should be (self.inner_radius, self.cylindrical_length / 2.0)
+        if not np.isclose(profile_r_inner[-1], self.inner_radius):  # Add if not perfectly connected
+            profile_r_inner.append(self.inner_radius)
+            profile_z_values.append(self.cylindrical_length / 2.0)
+        
+        profile_r_inner.append(self.inner_radius)  # Start of cylinder body
+        profile_z_values.append(self.cylindrical_length / 2.0)
+        profile_r_inner.append(self.inner_radius)  # End of cylinder body
+        profile_z_values.append(-self.cylindrical_length / 2.0)
+
+        # Aft Dome (Bottom: z negative)
+        # We need points from (cyl_radius, -cyl_len/2) to (pole_radius_rho, -cyl_len/2 - dome_height)
+        # local_dome_pts is still ordered pole to cyl_radius for rho, and dome_height to 0 for z_local
+        # So we take it in reverse for rho: local_dome_pts[::-1,0]
+        # And z_abs = -self.cylindrical_length/2.0 - local_dome_pts[::-1,1] (reversed z_local)
+        profile_r_inner.extend(local_dome_pts[::-1,0])
+        profile_z_values.extend(-self.cylindrical_length / 2.0 - local_dome_pts[::-1,1])
+
+        self.profile_points = {
+            'r_inner': np.array(profile_r_inner),
+            'z': np.array(profile_z_values),
+            'r_outer': np.array(profile_r_inner) + self.wall_thickness,
+            'dome_height': self.dome_height
+        }
         self._calculate_geometric_properties()
         
-    def _generate_isotensoid_profile(self):
-        """
-        Generate isotensoid dome profile using Koussios qrs-parameterization.
+    def _generate_isotensoid_profile(self, num_points_dome: int = 100):
+        """Placeholder for Koussios qrs-parameterized isotensoid profile."""
+        # This needs the full Koussios equations (Eq. 4.3 or 4.20 from thesis)
+        # For now, returning a shape similar to hemispherical for plotting
+        print("WARNING: Isotensoid profile is a placeholder.")
+        R_dome = self.inner_radius
+        # This is a conceptual polar opening for the dome, not necessarily vessel's final.
+        # For qrs, rho_0 is the reference, could be self.inner_radius / Y_eq_from_qrs
+        # Let's assume dome_height is roughly R_dome * 0.6 (typical isotensoid aspect)
+        actual_dome_height = R_dome * 0.6 * self.q_factor / (self.q_factor * 0.5 + 1)  # very rough
         
-        Based on equations from Koussios thesis Chapter 4:
-        - Dimensionless coordinates Y = ρ/ρ₀, Z = z/ρ₀  
-        - qrs parameters define dome shape optimization
-        """
-        # Normalize to polar opening radius
-        rho_0 = self.inner_radius  # Polar opening radius
-        
-        # Generate dimensionless Y coordinates from polar opening to equator
-        Y_points = np.linspace(0.1, 1.0, 100)  # Avoid Y=0 for numerical stability
-        Z_points = []
-        
-        for Y in Y_points:
-            # Koussios isotensoid equation (simplified form)
-            # Z'(Y) relationship for qrs-parameterized isotensoid
-            if Y < 0.1:
-                Z = 0.0
-            else:
-                # Approximate isotensoid profile based on qrs parameters
-                # This is a simplified implementation - full Koussios equations are more complex
-                Z = self._calculate_isotensoid_z(Y)
-            Z_points.append(Z)
-        
-        # Convert to physical coordinates (mm)
-        rho_points = [Y * rho_0 for Y in Y_points]
-        z_points = [Z * rho_0 for Z in Z_points]
-        
-        # Build complete profile: dome + cylinder + dome
-        profile_r = []
-        profile_z = []
-        
-        # Top dome (reversed)
-        dome_height = max(z_points)
-        for i in range(len(rho_points)-1, -1, -1):
-            profile_r.append(rho_points[i])
-            profile_z.append(self.cylindrical_length/2 + dome_height - z_points[i])
-        
-        # Top cylinder edge
-        profile_r.append(self.inner_radius)
-        profile_z.append(self.cylindrical_length/2)
-        
-        # Cylindrical section
-        profile_r.append(self.inner_radius)
-        profile_z.append(-self.cylindrical_length/2)
-        
-        # Bottom dome
-        for i in range(len(rho_points)):
-            profile_r.append(rho_points[i])
-            profile_z.append(-self.cylindrical_length/2 - z_points[i])
-        
-        self.profile_points = {
-            'r_inner': profile_r,
-            'z': profile_z,
-            'r_outer': [r + self.wall_thickness for r in profile_r],
-            'dome_height': dome_height
-        }
+        phi_angles = np.linspace(0, np.pi / 2, num_points_dome)
+        dome_rho = R_dome * np.sin(phi_angles)
+        dome_z_local = actual_dome_height * np.cos(phi_angles)
+        return np.vstack((dome_rho, dome_z_local)).T, actual_dome_height
         
     def _calculate_isotensoid_z(self, Y: float) -> float:
         """
@@ -152,99 +152,47 @@ class VesselGeometry:
         
         return Z * 0.5  # Scale factor for realistic proportions
         
-    def _generate_elliptical_profile(self):
-        """Generate elliptical dome profile with proper continuity"""
-        a = self.inner_radius  # Semi-major axis (radius)
-        b = a * self.elliptical_aspect_ratio  # Semi-minor axis (height)
-        dome_height = b
-        num_points = 50
-        
-        # Generate elliptical dome profile from pole to cylinder junction
-        # Using parameter t from 0 (pole) to π/2 (cylinder junction)
-        t_values = np.linspace(0, np.pi/2, num_points)
-        
-        # Elliptical dome coordinates
-        dome_rho = a * np.sin(t_values)  # From 0 to a (inner_radius)
-        dome_z_local = b * (1 - np.cos(t_values))  # From 0 to b (dome_height)
-        
-        # Build complete vessel profile
-        profile_r = []
-        profile_z = []
-        
-        # Forward dome (top) - from pole to cylinder junction
-        for i in range(len(dome_rho)):
-            profile_r.append(dome_rho[i])
-            profile_z.append(self.cylindrical_length/2 + dome_height - dome_z_local[i])
-        
-        # Ensure continuity with cylinder
-        if not np.isclose(profile_r[-1], self.inner_radius):
-            profile_r.append(self.inner_radius)
-            profile_z.append(self.cylindrical_length/2)
-        
-        # Cylindrical section
-        profile_r.append(self.inner_radius)
-        profile_z.append(-self.cylindrical_length/2)
-        
-        # Aft dome (bottom) - from cylinder junction to pole
-        for i in range(len(dome_rho)-1, -1, -1):
-            profile_r.append(dome_rho[i])
-            profile_z.append(-self.cylindrical_length/2 - dome_z_local[i])
-            
-        self.profile_points = {
-            'r_inner': profile_r,
-            'z': profile_z,
-            'r_outer': [r + self.wall_thickness for r in profile_r],
-            'dome_height': dome_height
-        }
-        
-    def _generate_hemispherical_profile(self):
-        """Generate hemispherical dome profile with proper continuity"""
-        R_dome = self.inner_radius
-        num_points = 50
-        
-        # For hemispherical domes, the dome height equals the radius
-        dome_height = R_dome
-        
-        # Generate dome profile from pole to cylinder junction
-        # Using angle parameterization from pole (phi=0) to equator (phi=π/2)
-        phi_angles = np.linspace(0, np.pi/2, num_points)
-        
-        # Dome coordinates (rho, z_local where z_local=0 at cylinder junction)
-        dome_rho = R_dome * np.sin(phi_angles)  # From 0 to R_dome
-        dome_z_local = R_dome * (1 - np.cos(phi_angles))  # From 0 to R_dome
-        
-        # Build complete vessel profile
-        profile_r = []
-        profile_z = []
-        
-        # Forward dome (top) - from pole to cylinder junction
-        # Points go from smallest radius (pole) to largest (cylinder junction)
-        for i in range(len(dome_rho)):
-            profile_r.append(dome_rho[i])
-            profile_z.append(self.cylindrical_length/2 + dome_height - dome_z_local[i])
-        
-        # Cylindrical section - ensure continuity
-        # The last dome point should be at (R_dome, cylindrical_length/2)
-        if not np.isclose(profile_r[-1], R_dome):
-            profile_r.append(R_dome)
-            profile_z.append(self.cylindrical_length/2)
-        
-        # Add cylinder end point
-        profile_r.append(R_dome)
-        profile_z.append(-self.cylindrical_length/2)
-        
-        # Aft dome (bottom) - from cylinder junction to pole
-        # Reverse the dome profile for the bottom
-        for i in range(len(dome_rho)-1, -1, -1):
-            profile_r.append(dome_rho[i])
-            profile_z.append(-self.cylindrical_length/2 - dome_z_local[i])
-            
-        self.profile_points = {
-            'r_inner': profile_r,
-            'z': profile_z,
-            'r_outer': [r + self.wall_thickness for r in profile_r],
-            'dome_height': dome_height
-        }
+    def _generate_hemispherical_profile(self, num_points_dome: int = 50):
+        """
+        Generates points for one hemispherical dome.
+        Profile is ordered from the polar opening (smallest rho) to the cylinder junction (largest rho).
+        z-coordinates are local to the dome, starting from 0 at the cylinder tangent plane
+        and going up to dome_height at the polar opening plane.
+
+        Returns:
+            Tuple[np.ndarray, float]: Array of (rho, z_local_dome) points, and dome_height
+        """
+        R_dome = self.inner_radius  # Hemisphere radius is the cylinder's inner radius
+
+        # phi is the angle from the Z-axis (pole). phi=0 at pole, phi=pi/2 at cylinder junction.
+        phi_angles = np.linspace(0, np.pi / 2, num_points_dome)
+        dome_rho = R_dome * np.sin(phi_angles)  # rho from 0 to R_dome
+        # z_local from R_dome (at pole) down to 0 (at cylinder junction plane)
+        dome_z_local = R_dome * np.cos(phi_angles)
+        actual_dome_height = R_dome  # For a full hemisphere from pole
+        # Order from pole (rho=0) to cylinder junction (rho=R_dome)
+        # z_local will go from R_dome down to 0.
+        return np.vstack((dome_rho, dome_z_local)).T, actual_dome_height
+
+    def _generate_elliptical_profile(self, num_points_dome: int = 50):
+        """
+        Generates points for one elliptical dome.
+        Profile is ordered from the polar opening (rho=0 at pole) to the cylinder junction.
+        z-coordinates are local to the dome, from 0 at the cylinder tangent plane
+        up to dome_height at the pole.
+        """
+        a_ellipse = self.inner_radius  # Semi-major axis (along rho)
+        b_ellipse = a_ellipse * self.elliptical_aspect_ratio  # Semi-minor axis (along z, this is the dome height)
+        actual_dome_height = b_ellipse
+
+        # Parametric equation for ellipse: rho = a*sin(t), z_local_from_apex = b*(1-cos(t))
+        # t from 0 (pole, rho=0, z_local_from_apex=0) to pi/2 (cyl junction, rho=a, z_local_from_apex=b)
+        t_angles = np.linspace(0, np.pi / 2, num_points_dome)
+        dome_rho = a_ellipse * np.sin(t_angles)
+        # z_local goes from actual_dome_height (at pole) down to 0 (at cylinder junction)
+        dome_z_local = actual_dome_height * np.cos(t_angles)  # z measured from cylinder plane towards pole
+
+        return np.vstack((dome_rho, dome_z_local)).T, actual_dome_height
         
     def _generate_geodesic_profile(self):
         """Generate geodesic dome profile (simplified)"""
@@ -260,7 +208,7 @@ class VesselGeometry:
         if self.profile_points is None:
             return
             
-        dome_height = self.profile_points['dome_height']
+        dome_height = getattr(self, 'dome_height', self.inner_radius)
         
         # Volumes
         cylinder_volume = np.pi * self.inner_radius**2 * self.cylindrical_length
