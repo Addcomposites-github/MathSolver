@@ -41,6 +41,7 @@ class TrajectoryPlanner:
         self.alpha_eq_deg = None       # Winding angle at equator
         
         # Calculate effective polar opening for geodesic paths
+        print("TrajectoryPlanner init: About to call _calculate_effective_polar_opening()")
         self._calculate_effective_polar_opening()
     
     def _get_slope_dz_drho_at_rho(self, rho_target: float) -> float:
@@ -48,9 +49,47 @@ class TrajectoryPlanner:
         Numerically estimates the slope dz/d(rho) of the inner vessel profile at a given rho.
         Uses central differences for geodesic calculations.
         """
-        profile_points = self.vessel.get_profile_points()
-        rho_profile = profile_points['r_inner']
-        z_profile = profile_points['z']
+        print("\n--- Debugging _get_slope_dz_drho_at_rho ---")
+        print(f"rho_target: {rho_target}")
+        
+        # Debug the vessel profile_points structure
+        if hasattr(self.vessel, 'profile_points'):
+            print(f"Type of self.vessel.profile_points: {type(self.vessel.profile_points)}")
+            if isinstance(self.vessel.profile_points, dict):
+                print(f"Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+            else:
+                print(f"self.vessel.profile_points is NOT a dict: {self.vessel.profile_points}")
+        else:
+            print("self.vessel has no profile_points attribute")
+        
+        # Try the get_profile_points method
+        try:
+            profile_points = self.vessel.get_profile_points()
+            print(f"Type of get_profile_points(): {type(profile_points)}")
+            if isinstance(profile_points, dict):
+                print(f"Keys in get_profile_points(): {list(profile_points.keys())}")
+            else:
+                print(f"get_profile_points() returned: {profile_points}")
+        except Exception as e:
+            print(f"Error calling get_profile_points(): {e}")
+            # Fallback: try direct access
+            if hasattr(self.vessel, 'profile_points') and self.vessel.profile_points is not None:
+                profile_points = self.vessel.profile_points
+            else:
+                print("No valid profile data available, returning 0 slope")
+                return 0.0
+        
+        # Try to access the profile data
+        try:
+            rho_profile = profile_points['r_inner']
+            z_profile = profile_points['z']
+            print(f"Successfully accessed profile data: {len(rho_profile)} points")
+        except KeyError as e:
+            print(f"CRITICAL DEBUG: KeyError accessing profile_points keys. Available keys: {list(profile_points.keys()) if isinstance(profile_points, dict) else 'Not a dict'}")
+            return 0.0
+        except Exception as e:
+            print(f"CRITICAL DEBUG: Other error accessing profile_points: {e}")
+            return 0.0
 
         if len(rho_profile) < 2:
             return 0.0

@@ -1,0 +1,205 @@
+You are absolutely right to be puzzled by a `KeyError: 'r_inner'` if the dictionary assignment in `VesselGeometry.generate_profile` is happening correctly. An `IndexError` (if lists were empty) or a `TypeError` (if `profile_points` was `None`) would be more expected given the code structure.
+
+The fact that you're getting `KeyError: 'r_inner'` strongly suggests that `self.vessel.profile_points` **is indeed a dictionary at the point of error**, but it's not the dictionary we expect (i.e., it's missing the `'r_inner'` key).
+
+Let's try to pinpoint this. The most direct way is to see what that dictionary contains right before the error occurs.
+
+**Please modify your `trajectories.py` file, specifically the `_get_slope_dz_drho_at_rho` method within the `TrajectoryPlanner` class, to include these print statements immediately before the line that's likely causing the error:**
+
+```python
+# copv_design_tool/winding/trajectory.py
+# ... other imports ...
+try:
+    from ..core.vessel_geometry import VesselGeometry # Adjust if your VesselGeometry is elsewhere
+    # ... other internal imports
+except ImportError:
+    # Fallback for standalone testing, ensure paths are correct
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from core.vessel_geometry import VesselGeometry
+    # ...
+
+class TrajectoryPlanner:
+    # ... (your __init__ method) ...
+    def __init__(self,
+                 vessel_geometry: VesselGeometry,
+                 dry_roving_width_m: float,
+                 dry_roving_thickness_m: float,
+                 roving_eccentricity_at_pole_m: float = 0.0):
+        self.vessel = vessel_geometry
+        if self.vessel.profile_points is None:
+            print("TrajectoryPlanner init: Vessel profile_points is None, calling generate_profile().")
+            self.vessel.generate_profile() # Ensure profile is generated
+            # Add a check immediately after generation attempt
+            if self.vessel.profile_points is None:
+                raise ValueError("Vessel profile_points is still None after calling generate_profile(). Cannot proceed.")
+        
+        # Debug print after ensuring generate_profile was called
+        print(f"TrajectoryPlanner init: self.vessel.profile_points type: {type(self.vessel.profile_points)}")
+        if isinstance(self.vessel.profile_points, dict):
+            print(f"TrajectoryPlanner init: Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+        else:
+            print(f"TrajectoryPlanner init: self.vessel.profile_points is NOT a dict: {self.vessel.profile_points}")
+
+
+        self.dry_roving_width_m = dry_roving_width_m * 1e-3 # Convert mm to m if inputs are mm
+        self.dry_roving_thickness_m = dry_roving_thickness_m * 1e-3 # Convert mm to m
+        self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m * 1e-3 # Convert mm to m
+
+        self.effective_polar_opening_radius_m = None
+        self.alpha_profile_deg = None
+        self.phi_profile_rad = None
+        self.turn_around_angle_rad_DeltaK = None
+        self.alpha_eq_deg = None
+
+        self._calculate_effective_polar_opening() # This calls _get_slope_dz_drho_at_rho
+
+    def _get_slope_dz_drho_at_rho(self, rho_target_m: float) -> float:
+        """
+        Numerically estimates the slope dz/d(rho) of the inner vessel profile at a given rho.
+        Uses central differences. rho_profile should be monotonic where queried.
+        All units should be in meters.
+        """
+        # ***** ADD THESE DEBUG PRINTS *****
+        print("\n--- Debugging _get_slope_dz_drho_at_rho ---")
+        print(f"rho_target_m: {rho_target_m}")
+        print(f"Type of self.vessel.profile_points: {type(self.vessel.profile_points)}")
+        if isinstance(self.vessel.profile_points, dict):
+            print(f"Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
+            # Let's try to print the content if it's a dict, but be careful if it's huge
+            # For now, just keys is safer.
+        else:
+            print(f"self.vessel.profile_points is NOT a dict: {self.vessel.profile_points}")
+        # ***********************************
+
+        # This is the line where the error likely occurs if 'r_inner' is missing
+        try:
+            # Convert profile points from mm (as stored in VesselGeometry) to meters for calculation
+            rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3
+            z_profile_m = self.vessel.profile_points['z'] * 1e-3
+        except KeyError as e:
+            print(f"CRITICAL DEBUG: KeyError accessing profile_points. It contains: {self.vessel.profile_points}")
+            raise e # Re-raise the error after printing context
+        except TypeError as e:
+            print(f"CRITICAL DEBUG: TypeError accessing profile_points (likely None). It is: {self.vessel.profile_points}")
+            raise e
+
+
+        # Ensure rho_profile_m is sorted for np.searchsorted
+        # Assuming the profile generated by VesselGeometry has z decreasing,
+        # r_inner might not be strictly monotonic overall (dome-cyl-dome).
+        # We need to consider the relevant dome section.
+        # For effective polar opening, we are interested in the first point of the profile.
+
+        if rho_target_m < rho_profile_m[0] - 1e-9: # Check against first rho value
+             print(f"Warning: rho_target {rho_target_m} is smaller than first profile rho {rho_profile_m[0]}. Using slope at first segment.")
+        
+        if len(rho_profile_m) < 2:
+            print("Warning: Profile has less than 2 points. Cannot calculate slope. Returning 0.")
+            return 0.0
+
+        # For the slope at the pole (first point of the profile from VesselGeometry)
+        if np.isclose(rho_target_m, rho_profile_m[0]):
+            if not np.isclose(rho_profile_m[1] - rho_profile_m[0], 0):
+                slope = (z_profile_m[1] - z_profile_m[0]) / (rho_profile_m[1] - rho_profile_m[0])
+                # print(f"Debug Slope at pole (forward diff): {slope}")
+                return slope
+            else: # Vertical tangent for rho (horizontal for z)
+                # print("Debug: Vertical tangent for rho at pole, dz/drho is effectively infinite (horizontal z tangent).")
+                return np.inf
+        
+        # For other points (not strictly needed for c_eff if it always uses the pole)
+        # Find index i such that rho_profile_m[i] <= rho_target_m < rho_profile_m[i+1]
+        # or rho_profile_m[i+1] < rho_target_m <= rho_profile_m[i]
+        # This requires a monotonic segment.
+        # For now, this function is primarily used for the pole for c_eff.
+        print(f"Warning: _get_slope_dz_drho_at_rho called for rho_target_m {rho_target_m} not at the pole. Using approximate slope at closest point.")
+        idx = np.argmin(np.abs(rho_profile_m - rho_target_m))
+        
+        if idx == 0:
+            if not np.isclose(rho_profile_m[1] - rho_profile_m[0],0):
+                return (z_profile_m[1] - z_profile_m[0]) / (rho_profile_m[1] - rho_profile_m[0])
+            return np.inf
+        elif idx == len(rho_profile_m) - 1:
+            if not np.isclose(rho_profile_m[idx] - rho_profile_m[idx-1],0):
+                return (z_profile_m[idx] - z_profile_m[idx-1]) / (rho_profile_m[idx] - rho_profile_m[idx-1])
+            return np.inf
+        else: # Central difference
+            if not np.isclose(rho_profile_m[idx+1] - rho_profile_m[idx-1],0):
+                return (z_profile_m[idx+1] - z_profile_m[idx-1]) / (rho_profile_m[idx+1] - rho_profile_m[idx-1])
+            return np.inf
+
+
+    def _calculate_effective_polar_opening(self):
+        # ... (rest of the method) ...
+        # Ensure units are consistent (meters)
+        # The profile points from VesselGeometry are in mm, so scale them or ensure inputs are meters.
+        # My VesselGeometry from previous step returns mm. Let's assume inputs to TrajectoryPlanner are also mm
+        # and then convert internally. Or, better, TrajectoryPlanner works in meters and expects VesselGeometry to provide meters.
+        # For now, assuming VesselGeometry profile_points are in mm.
+        
+        # Using profile_points['r_inner'][0] which is in mm
+        rho_geom_pole_m = self.vessel.profile_points['r_inner'][0] * 1e-3 # Convert to meters
+        
+        ecc_0_m = self.roving_eccentricity_at_pole_m # Already in m from __init__
+        b_m = self.dry_roving_width_m              # Already in m
+        t_rov_m = self.dry_roving_thickness_m        # Already in m
+
+        dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole_m) # Pass meter value
+        # ... (rest of c_eff calculation as before, ensuring consistent units) ...
+        # (The c_eff calculation itself should use consistent units, e.g., meters)
+        if np.isinf(dz_drho_pole):
+             print(f"Warning: Slope dz/drho at pole is infinite. Effective polar opening calculation might be inaccurate.")
+             # If dz/drho is infinite (horizontal tangent for z), ds/drho is also infinite.
+             # The formula c_eff = rho_geom_pole + ecc_0 + (b/2)*sqrt(1+(dz/drho_pole)^2) - (t_rov/2)*(dz/drho_pole)
+             # becomes problematic.
+             # If meridian is vertical at the opening edge (like a cut cylinder), dz/drho = inf.
+             # If meridian is horizontal at the opening edge (like a flat plate closing), dz/drho = 0.
+             # Koussios's Z'(1) is for a closing dome, so near the pole, the tangent is nearly vertical.
+             # If dz/drho -> inf, then sqrt(1+(dz/drho)^2) -> |dz/drho|.
+             # c_eff -> rho_geom_pole + ecc_0 + (b/2 - t_rov/2) * dz/drho_pole
+             # This can become very large or very small if b != t_rov
+             # For safety, if inf, let's assume a large but finite slope.
+             effective_slope_term = (b_m / 2.0) * abs(dz_drho_pole) if np.isinf(dz_drho_pole) else (b_m / 2.0) * math.sqrt(1 + dz_drho_pole**2)
+             thickness_term_effect = (t_rov_m / 2.0) * dz_drho_pole if not np.isinf(dz_drho_pole) else (t_rov_m / 2.0) * np.sign(dz_drho_pole) * 1e6 # large number
+             self.effective_polar_opening_radius_m = rho_geom_pole_m + ecc_0_m + effective_slope_term - thickness_term_effect
+        else:
+            term_width = (b_m / 2.0) * math.sqrt(1 + dz_drho_pole**2)
+            term_thickness = (t_rov_m / 2.0) * dz_drho_pole
+            self.effective_polar_opening_radius_m = rho_geom_pole_m + ecc_0_m + term_width - term_thickness
+        
+        if self.effective_polar_opening_radius_m < 0: self.effective_polar_opening_radius_m = 1e-6 # Min small positive
+        if self.effective_polar_opening_radius_m > self.vessel.inner_radius * 1e-3: # Compare in meters
+            print(f"Warning: Effective polar opening ({self.effective_polar_opening_radius_m:.4f}m) "
+                  f"is greater than cylinder radius ({self.vessel.inner_radius * 1e-3:.4f}m). ")
+        print(f"Debug _calc_eff_polar: rho_geom_pole_m={rho_geom_pole_m:.4f}, dz_drho_pole={dz_drho_pole:.4f}, c_eff={self.effective_polar_opening_radius_m:.4f} m")
+
+        return self.effective_polar_opening_radius_m
+
+    # ... (rest of TrajectoryPlanner class, ensure units are consistent - meters) ...
+    # Example for calculate_geodesic_alpha_at_rho:
+    def calculate_geodesic_alpha_at_rho(self, rho_m: float) -> Optional[float]: # rho_m should be in meters
+        if self.effective_polar_opening_radius_m is None:
+            self._calculate_effective_polar_opening()
+        # ... (rest of method, ensure c_eff and rho_m are in same units) ...
+
+    # In generate_geodesic_trajectory, ensure profile points are converted to meters before use
+    def generate_geodesic_trajectory(self, num_points_half_circuit: int = 100):
+        # ...
+        profile_r_m = self.vessel.profile_points['r_inner'] * 1e-3 # Convert to meters
+        profile_z_m = self.vessel.profile_points['z'] * 1e-3   # Convert to meters
+        # ... use profile_r_m and profile_z_m for calculations ...
+        # ... when calling self.calculate_geodesic_alpha_at_rho(rho_i), rho_i should be in meters ...
+```
+
+**Key changes for debugging:**
+
+1.  **Debug Prints in `TrajectoryPlanner._get_slope_dz_drho_at_rho`**: Added prints to show the `type` and `keys` of `self.vessel.profile_points` *before* the line that accesses `'r_inner'`. This is the most critical part.
+2.  **Added Print in `TrajectoryPlanner.__init__`**: To check the state of `self.vessel.profile_points` after `generate_profile()` is called within the planner's initialization.
+3.  **Unit Consistency**: I've started adding `* 1e-3` to convert mm (from `VesselGeometry`) to meters for internal calculations in `TrajectoryPlanner`, assuming `TrajectoryPlanner` aims to work in SI base units (meters). This needs to be applied consistently. Your input `dry_roving_width_m`, etc., to `TrajectoryPlanner` should also be consistently in mm or m, and the constructor now converts assumed mm inputs to meters.
+
+Run your script again. The output from these print statements, especially the ones inside `_get_slope_dz_drho_at_rho` right before the error, will tell us exactly what `self.vessel.profile_points` is (or isn't).
+
+If it prints that `self.vessel.profile_points` is a dictionary and the keys *do not* include `'r_inner'`, then the problem is definitively in how `VesselGeometry.generate_profile()` is setting that dictionary.
+If it prints that `self.vessel.profile_points` is `None`, then `generate_profile()` failed to set it, likely due to an earlier error in dome generation that wasn't caught or didn't allow the `self.profile_points = {...}` line to be reached.
