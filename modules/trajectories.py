@@ -219,11 +219,26 @@ class TrajectoryPlanner:
             z_interp = np.interp(rho, rho_dome, z_dome)
             z_values.append(z_interp)
             
-            # Calculate incremental parallel angle (simplified)
+            # Calculate incremental parallel angle using proper geodesic theory
             if i > 0:
-                drho = rho - rho_points[i-1]
-                if abs(drho) > 1e-9 and not np.isclose(alpha, np.pi/2):
-                    dphi = drho / (rho * math.tan(alpha)) if math.tan(alpha) != 0 else 0
+                # Get previous values
+                rho_prev = rho_points[i-1]
+                z_prev = z_values[i-1]
+                alpha_prev = self.calculate_geodesic_alpha_at_rho(rho_prev)
+                
+                # Calculate meridional arc length
+                drho = rho - rho_prev
+                dz = z_interp - z_prev
+                ds_meridional = math.sqrt(drho**2 + dz**2)
+                
+                # Use average values for stability
+                rho_avg = (rho + rho_prev) / 2.0
+                alpha_avg = (alpha + alpha_prev) / 2.0 if alpha_prev is not None else alpha
+                
+                # Calculate parallel angle increment using geodesic formula
+                # dφ = (ds/ρ) * tan(α) for geodesic paths
+                if rho_avg > 1e-6 and abs(math.cos(alpha_avg)) > 1e-6:
+                    dphi = (ds_meridional / rho_avg) * math.tan(alpha_avg)
                     phi_cumulative += dphi
             
             phi_values.append(phi_cumulative)
