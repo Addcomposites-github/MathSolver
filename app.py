@@ -295,62 +295,89 @@ def trajectory_planning_page():
                     # Create interactive plot
                     fig_plotly = go.Figure()
                     
-                    # Generate full coverage pattern with multiple circuits
+                    # Generate continuous trajectory path (realistic winding simulation)
                     import math
                     
-                    # Get base trajectory data
+                    # Get base trajectory data for one pass
                     base_rho_m = st.session_state.trajectory_data.get('rho_points', [])
                     base_z_m = st.session_state.trajectory_data.get('z_coords', [])
                     base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
-                    alpha_eq_deg = st.session_state.trajectory_data.get('alpha_equator_deg', 45.0)
+                    
+                    # Number of passes to simulate (back-and-forth motion)
+                    num_passes = st.sidebar.slider("Number of Passes", min_value=1, max_value=8, value=4, 
+                                                  help="Number of pole-to-pole passes to simulate")
                     
                     if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
-                        # Calculate effective band width and circuit parameters
-                        dry_roving_width_m = 0.003  # 3mm from debug logs
-                        alpha_eq_rad = math.radians(alpha_eq_deg)
+                        # Calculate delta_phi for one complete pass
+                        delta_phi_one_pass = base_phi_rad[-1] - base_phi_rad[0]
                         
-                        if abs(math.cos(alpha_eq_rad)) > 1e-6:  # Avoid division by zero
-                            B_eff_m = dry_roving_width_m / math.cos(alpha_eq_rad)
-                            R_eq_m = st.session_state.vessel_geometry.inner_diameter / 2000  # Convert from mm diameter to meters radius
-                            delta_phi_small_rad = B_eff_m / R_eq_m
+                        # Generate continuous trajectory
+                        all_x_coords, all_y_coords, all_z_coords = [], [], []
+                        current_phi_offset = 0.0
+                        
+                        for i_pass in range(num_passes):
+                            # Determine direction: forward (even) or backward (odd)
+                            if (i_pass % 2) == 0:  # Forward pass
+                                pass_rho = np.array(base_rho_m)
+                                pass_z = np.array(base_z_m)
+                                pass_phi_relative = np.array(base_phi_rad)
+                            else:  # Backward pass (reverse direction)
+                                pass_rho = np.array(base_rho_m[::-1])
+                                pass_z = np.array(base_z_m[::-1])
+                                pass_phi_relative = np.array(base_phi_rad)
                             
-                            # Calculate number of circuits for one layer (with reasonable limits)
-                            num_circuits = min(int(math.ceil(2 * math.pi / delta_phi_small_rad)), 20)  # Max 20 circuits for performance
+                            # Calculate absolute phi for this pass
+                            pass_phi_absolute = pass_phi_relative + current_phi_offset
                             
-                            # Generate colors for different circuits
-                            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+                            # Convert to Cartesian coordinates
+                            pass_x = pass_rho * np.cos(pass_phi_absolute)
+                            pass_y = pass_rho * np.sin(pass_phi_absolute)
                             
-                            # Plot multiple circuits
-                            for j in range(num_circuits):
-                                # Calculate phi offset for this circuit
-                                phi_offset = j * delta_phi_small_rad
-                                current_phi = np.array(base_phi_rad) + phi_offset
-                                
-                                # Convert to Cartesian coordinates
-                                x_circuit = np.array(base_rho_m) * np.cos(current_phi)
-                                y_circuit = np.array(base_rho_m) * np.sin(current_phi)
-                                z_circuit = np.array(base_z_m)
-                                
-                                # Select color for this circuit
-                                circuit_color = colors[j % len(colors)]
-                                
-                                # Add this circuit to the plot
-                                fig_plotly.add_trace(go.Scatter3d(
-                                    x=x_circuit, y=y_circuit, z=z_circuit,
-                                    mode='lines',
-                                    line=dict(color=circuit_color, width=4),
-                                    name=f'Circuit {j+1}',
-                                    showlegend=(j < 5),  # Only show first 5 in legend
-                                    hovertemplate=f'<b>Circuit {j+1}</b><br>' +
-                                                  'X: %{x:.4f} m<br>' +
-                                                  'Y: %{y:.4f} m<br>' +
-                                                  'Z: %{z:.4f} m<extra></extra>'
-                                ))
+                            # Append points (skip first point for subsequent passes to avoid duplication)
+                            start_idx = 1 if i_pass > 0 else 0
+                            all_x_coords.extend(pass_x[start_idx:])
+                            all_y_coords.extend(pass_y[start_idx:])
+                            all_z_coords.extend(pass_z[start_idx:])
                             
-                            # Add summary text
-                            st.info(f"🎯 **Full Coverage Pattern:** {num_circuits} circuits • "
-                                   f"Band width: {B_eff_m*1000:.1f}mm • "
-                                   f"Angular spacing: {math.degrees(delta_phi_small_rad):.1f}°")
+                            # Update phi offset for next pass
+                            current_phi_offset += delta_phi_one_pass
+                        
+                        # Plot the continuous trajectory
+                        fig_plotly.add_trace(go.Scatter3d(
+                            x=all_x_coords, y=all_y_coords, z=all_z_coords,
+                            mode='lines+markers',
+                            line=dict(color='red', width=4),
+                            marker=dict(size=2, color='darkred'),
+                            name=f'Continuous Path ({num_passes} passes)',
+                            hovertemplate='<b>Continuous Winding Path</b><br>' +
+                                          'X: %{x:.4f} m<br>' +
+                                          'Y: %{y:.4f} m<br>' +
+                                          'Z: %{z:.4f} m<extra></extra>'
+                        ))
+                        
+                        # Add start and end markers
+                        fig_plotly.add_trace(go.Scatter3d(
+                            x=[all_x_coords[0]], y=[all_y_coords[0]], z=[all_z_coords[0]],
+                            mode='markers',
+                            marker=dict(size=10, color='green', symbol='diamond'),
+                            name='Start Point'
+                        ))
+                        
+                        fig_plotly.add_trace(go.Scatter3d(
+                            x=[all_x_coords[-1]], y=[all_y_coords[-1]], z=[all_z_coords[-1]],
+                            mode='markers',
+                            marker=dict(size=10, color='blue', symbol='square'),
+                            name='End Point'
+                        ))
+                        
+                        # Calculate total path statistics
+                        total_phi_rotation = current_phi_offset
+                        total_points = len(all_x_coords)
+                        
+                        # Add summary
+                        st.info(f"🎯 **Continuous Winding Simulation:** {num_passes} passes • "
+                               f"{total_points} trajectory points • "
+                               f"Total φ rotation: {math.degrees(total_phi_rotation):.1f}°")
                         
                         else:
                             # Fallback to single trajectory if calculations fail
