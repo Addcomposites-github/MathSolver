@@ -625,6 +625,84 @@ class TrajectoryPlanner:
             'alpha_equator_deg': self.alpha_eq_deg
         }
 
+    def generate_multi_circuit_trajectory(self, num_circuits: int = 4, 
+                                         num_points_dome: int = 150, 
+                                         num_points_cylinder: int = 20) -> Dict:
+        """
+        Generate complete multi-circuit winding trajectory for full vessel coverage.
+        
+        Parameters:
+        -----------
+        num_circuits : int
+            Number of circuits around the vessel circumference
+        num_points_dome : int
+            Points per dome segment
+        num_points_cylinder : int
+            Points per cylinder segment
+            
+        Returns:
+        --------
+        Dict : Complete multi-circuit trajectory data
+        """
+        # Generate base single circuit
+        base_circuit = self.generate_geodesic_trajectory(num_points_dome, num_points_cylinder)
+        
+        if base_circuit is None:
+            return None
+        
+        # Extract single circuit data
+        base_x = base_circuit['x_points']
+        base_y = base_circuit['y_points'] 
+        base_z = base_circuit['z_coords']
+        base_phi = base_circuit['phi_rad']
+        
+        # Initialize multi-circuit arrays
+        all_x, all_y, all_z = [], [], []
+        all_phi_continuous = []
+        
+        # Phase shift between circuits for even distribution
+        phi_shift_per_circuit = 2 * math.pi / num_circuits
+        
+        print(f"DEBUG: Generating {num_circuits} circuits with {phi_shift_per_circuit:.3f} rad shift per circuit")
+        
+        for circuit in range(num_circuits):
+            # Calculate phase shift for this circuit
+            phi_offset = circuit * phi_shift_per_circuit
+            
+            # Apply phase shift to get new positions
+            circuit_phi = base_phi + phi_offset
+            circuit_x = base_x * np.cos(phi_offset) - base_y * np.sin(phi_offset)
+            circuit_y = base_x * np.sin(phi_offset) + base_y * np.cos(phi_offset)
+            circuit_z = base_z.copy()
+            
+            # Accumulate trajectory points
+            all_x.extend(circuit_x)
+            all_y.extend(circuit_y)
+            all_z.extend(circuit_z)
+            all_phi_continuous.extend(circuit_phi)
+            
+            print(f"Circuit {circuit+1}: {len(circuit_x)} points, phi range: {circuit_phi[0]:.3f} to {circuit_phi[-1]:.3f} rad")
+        
+        # Calculate total statistics
+        total_points = len(all_x)
+        total_fiber_length = base_circuit.get('fiber_length_m', 0) * num_circuits
+        
+        return {
+            'pattern_type': 'Multi-Circuit Geodesic',
+            'num_circuits': num_circuits,
+            'total_points': total_points,
+            'points_per_circuit': len(base_x),
+            'x_points': np.array(all_x),
+            'y_points': np.array(all_y),
+            'z_coords': np.array(all_z),
+            'phi_rad_continuous': np.array(all_phi_continuous),
+            'total_fiber_length_m': total_fiber_length,
+            'target_cylinder_angle_deg': math.degrees(math.asin(self.clairauts_constant_for_path_m / 0.1)),
+            'c_eff_m': base_circuit.get('c_eff_m', 0),
+            'coverage_efficiency': 0.95 * num_circuits / 4.0,  # Assumes 4 circuits for full coverage
+            'base_circuit_data': base_circuit
+        }
+
     def calculate_trajectory(self, params: Dict) -> Dict:
         """
         Calculate winding trajectory based on parameters.
@@ -642,6 +720,12 @@ class TrajectoryPlanner:
         
         if pattern_type == 'Geodesic':
             return self.generate_geodesic_trajectory(params.get('num_points', 100))
+        elif pattern_type == 'Multi-Circuit':
+            return self.generate_multi_circuit_trajectory(
+                params.get('num_circuits', 4),
+                params.get('num_points_dome', 150),
+                params.get('num_points_cylinder', 20)
+            )
         elif pattern_type == 'Helical':
             return self._calculate_helical_trajectory(params)
         elif pattern_type == 'Hoop':
