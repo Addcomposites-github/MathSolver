@@ -561,8 +561,18 @@ def trajectory_planning_page():
                             st.metric("Y Range", f"{min(y_points):.1f} to {max(y_points):.1f} mm")
                         with col_info2:
                             st.metric("Z Range", f"{min(z_points):.1f} to {max(z_points):.1f} mm")
-                            st.metric("Max Radius", f"{max(st.session_state.trajectory_data['rho_points']):.1f} mm")
-                            st.metric("Phi Range", f"{min(st.session_state.trajectory_data['phi_rad']):.2f} to {max(st.session_state.trajectory_data['phi_rad']):.2f} rad")
+                            
+                            # Handle different data structures for single vs multi-circuit
+                            if 'rho_points' in st.session_state.trajectory_data:
+                                st.metric("Max Radius", f"{max(st.session_state.trajectory_data['rho_points']):.1f} mm")
+                                st.metric("Phi Range", f"{min(st.session_state.trajectory_data['phi_rad']):.2f} to {max(st.session_state.trajectory_data['phi_rad']):.2f} rad")
+                            else:
+                                # Calculate rho from x,y coordinates for multi-circuit data
+                                rho_values = [math.sqrt(x**2 + y**2) for x, y in zip(x_points, y_points)]
+                                st.metric("Max Radius", f"{max(rho_values):.1f} mm")
+                                if 'phi_rad_continuous' in st.session_state.trajectory_data:
+                                    phi_values = st.session_state.trajectory_data['phi_rad_continuous']
+                                    st.metric("Phi Range", f"{min(phi_values):.2f} to {max(phi_values):.2f} rad")
                     
                     with tab2:
                         st.write("**Cylindrical Coordinate Analysis (ρ, z, φ)**")
@@ -570,8 +580,22 @@ def trajectory_planning_page():
                         # Plot cylindrical coordinates
                         fig_cyl, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
                         
+                        # Handle different data structures for single vs multi-circuit
+                        if 'rho_points' in st.session_state.trajectory_data:
+                            # Single circuit data
+                            rho_data = st.session_state.trajectory_data['rho_points']
+                            phi_data = st.session_state.trajectory_data['phi_rad']
+                            alpha_data = st.session_state.trajectory_data['alpha_deg']
+                        else:
+                            # Multi-circuit data - calculate from x,y coordinates
+                            rho_data = [math.sqrt(x**2 + y**2) for x, y in zip(x_points, y_points)]
+                            phi_data = st.session_state.trajectory_data.get('phi_rad_continuous', [])
+                            # Calculate alpha for multi-circuit
+                            c_eff_mm = st.session_state.trajectory_data.get('c_eff_m', 0.04) * 1000
+                            alpha_data = [math.degrees(math.asin(min(c_eff_mm / rho, 1.0))) if rho > 0 else 90.0 for rho in rho_data]
+                        
                         # ρ vs point index
-                        ax1.plot(st.session_state.trajectory_data['rho_points'], 'b-', linewidth=2)
+                        ax1.plot(rho_data, 'b-', linewidth=2)
                         ax1.set_xlabel('Point Index')
                         ax1.set_ylabel('ρ (mm)')
                         ax1.set_title('Radial Coordinate vs Index')
@@ -585,14 +609,15 @@ def trajectory_planning_page():
                         ax2.grid(True, alpha=0.3)
                         
                         # φ vs point index
-                        ax3.plot(st.session_state.trajectory_data['phi_rad'], 'r-', linewidth=2)
+                        if len(phi_data) > 0:
+                            ax3.plot(phi_data, 'r-', linewidth=2)
                         ax3.set_xlabel('Point Index')
                         ax3.set_ylabel('φ (radians)')
                         ax3.set_title('Parallel Angle vs Index')
                         ax3.grid(True, alpha=0.3)
                         
                         # α vs ρ
-                        ax4.plot(st.session_state.trajectory_data['rho_points'], st.session_state.trajectory_data['alpha_deg'], 'm-', linewidth=2)
+                        ax4.plot(rho_data, alpha_data, 'm-', linewidth=2)
                         ax4.set_xlabel('ρ (mm)')
                         ax4.set_ylabel('α (degrees)')
                         ax4.set_title('Winding Angle vs Radius')
