@@ -312,8 +312,8 @@ class TrajectoryPlanner:
     def _resample_segment_adaptive(self, rho_segment: np.ndarray, z_segment: np.ndarray, 
                                   num_points: int) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Resample a profile segment with adaptive arc-length distribution.
-        Focuses computational points where geometry changes most rapidly.
+        Resample a profile segment with intelligent adaptive distribution.
+        Uses higher density where dφ/ds is large (rapid φ changes at poles).
         
         Parameters:
         -----------
@@ -326,12 +326,12 @@ class TrajectoryPlanner:
             
         Returns:
         --------
-        Tuple[np.ndarray, np.ndarray] : Resampled (rho, z) coordinates
+        Tuple[np.ndarray, np.ndarray] : Resampled (rho, z) coordinates with smart density
         """
         if len(rho_segment) < 2 or num_points < 2:
             return rho_segment, z_segment
         
-        # Calculate cumulative arc length for uniform spacing along the curve
+        # Calculate cumulative arc length
         s_coords = np.zeros_like(rho_segment)
         for i in range(1, len(rho_segment)):
             ds = math.sqrt((rho_segment[i] - rho_segment[i-1])**2 + 
@@ -341,12 +341,88 @@ class TrajectoryPlanner:
         if abs(s_coords[-1]) < 1e-9:
             return rho_segment, z_segment
         
-        # Create uniform arc-length distribution
-        s_new = np.linspace(s_coords[0], s_coords[-1], num_points)
+        # Calculate phi rate density factor: dφ/ds = tan(α)/ρ
+        # Higher values near poles where ρ is small and α approaches 90°
+        c_path = self.clairauts_constant_for_path_m
+        phi_rate_weights = np.ones_like(rho_segment)
+        
+        for i, rho in enumerate(rho_segment):
+            if rho >= c_path and abs(rho) > 1e-9:
+                # Calculate winding angle at this radius
+                sin_alpha = min(c_path / rho, 1.0)
+                if sin_alpha < 0.999:  # Avoid division by zero near α=90°
+                    tan_alpha = sin_alpha / math.sqrt(1 - sin_alpha**2)
+                    phi_rate = tan_alpha / rho  # dφ/ds
+                    # Weight factor: higher near poles (high phi_rate)
+                    phi_rate_weights[i] = 1.0 + 5.0 * min(phi_rate, 10.0)  # Cap at reasonable max
+                else:
+                    phi_rate_weights[i] = 6.0  # High density near 90° regions
+        
+        # Create adaptive distribution based on phi rate
+        cumulative_weight = np.cumsum(phi_rate_weights)
+        total_weight = cumulative_weight[-1]
+        
+        # Generate new points with density proportional to phi rate
+        weight_positions = np.linspace(0, total_weight, num_points)
+        s_new = np.interp(weight_positions, cumulative_weight, s_coords)
+        
         rho_resampled = np.interp(s_new, s_coords, rho_segment)
         z_resampled = np.interp(s_new, s_coords, z_segment)
         
+        print(f"DEBUG: Smart resampling - Added {np.sum(phi_rate_weights > 2.0)} high-density polar points")
+        
         return rho_resampled, z_resampled
+
+    def _add_polar_turnaround_points(self, path_rho_m: List, path_z_m: List, path_alpha_rad: List, 
+                                   path_phi_rad_cumulative: List, path_x_m: List, path_y_m: List,
+                                   rho_center: float, z_center: float, alpha_center: float, 
+                                   phi_center: float, c_for_winding: float, num_interp_points: int = 8):
+        """
+        Add interpolated points around polar turnaround regions for ultra-smooth visualization.
+        Creates a small arc of points with gradually changing phi to eliminate visual kinks.
+        
+        Parameters:
+        -----------
+        path_* : Lists to append points to
+        rho_center, z_center : Center point of polar region
+        alpha_center, phi_center : Winding and parallel angles at center
+        c_for_winding : Clairaut's constant for this trajectory
+        num_interp_points : Number of interpolation points to add
+        """
+        if alpha_center > math.pi/3:  # Only for steep angles (>60°) near poles
+            # Create small arc around polar region with smooth phi progression
+            arc_radius = c_for_winding * 0.05  # Small arc, 5% of turning radius
+            
+            for i in range(num_interp_points):
+                # Parametric angle for small arc
+                theta = (i / (num_interp_points - 1)) * math.pi - math.pi/2  # -90° to +90°
+                
+                # Interpolated position slightly around the polar point
+                rho_interp = rho_center + arc_radius * 0.3 * math.cos(theta)
+                z_interp = z_center + arc_radius * math.sin(theta)
+                
+                # Smooth phi progression for turnaround
+                phi_interp = phi_center + (i / (num_interp_points - 1)) * 0.2  # Small phi increment
+                
+                # Recalculate alpha for interpolated position
+                alpha_interp = self.calculate_geodesic_alpha_at_rho(rho_interp)
+                if alpha_interp is None:
+                    alpha_interp = alpha_center
+                
+                path_rho_m.append(rho_interp)
+                path_z_m.append(z_interp)
+                path_alpha_rad.append(alpha_interp)
+                path_phi_rad_cumulative.append(phi_interp)
+                path_x_m.append(rho_interp * math.cos(phi_interp))
+                path_y_m.append(rho_interp * math.sin(phi_interp))
+        else:
+            # Standard point addition for shallow angles
+            path_rho_m.append(rho_center)
+            path_z_m.append(z_center)
+            path_alpha_rad.append(alpha_center)
+            path_phi_rad_cumulative.append(phi_center)
+            path_x_m.append(rho_center * math.cos(phi_center))
+            path_y_m.append(rho_center * math.sin(phi_center))
 
     def _identify_vessel_segments(self, profile_r_m: np.ndarray, profile_z_m: np.ndarray) -> Dict:
         """
@@ -486,7 +562,7 @@ class TrajectoryPlanner:
             print("Error: Not enough profile points for trajectory calculation")
             return None
         
-        # Process complete vessel profile to find windable path
+        # Process complete vessel profile to find windable path with smooth polar transitions
         path_rho_m, path_z_m, path_alpha_rad, path_phi_rad_cumulative = [], [], [], []
         path_x_m, path_y_m = [], []
         current_phi_rad = 0.0
@@ -500,7 +576,7 @@ class TrajectoryPlanner:
             if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
                 alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
                 if alpha_i_rad is None:
-                    if np.isclose(rho_i_m, c_for_winding):
+                    if abs(rho_i_m - c_for_winding) < 1e-6:
                         alpha_i_rad = math.pi / 2.0  # Turn-around at polar opening
                     else:
                         alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
@@ -513,14 +589,23 @@ class TrajectoryPlanner:
                     break
 
             if not first_valid_point_found:
-                # First valid point - start of trajectory
+                # First valid point - start of trajectory with polar turnaround enhancement
                 first_valid_point_found = True
-                path_rho_m.append(rho_i_m)
-                path_z_m.append(z_i_m)
-                path_alpha_rad.append(alpha_i_rad)
-                path_phi_rad_cumulative.append(current_phi_rad)
-                path_x_m.append(rho_i_m * math.cos(current_phi_rad))
-                path_y_m.append(rho_i_m * math.sin(current_phi_rad))
+                
+                # Check if we're starting near the polar region
+                if abs(rho_i_m - c_for_winding) < c_for_winding * 0.1:  # Within 10% of turning radius
+                    # Add extra interpolation points for smooth polar turnaround
+                    self._add_polar_turnaround_points(
+                        path_rho_m, path_z_m, path_alpha_rad, path_phi_rad_cumulative, 
+                        path_x_m, path_y_m, rho_i_m, z_i_m, alpha_i_rad, current_phi_rad, c_for_winding
+                    )
+                else:
+                    path_rho_m.append(rho_i_m)
+                    path_z_m.append(z_i_m)
+                    path_alpha_rad.append(alpha_i_rad)
+                    path_phi_rad_cumulative.append(current_phi_rad)
+                    path_x_m.append(rho_i_m * math.cos(current_phi_rad))
+                    path_y_m.append(rho_i_m * math.sin(current_phi_rad))
                 continue
 
             # Calculate phi increment for segment
