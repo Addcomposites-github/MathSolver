@@ -380,18 +380,19 @@ def trajectory_planning_page():
                         plt.tight_layout()
                         st.pyplot(fig_cyl)
                         
-                        # Show first few points for debugging
-                        st.write("**First 10 Trajectory Points (Cylindrical)**")
+                        # Show all trajectory points for complete debugging
+                        st.write("**All Trajectory Points (Cylindrical Coordinates)**")
                         debug_data_cyl = []
-                        for i in range(min(10, len(x_points))):
+                        for i in range(len(x_points)):
                             debug_data_cyl.append({
                                 "Point": i,
                                 "ρ (mm)": f"{st.session_state.trajectory_data['rho_points'][i]:.3f}",
                                 "z (mm)": f"{z_points[i]:.3f}",
                                 "φ (rad)": f"{st.session_state.trajectory_data['phi_rad'][i]:.4f}",
+                                "φ (deg)": f"{math.degrees(st.session_state.trajectory_data['phi_rad'][i]):.2f}",
                                 "α (deg)": f"{st.session_state.trajectory_data['alpha_deg'][i]:.2f}"
                             })
-                        st.dataframe(debug_data_cyl)
+                        st.dataframe(debug_data_cyl, height=400)
                     
                     with tab3:
                         st.write("**Cartesian Coordinate Analysis (x, y, z)**")
@@ -435,18 +436,20 @@ def trajectory_planning_page():
                         plt.tight_layout()
                         st.pyplot(fig_cart)
                         
-                        # Show first few points for debugging
-                        st.write("**First 10 Trajectory Points (Cartesian)**")
+                        # Show all trajectory points for complete debugging
+                        st.write("**All Trajectory Points (Cartesian Coordinates)**")
                         debug_data_cart = []
-                        for i in range(min(10, len(x_points))):
+                        for i in range(len(x_points)):
+                            distance_from_axis = math.sqrt(x_points[i]**2 + y_points[i]**2)
                             debug_data_cart.append({
                                 "Point": i,
                                 "x (mm)": f"{x_points[i]:.3f}",
                                 "y (mm)": f"{y_points[i]:.3f}",
                                 "z (mm)": f"{z_points[i]:.3f}",
-                                "Distance": f"{math.sqrt(x_points[i]**2 + y_points[i]**2):.3f}"
+                                "R_dist (mm)": f"{distance_from_axis:.3f}",
+                                "Angle (deg)": f"{math.degrees(math.atan2(y_points[i], x_points[i])):.1f}"
                             })
-                        st.dataframe(debug_data_cart)
+                        st.dataframe(debug_data_cart, height=400)
                     
                     # Display geodesic parameters
                     st.subheader("Geodesic Parameters")
