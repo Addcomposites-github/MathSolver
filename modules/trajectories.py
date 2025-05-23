@@ -131,26 +131,39 @@ class TrajectoryPlanner:
         Based on Koussios Thesis Ch. 8.1, Eq. 8.5.
         """
         profile_points = self.vessel.get_profile_points()
-        rho_geom_pole = profile_points['r_inner_mm'][0]  # Geometric polar opening
+        rho_geom_pole_mm = profile_points['r_inner_mm'][0]  # Geometric polar opening in mm
+        rho_geom_pole_m = rho_geom_pole_mm * 1e-3  # Convert to meters
         
-        ecc_0 = self.roving_eccentricity_at_pole_m
-        b = self.dry_roving_width_m
-        t_rov = self.dry_roving_thickness_m
+        ecc_0_m = self.roving_eccentricity_at_pole_m
+        b_m = self.dry_roving_width_m
+        t_rov_m = self.dry_roving_thickness_m
 
-        # Calculate dz/drho at the geometric pole
-        dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole)
+        # Calculate dz/drho at the geometric pole (pass meters to slope function)
+        dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole_m)
+        
+        print(f"--- INSIDE _calculate_effective_polar_opening (DEBUG) ---")
+        print(f"  rho_geom_pole_m (from profile[0]*1e-3): {rho_geom_pole_m:.6f} m")
+        print(f"  ecc_0_m (from self): {ecc_0_m:.6f} m")
+        print(f"  b_m (self.dry_roving_width_m): {b_m:.6f} m")
+        print(f"  t_rov_m (self.dry_roving_thickness_m): {t_rov_m:.6f} m")
+        print(f"  dz_drho_pole (from _get_slope): {dz_drho_pole:.6f}")
         
         # Handle infinite slope (vertical tangent)
         if np.isinf(dz_drho_pole):
             dz_drho_pole = 1e6  # Use large finite number
+            print(f"  dz_drho_pole was infinite, using: {dz_drho_pole}")
 
         # Koussios formula: c_eff = rho_pole + ecc + (b/2)*sqrt(1+(dz/drho)^2) - (t/2)*(dz/drho)
-        term_width = (b / 2.0) * math.sqrt(1 + dz_drho_pole**2)
-        term_thickness = (t_rov / 2.0) * dz_drho_pole
+        term_width = (b_m / 2.0) * math.sqrt(1 + dz_drho_pole**2)
+        term_thickness = (t_rov_m / 2.0) * dz_drho_pole
         
-        # Convert rho_geom_pole from mm to meters before calculation
-        rho_geom_pole_m = rho_geom_pole * 1e-3
-        self.effective_polar_opening_radius_m = rho_geom_pole_m + ecc_0 + term_width - term_thickness
+        print(f"  term_width: {term_width:.6f} m")
+        print(f"  term_thickness: {term_thickness:.6f} m")
+        
+        calculated_c_eff = rho_geom_pole_m + ecc_0_m + term_width - term_thickness
+        print(f"  CALCULATED c_eff before assignment: {calculated_c_eff:.6f} m")
+        
+        self.effective_polar_opening_radius_m = calculated_c_eff
         
         # Ensure c_eff is positive and reasonable
         if self.effective_polar_opening_radius_m < 0:

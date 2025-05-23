@@ -1,0 +1,117 @@
+That's great news that the "AI agent" (presumably you or a tool you're using) found and fixed the units bug causing the massive `c_eff`! A `c_eff` of ~30mm (0.03m) is much more realistic for a vessel with a 30.6mm polar radius and 100mm equatorial radius.
+
+Let's analyze your new console log with the understanding that the unit issue for `c_eff` calculation inputs (`b_m`, `t_rov_m`) is now resolved.
+
+**Analysis of the New Debug Log (Post "AI Agent Fix"):**
+
+1.  **Isotensoid Profile Generation (`_generate_isotensoid_profile`):**
+    * `Input q: 10.7, r: 0.1`
+    * `Vessel inner_radius (target equatorial for dome): 100.0 mm`
+    * `Adjusted rho_0_adjusted: 9.9950 mm` (This is $R_{eq} / Y_{eq\_raw}$)
+    * `Calculated dome polar radius: 30.5709 mm` (This is $Y_{min\_raw} \times \text{rho\_0\_adjusted}$)
+    * `Calculated dome equatorial radius: 100.0000 mm` (This is $Y_{eq\_raw} \times \text{rho\_0\_adjusted}$, matches `inner_radius`)
+    * `Calculated actual_dome_height_m: 72.4414 mm`
+    * The `rho_abs_profile` goes from ~30.57mm to 100mm, and `z_local_dome_abs` goes from ~72.44mm to 0.
+    * **Conclusion:** The `VesselGeometry` class is generating a sensible isotensoid dome profile where the pole is at approx. 30.57mm radius and the equator at 100mm radius, with a dome height of approx. 72.44mm. This is excellent.
+
+2.  **`VesselGeometry.generate_profile()`:**
+    * The log shows `self.profile_points` is correctly assigned with `r_inner`, `z`, etc.
+    * The `r_inner` array correctly reflects the isotensoid dome starting at ~30.57mm, going to 100mm, then the cylinder, then the aft dome mirroring this.
+
+3.  **`TrajectoryPlanner.__init__`:**
+    * Receives the correctly populated `profile_points`.
+    * Confirms `'r_inner'` key is present with 102 elements.
+
+4.  **`_get_slope_dz_drho_at_rho`:**
+    * `rho_target_m for slope calculation: 32.79129178919764`
+        * **This is still a problematic value.** The *current* isotensoid profile's first `r_inner` point is `30.57089203` mm. The value `32.79...` mm does not match this. This means that `rho_geom_pole_m = self.vessel.profile_points['r_inner'][0] * 1e-3` inside `_calculate_effective_polar_opening` is likely using `r_inner[0]` from an *older or different profile calculation run* (perhaps the previous "Elliptical" run, as that data started near 0 and the point `32.79...` was somewhere on its curve, or it's the first point of the user's CSV data).
+        * This needs to be addressed: `_calculate_effective_polar_opening` must use the slope at the pole of the *current* active profile.
+
+5.  **Crucial Debug Output for `c_eff` and Trajectory Generation:**
+    * `DEBUG generate_geodesic_trajectory: Using c_eff = 0.113792 m` (113.792 mm)
+    * `DEBUG: Roving parameters - width: 3.0mm, thickness: 0.2mm`
+    * `DEBUG: Original profile Z range: -0.2229m to 0.2229m`
+    * `DEBUG: Original profile R range: 0.0328m to 0.1000m` (Min R is `32.79...mm` if this log is consistent with the `rho_target_m` above, OR `30.57...mm` if based on current isotensoid profile. The log shows `0.0328m`, which is `32.79mm`).
+    * `DEBUG: Resampled profile to 100 points`
+    * `Error: No valid trajectory points generated`
+    * `DEBUG: c_eff = 0.113792 m`
+    * `DEBUG: Profile R range: 0.032791m to 0.100000m` (This is the resampled profile based on the original R range above)
+    * `DEBUG: Number of points with rho >= c_eff: 0`
+
+**The core problem persists: `c_eff` is calculated as 0.113792m (113.792mm).**
+This is because, as hypothesized before, `_calculate_effective_polar_opening` is likely still using incorrect input values for `b_m` (roving width) and `t_rov_m` (roving thickness), treating values intended as millimeters as if they were meters, OR the `dz_drho_pole` it's using is incorrect due to the `rho_target_m` mismatch.
+
+**Let's analyze why `c_eff` might be 0.113792 m:**
+$c_{eff} \approx \rho_{geom\_pole\_m} + 0.51318 \cdot b_m + 0.11555 \cdot t_{rov\_m}$ (using slope for isotensoid where $dz/d\rho \approx -3.6856$ if pole is 30.57mm)
+OR $c_{eff} \approx \rho_{geom\_pole\_m} + (b_m/2)\sqrt{1+(dz/d\rho)^2} - (t_{rov\_m}/2)(dz/d\rho)$
+
+If `rho_geom_pole_m = 0.03057 m` (actual start of current isotensoid profile).
+And the target `c_eff` is `0.113792 m`.
+$0.113792 = 0.03057 + \text{roving_terms}$
+$\text{roving_terms} = 0.113792 - 0.03057 = 0.083222$ m.
+
+Using $dz/d\rho \approx -3.6856$:
+$0.083222 = (b_m/2)(3.8188) + (t_{rov\_m}/2)(3.6856)$
+$0.083222 = 1.9094 \cdot b_m + 1.8428 \cdot t_{rov\_m}$
+
+If the "AI fix" ensured units are now correct (i.e., `b_m = 0.003`m, `t_rov_m = 0.0002`m):
+$1.9094 \cdot (0.003) + 1.8428 \cdot (0.0002) = 0.0057282 + 0.00036856 = 0.00609676$.
+This calculated `roving_terms` (0.00609m) is much smaller than the required 0.083222m to get $c_{eff}=0.113792m$.
+
+**This implies that even after the "AI fix", the `b_m` and `t_rov_m` values used inside `_calculate_effective_polar_opening` are *not* the correct small meter values (0.003m and 0.0002m).** They must be larger.
+
+**It's essential to see the output of the debug prints *inside* `_calculate_effective_polar_opening` that print `rho_geom_pole_m`, `ecc_0_m`, `b_m`, `t_rov_m`, `dz_drho_pole`, `term_width`, `term_thickness`, and the `calculated_c_eff` just before it's assigned.**
+
+The line `rho_target_m for slope calculation: 32.79129178919764` in the `_get_slope_dz_drho_at_rho` debug output is still very concerning. If this is the `rho_geom_pole_m` value (in mm before conversion, or in m if conversion was missed) used in `_calculate_effective_polar_opening`, it does NOT match the first point of the *current* isotensoid profile (`r_inner[0]` is 30.57089203). This suggests that `self.vessel.profile_points['r_inner'][0]` might be getting overwritten or accessed from a stale object state when `_calculate_effective_polar_opening` runs.
+
+**Action Plan:**
+
+1.  **Confirm Unit Conversion in `TrajectoryPlanner` Constructor:**
+    The "AI agent fix" mentioned "Added proper units conversion so all parameters use consistent units (meters)."
+    Please ensure that in your `TrajectoryPlanner.__init__` method, the `dry_roving_width_m`, `dry_roving_thickness_m`, and `roving_eccentricity_at_pole_m` that are passed to the constructor are either:
+    * Expected in **meters** by the constructor, and you are calling it with meter values (e.g., 0.003, 0.0002).
+    * Expected in **millimeters** by the constructor, and then converted to meters *inside* `__init__` before being stored in `self.dry_roving_width_m` etc. For example:
+        ```python
+        # In TrajectoryPlanner.__init__
+        def __init__(self, vessel_geometry: VesselGeometry, 
+                     dry_roving_width_mm: float, 
+                     dry_roving_thickness_mm: float, 
+                     roving_eccentricity_at_pole_mm: float = 0.0):
+            # ...
+            self.dry_roving_width_m = dry_roving_width_mm * 1e-3
+            self.dry_roving_thickness_m = dry_roving_thickness_mm * 1e-3
+            self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_mm * 1e-3
+            # ...
+        ```
+    Your debug string `DEBUG: Roving parameters - width: 3.0mm, thickness: 0.2mm` strongly implies the parameters are thought of in mm.
+
+2.  **Add the Critical Debug Print Inside `_calculate_effective_polar_opening()`:**
+    This is the most important step to see the actual values being used to calculate `c_eff`.
+    ```python
+    # In TrajectoryPlanner._calculate_effective_polar_opening()
+    # ...
+    rho_geom_pole_m = self.vessel.profile_points['r_inner'][0] * 1e-3 
+    ecc_0_m = self.roving_eccentricity_at_pole_m 
+    b_m = self.dry_roving_width_m
+    t_rov_m = self.dry_roving_thickness_m
+    
+    # Call _get_slope_dz_drho_at_rho with the correct rho_geom_pole_m
+    dz_drho_pole = self._get_slope_dz_drho_at_rho(rho_geom_pole_m) # Pass the meter value
+
+    print(f"--- INSIDE _calculate_effective_polar_opening (DEBUG) ---")
+    print(f"  rho_geom_pole_m (from profile[0]*1e-3): {rho_geom_pole_m:.6f} m")
+    print(f"  ecc_0_m (from self): {ecc_0_m:.6f} m")
+    print(f"  b_m (self.dry_roving_width_m): {b_m:.6f} m") # Value stored in instance
+    print(f"  t_rov_m (self.dry_roving_thickness_m): {t_rov_m:.6f} m") # Value stored in instance
+    print(f"  dz_drho_pole (from _get_slope): {dz_drho_pole:.6f}")
+
+    # ... rest of c_eff calculation ...
+    # calculated_c_eff = ...
+    # print(f"  CALCULATED c_eff before assignment: {calculated_c_eff:.6f} m")
+    # self.effective_polar_opening_radius_m = calculated_c_eff
+    ```
+    This will show precisely what `b_m` and `t_rov_m` are when `c_eff` is computed. If they are, for example, 3.0 and 0.2 (meters) instead of 0.003 and 0.0002 (meters), that's the source of the large `c_eff`.
+
+The value `rho_target_m for slope calculation: 32.79...` also needs to be understood. Why is `_get_slope_dz_drho_at_rho` being called with this value if the current isotensoid profile starts at `30.57...`? This might indicate a stale `self.vessel.profile_points` or an incorrect index being used for `rho_geom_pole_m` at some point. However, the log for `TrajectoryPlanner.__init__` showed the correct isotensoid profile.
+
+Let's get the output from the detailed print inside `_calculate_effective_polar_opening`.
