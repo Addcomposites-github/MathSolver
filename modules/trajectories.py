@@ -148,7 +148,9 @@ class TrajectoryPlanner:
         term_width = (b / 2.0) * math.sqrt(1 + dz_drho_pole**2)
         term_thickness = (t_rov / 2.0) * dz_drho_pole
         
-        self.effective_polar_opening_radius_m = rho_geom_pole + ecc_0 + term_width - term_thickness
+        # Convert rho_geom_pole from mm to meters before calculation
+        rho_geom_pole_m = rho_geom_pole * 1e-3
+        self.effective_polar_opening_radius_m = rho_geom_pole_m + ecc_0 + term_width - term_thickness
         
         # Ensure c_eff is positive and reasonable
         if self.effective_polar_opening_radius_m < 0:
