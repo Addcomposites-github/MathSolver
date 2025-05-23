@@ -304,8 +304,9 @@ def trajectory_planning_page():
                     base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
                     
                     # Number of passes to simulate (back-and-forth motion)
-                    num_passes = st.sidebar.slider("Number of Passes", min_value=1, max_value=8, value=4, 
-                                                  help="Number of pole-to-pole passes to simulate")
+                    st.subheader("Continuous Winding Parameters")
+                    num_passes = st.slider("Number of Passes", min_value=1, max_value=8, value=4, 
+                                         help="Number of pole-to-pole passes to simulate")
                     
                     if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
                         # Calculate delta_phi for one complete pass
@@ -378,10 +379,10 @@ def trajectory_planning_page():
                         st.info(f"🎯 **Continuous Winding Simulation:** {num_passes} passes • "
                                f"{total_points} trajectory points • "
                                f"Total φ rotation: {math.degrees(total_phi_rotation):.1f}°")
-                        
-                        else:
-                            # Fallback to single trajectory if calculations fail
-                            fig_plotly.add_trace(go.Scatter3d(
+                    
+                    else:
+                        # Fallback to single trajectory if calculations fail
+                        fig_plotly.add_trace(go.Scatter3d(
                                 x=x_m, y=y_m, z=z_m,
                                 mode='lines+markers',
                                 line=dict(color='red', width=6),
@@ -392,19 +393,6 @@ def trajectory_planning_page():
                                               'Y: %{y:.4f} m<br>' +
                                               'Z: %{z:.4f} m<extra></extra>'
                             ))
-                    else:
-                        # Fallback to basic trajectory if data unavailable
-                        fig_plotly.add_trace(go.Scatter3d(
-                            x=x_m, y=y_m, z=z_m,
-                            mode='lines+markers',
-                            line=dict(color='red', width=6),
-                            marker=dict(size=3, color='darkred'),
-                            name='Basic Trajectory',
-                            hovertemplate='<b>Trajectory</b><br>' +
-                                          'X: %{x:.4f} m<br>' +
-                                          'Y: %{y:.4f} m<br>' +
-                                          'Z: %{z:.4f} m<extra></extra>'
-                        ))
                     
                     # Plot vessel outline in 3D (with error handling)
                     try:
