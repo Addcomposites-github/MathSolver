@@ -258,12 +258,86 @@ def trajectory_planning_page():
         if st.session_state.trajectory_data is not None:
             visualizer = VesselVisualizer()
             
-            # Plot trajectory
+            # Plot trajectory - 2D view
             fig = visualizer.plot_winding_trajectory(
                 st.session_state.vessel_geometry,
                 st.session_state.trajectory_data
             )
             st.pyplot(fig)
+            
+            # Add 3D visualization for geodesic trajectories
+            if st.session_state.trajectory_data.get('pattern_type') == 'Geodesic':
+                st.subheader("3D Trajectory Visualization")
+                
+                # Check if we have 3D coordinate data
+                if 'x_points' in st.session_state.trajectory_data and 'y_points' in st.session_state.trajectory_data:
+                    import matplotlib.pyplot as plt
+                    from mpl_toolkits.mplot3d import Axes3D
+                    
+                    # Create 3D plot
+                    fig_3d = plt.figure(figsize=(12, 10))
+                    ax = fig_3d.add_subplot(111, projection='3d')
+                    
+                    # Get trajectory data
+                    x_points = st.session_state.trajectory_data['x_points']
+                    y_points = st.session_state.trajectory_data['y_points'] 
+                    z_points = st.session_state.trajectory_data['z_coords']
+                    
+                    # Plot the geodesic trajectory
+                    ax.plot(x_points, y_points, z_points, 'b-', linewidth=2, alpha=0.8, label='Geodesic Path')
+                    ax.scatter(x_points[0], y_points[0], z_points[0], color='green', s=100, label='Start Point')
+                    ax.scatter(x_points[-1], y_points[-1], z_points[-1], color='red', s=100, label='End Point')
+                    
+                    # Plot vessel outline in 3D
+                    vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+                    r_vessel = vessel_profile['r_inner_mm']
+                    z_vessel = vessel_profile['z_mm']
+                    
+                    # Create circular cross-sections at various z-positions
+                    theta_circle = np.linspace(0, 2*np.pi, 50)
+                    for i in range(0, len(z_vessel), 10):  # Sample every 10th point
+                        z_level = z_vessel[i]
+                        r_level = r_vessel[i]
+                        x_circle = r_level * np.cos(theta_circle)
+                        y_circle = r_level * np.sin(theta_circle)
+                        z_circle = np.full_like(x_circle, z_level)
+                        ax.plot(x_circle, y_circle, z_circle, 'k-', alpha=0.3, linewidth=0.5)
+                    
+                    # Formatting
+                    ax.set_xlabel('X (mm)')
+                    ax.set_ylabel('Y (mm)')
+                    ax.set_zlabel('Z (mm)')
+                    ax.set_title('3D Geodesic Filament Winding Trajectory')
+                    ax.legend()
+                    
+                    # Equal aspect ratio
+                    max_range = max(max(x_points) - min(x_points), 
+                                   max(y_points) - min(y_points),
+                                   max(z_points) - min(z_points)) / 2
+                    mid_x = (max(x_points) + min(x_points)) / 2
+                    mid_y = (max(y_points) + min(y_points)) / 2
+                    mid_z = (max(z_points) + min(z_points)) / 2
+                    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+                    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+                    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+                    
+                    st.pyplot(fig_3d)
+                    
+                    # Display geodesic parameters
+                    st.subheader("Geodesic Parameters")
+                    col_geo1, col_geo2 = st.columns(2)
+                    with col_geo1:
+                        if 'c_eff_m' in st.session_state.trajectory_data:
+                            st.metric("Effective Polar Opening", f"{st.session_state.trajectory_data['c_eff_m']*1000:.2f} mm")
+                        if 'alpha_equator_deg' in st.session_state.trajectory_data:
+                            st.metric("Equatorial Winding Angle", f"{st.session_state.trajectory_data['alpha_equator_deg']:.1f}°")
+                    
+                    with col_geo2:
+                        if 'turn_around_angle_deg' in st.session_state.trajectory_data:
+                            st.metric("Turn-around Angle", f"{st.session_state.trajectory_data['turn_around_angle_deg']:.1f}°")
+                        st.metric("Path Points", f"{len(x_points)}")
+                else:
+                    st.info("3D coordinate data not available for this trajectory type.")
             
             # Display trajectory properties
             st.subheader("Trajectory Properties")
