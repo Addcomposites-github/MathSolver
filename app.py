@@ -331,10 +331,26 @@ def trajectory_planning_page():
                                       'Z: %{z:.4f} m<extra></extra>'
                     ))
                     
-                    # Plot vessel outline in 3D
-                    vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                    r_vessel = np.array(vessel_profile['r_inner']) / 1000  # Convert to meters
-                    z_vessel = np.array(vessel_profile['z']) / 1000        # Convert to meters
+                    # Plot vessel outline in 3D (with error handling)
+                    try:
+                        vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+                        
+                        # Check which keys are available and use the correct ones
+                        if 'r_inner' in vessel_profile:
+                            r_vessel = np.array(vessel_profile['r_inner']) / 1000  # Already in mm, convert to meters
+                            z_vessel = np.array(vessel_profile['z']) / 1000
+                        elif 'r_inner_mm' in vessel_profile:
+                            r_vessel = np.array(vessel_profile['r_inner_mm']) / 1000  # Convert to meters
+                            z_vessel = np.array(vessel_profile['z_mm']) / 1000
+                        else:
+                            # Generate simple cylinder outline as fallback
+                            z_range = np.linspace(-0.2, 0.2, 10)
+                            r_vessel = np.full_like(z_range, 0.1)  # 100mm radius
+                            z_vessel = z_range
+                    except Exception as e:
+                        # Simple fallback outline
+                        z_vessel = np.linspace(-0.2, 0.2, 10) 
+                        r_vessel = np.full_like(z_vessel, 0.1)
                     
                     # Create circular cross-sections at various z-positions
                     theta_circle = np.linspace(0, 2*np.pi, 30)
