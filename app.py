@@ -210,7 +210,20 @@ def trajectory_planning_page():
             roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
             polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
             
-            st.markdown("### 🎯 Adaptive Point Distribution")
+            st.markdown("### 🎯 Target Winding Angle")
+            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=False,
+                                         help="Define desired winding angle instead of using geometric limit")
+            
+            target_angle = None
+            if use_target_angle:
+                target_angle = st.slider("Target Cylinder Angle (degrees)", 
+                                        min_value=10.0, max_value=80.0, value=55.0, step=1.0,
+                                        help="Desired winding angle on cylinder section")
+                st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
+            else:
+                st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
+            
+            st.markdown("### 🚀 Adaptive Point Distribution")
             st.info("**Smart Optimization**: Use more points in dome regions (high curvature) and fewer in cylinder (constant curvature)")
             col_dome, col_cyl = st.columns(2)
             with col_dome:
@@ -231,12 +244,32 @@ def trajectory_planning_page():
                         st.session_state.vessel_geometry,
                         dry_roving_width_m=roving_width/1000,
                         dry_roving_thickness_m=roving_thickness/1000,
-                        roving_eccentricity_at_pole_m=polar_eccentricity/1000
+                        roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                        target_cylinder_angle_deg=target_angle
                     )
+                    
+                    # Show validation results
+                    validation = planner.get_validation_results()
+                    if validation and not validation.get('is_valid', True):
+                        if validation['error_type'] == 'too_shallow':
+                            st.error(f"❌ **Target angle {target_angle}° is too shallow!**")
+                            st.info(f"🔧 **Minimum achievable**: {validation['min_achievable_angle']:.1f}°")
+                            st.info(f"💡 **Why**: Requires turning radius smaller than physical limit")
+                        elif validation['error_type'] == 'too_steep':
+                            st.error(f"❌ **Target angle {target_angle}° is too steep!**")
+                            st.info(f"🔧 **Maximum practical**: {validation['max_practical_angle']}°")
+                        else:
+                            st.error(f"❌ **Invalid target angle**: {validation['message']}")
+                        return
+                    elif validation and validation.get('is_valid'):
+                        st.success(f"✅ **Target angle {target_angle}° is achievable!**")
+                        st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
+                        st.info(f"🛡️ **Safety margin**: {validation['validation_details']['safety_margin_mm']:.1f}mm")
+                    
                     # Use adaptive point distribution for enhanced performance
                     trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
                     st.session_state.trajectory_data = trajectory_data
-                    st.success("🎯 Adaptive trajectory calculated successfully!")
+                    st.success("🎯 Professional trajectory calculated successfully!")
                     st.rerun()
                 else:
                     planner = TrajectoryPlanner(st.session_state.vessel_geometry)

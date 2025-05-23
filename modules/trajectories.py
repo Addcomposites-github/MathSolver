@@ -12,9 +12,10 @@ class TrajectoryPlanner:
     def __init__(self, vessel_geometry: VesselGeometry, 
                  dry_roving_width_m: float = 0.003,
                  dry_roving_thickness_m: float = 0.0002,
-                 roving_eccentricity_at_pole_m: float = 0.0):
+                 roving_eccentricity_at_pole_m: float = 0.0,
+                 target_cylinder_angle_deg: Optional[float] = None):
         """
-        Initialize trajectory planner with vessel geometry.
+        Initialize trajectory planner with vessel geometry and optional target angle.
         
         Parameters:
         -----------
@@ -26,18 +27,24 @@ class TrajectoryPlanner:
             True thickness of the dry roving/band (default 0.2mm)
         roving_eccentricity_at_pole_m : float
             Offset of the roving centerline from geometric polar opening
+        target_cylinder_angle_deg : Optional[float]
+            Desired winding angle on cylinder section (None = use geometric limit)
         """
         self.vessel = vessel_geometry
         self.dry_roving_width_m = dry_roving_width_m
         self.dry_roving_thickness_m = dry_roving_thickness_m
         self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m
+        self.target_cylinder_angle_deg = target_cylinder_angle_deg
         self.trajectory_data = None
         
         # Geodesic calculation properties
-        self.effective_polar_opening_radius_m = None
+        self.effective_polar_opening_radius_m = None  # Physical minimum turning radius
+        self.clairauts_constant_for_path_m = None    # Actual constant used for path generation
         self.alpha_profile_deg = None  # Array of winding angles
         self.phi_profile_rad = None    # Array of parallel angles
         self.turn_around_angle_rad = None
+        self.alpha_eq_deg = None  # Actual angle achieved at equator
+        self.validation_results = None  # Target angle validation results
         self.alpha_eq_deg = None       # Winding angle at equator
         
         print("\nDEBUG trajectories.py: Entering TrajectoryPlanner.__init__")
@@ -69,6 +76,114 @@ class TrajectoryPlanner:
         # Calculate effective polar opening for geodesic paths
         print("TrajectoryPlanner init: About to call _calculate_effective_polar_opening()")
         self._calculate_effective_polar_opening()
+        
+        # Validate target angle and set Clairaut's constant for path generation
+        if self.target_cylinder_angle_deg is not None:
+            validation_success = self._validate_and_set_clairauts_constant_from_target_angle(self.target_cylinder_angle_deg)
+            if not validation_success:
+                print(f"WARNING: Target cylinder angle {self.target_cylinder_angle_deg}° not achievable. Using geometric limit instead.")
+                self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+            else:
+                print(f"SUCCESS: Target cylinder angle {self.target_cylinder_angle_deg}° validated and set.")
+        else:
+            # No target angle specified, use the physical minimum turning radius
+            self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+            print(f"INFO: No target angle specified. Using geometric limit c_eff = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+
+    def _validate_and_set_clairauts_constant_from_target_angle(self, target_alpha_cyl_deg: float) -> bool:
+        """
+        Validates if the target cylinder angle is physically achievable and sets the
+        Clairaut's constant to be used for path generation.
+        
+        Parameters:
+        -----------
+        target_alpha_cyl_deg : float
+            Desired winding angle on cylinder section in degrees
+            
+        Returns:
+        --------
+        bool : True if target angle is achievable, False otherwise
+        """
+        if not (5 < target_alpha_cyl_deg < 85):
+            self.validation_results = {
+                'is_valid': False,
+                'error_type': 'invalid_range',
+                'message': f"Target angle {target_alpha_cyl_deg}° must be between 5° and 85° for practical winding",
+                'suggested_range': [5, 85]
+            }
+            print(f"ERROR validate_angle: {self.validation_results['message']}")
+            return False
+
+        # Physical minimum turning radius (already calculated)
+        c_eff_physical = self.effective_polar_opening_radius_m
+        
+        # Calculate implied Clairaut's constant for target angle
+        R_cyl_m = self.vessel.inner_radius * 1e-3  # Cylinder radius in meters
+        alpha_cyl_target_rad = math.radians(target_alpha_cyl_deg)
+        c_implied_by_target_m = R_cyl_m * math.sin(alpha_cyl_target_rad)
+
+        print(f"\nDEBUG _validate_target_angle:")
+        print(f"  Target cylinder angle: {target_alpha_cyl_deg:.2f}°")
+        print(f"  Cylinder radius: {R_cyl_m*1000:.2f}mm")
+        print(f"  Implied Clairaut's constant: {c_implied_by_target_m*1000:.2f}mm")
+        print(f"  Physical minimum (c_eff): {c_eff_physical*1000:.2f}mm")
+
+        # Check if target is too shallow (requires smaller turning radius than physically possible)
+        if c_implied_by_target_m < c_eff_physical - 1e-7:
+            min_achievable_angle = math.degrees(math.asin(c_eff_physical / R_cyl_m))
+            self.validation_results = {
+                'is_valid': False,
+                'error_type': 'too_shallow',
+                'message': f"Target angle {target_alpha_cyl_deg:.1f}° is too shallow",
+                'details': f"Requires turning radius of {c_implied_by_target_m*1000:.1f}mm, but physical minimum is {c_eff_physical*1000:.1f}mm",
+                'min_achievable_angle': min_achievable_angle,
+                'suggested_range': [min_achievable_angle, 85]
+            }
+            print(f"ERROR validate_angle: Target angle TOO SHALLOW")
+            print(f"  Minimum achievable angle: {min_achievable_angle:.1f}°")
+            return False
+        
+        # Check if target is too steep (would not enter dome)
+        max_practical_angle = 80  # Leave some margin from 90°
+        if target_alpha_cyl_deg > max_practical_angle:
+            self.validation_results = {
+                'is_valid': False,
+                'error_type': 'too_steep',
+                'message': f"Target angle {target_alpha_cyl_deg:.1f}° is too steep for practical winding",
+                'details': f"Angles above {max_practical_angle}° may not provide adequate dome coverage",
+                'max_practical_angle': max_practical_angle,
+                'suggested_range': [math.degrees(math.asin(c_eff_physical / R_cyl_m)), max_practical_angle]
+            }
+            print(f"ERROR validate_angle: Target angle TOO STEEP for practical winding")
+            return False
+
+        # Target angle is valid - set the Clairaut's constant
+        self.clairauts_constant_for_path_m = c_implied_by_target_m
+        
+        # Calculate the actual angle that will be achieved at equator
+        actual_alpha_eq_deg = math.degrees(math.asin(c_implied_by_target_m / R_cyl_m))
+        
+        self.validation_results = {
+            'is_valid': True,
+            'target_angle': target_alpha_cyl_deg,
+            'clairaut_constant_mm': c_implied_by_target_m * 1000,
+            'actual_cylinder_angle': actual_alpha_eq_deg,
+            'validation_details': {
+                'physical_minimum_mm': c_eff_physical * 1000,
+                'safety_margin_mm': (c_implied_by_target_m - c_eff_physical) * 1000,
+                'cylinder_radius_mm': R_cyl_m * 1000
+            }
+        }
+        
+        print(f"SUCCESS: Target angle {target_alpha_cyl_deg:.1f}° is ACHIEVABLE")
+        print(f"  Using Clairaut's constant: {c_implied_by_target_m*1000:.2f}mm")
+        print(f"  Safety margin: {(c_implied_by_target_m - c_eff_physical)*1000:.2f}mm")
+        
+        return True
+
+    def get_validation_results(self) -> Dict:
+        """Get the results of target angle validation"""
+        return self.validation_results if self.validation_results else {}
     
     def _get_slope_dz_drho_at_rho(self, rho_target: float) -> float:
         """
