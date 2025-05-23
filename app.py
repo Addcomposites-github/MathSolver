@@ -321,7 +321,131 @@ def trajectory_planning_page():
                     ax.set_ylim(mid_y - max_range, mid_y + max_range)
                     ax.set_zlim(mid_z - max_range, mid_z + max_range)
                     
+                    # Make 3D plot interactive by setting backend
+                    plt.ion()
                     st.pyplot(fig_3d)
+                    
+                    # Add trajectory debugging section
+                    st.subheader("🔍 Trajectory Analysis & Debugging")
+                    
+                    # Coordinate system tabs
+                    tab1, tab2, tab3 = st.tabs(["📊 Data Summary", "🌐 Cylindrical Coordinates", "📐 Cartesian Coordinates"])
+                    
+                    with tab1:
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            st.metric("Total Path Points", f"{len(x_points)}")
+                            st.metric("X Range", f"{min(x_points):.1f} to {max(x_points):.1f} mm")
+                            st.metric("Y Range", f"{min(y_points):.1f} to {max(y_points):.1f} mm")
+                        with col_info2:
+                            st.metric("Z Range", f"{min(z_points):.1f} to {max(z_points):.1f} mm")
+                            st.metric("Max Radius", f"{max(st.session_state.trajectory_data['rho_points']):.1f} mm")
+                            st.metric("Phi Range", f"{min(st.session_state.trajectory_data['phi_rad']):.2f} to {max(st.session_state.trajectory_data['phi_rad']):.2f} rad")
+                    
+                    with tab2:
+                        st.write("**Cylindrical Coordinate Analysis (ρ, z, φ)**")
+                        
+                        # Plot cylindrical coordinates
+                        fig_cyl, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
+                        
+                        # ρ vs point index
+                        ax1.plot(st.session_state.trajectory_data['rho_points'], 'b-', linewidth=2)
+                        ax1.set_xlabel('Point Index')
+                        ax1.set_ylabel('ρ (mm)')
+                        ax1.set_title('Radial Coordinate vs Index')
+                        ax1.grid(True, alpha=0.3)
+                        
+                        # z vs point index  
+                        ax2.plot(z_points, 'g-', linewidth=2)
+                        ax2.set_xlabel('Point Index')
+                        ax2.set_ylabel('z (mm)')
+                        ax2.set_title('Axial Coordinate vs Index')
+                        ax2.grid(True, alpha=0.3)
+                        
+                        # φ vs point index
+                        ax3.plot(st.session_state.trajectory_data['phi_rad'], 'r-', linewidth=2)
+                        ax3.set_xlabel('Point Index')
+                        ax3.set_ylabel('φ (radians)')
+                        ax3.set_title('Parallel Angle vs Index')
+                        ax3.grid(True, alpha=0.3)
+                        
+                        # α vs ρ
+                        ax4.plot(st.session_state.trajectory_data['rho_points'], st.session_state.trajectory_data['alpha_deg'], 'm-', linewidth=2)
+                        ax4.set_xlabel('ρ (mm)')
+                        ax4.set_ylabel('α (degrees)')
+                        ax4.set_title('Winding Angle vs Radius')
+                        ax4.grid(True, alpha=0.3)
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig_cyl)
+                        
+                        # Show first few points for debugging
+                        st.write("**First 10 Trajectory Points (Cylindrical)**")
+                        debug_data_cyl = []
+                        for i in range(min(10, len(x_points))):
+                            debug_data_cyl.append({
+                                "Point": i,
+                                "ρ (mm)": f"{st.session_state.trajectory_data['rho_points'][i]:.3f}",
+                                "z (mm)": f"{z_points[i]:.3f}",
+                                "φ (rad)": f"{st.session_state.trajectory_data['phi_rad'][i]:.4f}",
+                                "α (deg)": f"{st.session_state.trajectory_data['alpha_deg'][i]:.2f}"
+                            })
+                        st.dataframe(debug_data_cyl)
+                    
+                    with tab3:
+                        st.write("**Cartesian Coordinate Analysis (x, y, z)**")
+                        
+                        # Plot Cartesian coordinates
+                        fig_cart, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
+                        
+                        # x vs point index
+                        ax1.plot(x_points, 'b-', linewidth=2)
+                        ax1.set_xlabel('Point Index')
+                        ax1.set_ylabel('x (mm)')
+                        ax1.set_title('X Coordinate vs Index')
+                        ax1.grid(True, alpha=0.3)
+                        
+                        # y vs point index
+                        ax2.plot(y_points, 'g-', linewidth=2)
+                        ax2.set_xlabel('Point Index')
+                        ax2.set_ylabel('y (mm)')
+                        ax2.set_title('Y Coordinate vs Index')
+                        ax2.grid(True, alpha=0.3)
+                        
+                        # x vs y (top view)
+                        ax3.plot(x_points, y_points, 'r-', linewidth=1, alpha=0.7)
+                        ax3.scatter(x_points[0], y_points[0], color='green', s=100, label='Start')
+                        ax3.scatter(x_points[-1], y_points[-1], color='red', s=100, label='End')
+                        ax3.set_xlabel('x (mm)')
+                        ax3.set_ylabel('y (mm)')
+                        ax3.set_title('Top View (x-y plane)')
+                        ax3.legend()
+                        ax3.grid(True, alpha=0.3)
+                        ax3.axis('equal')
+                        
+                        # Distance from origin
+                        distances = [math.sqrt(x**2 + y**2) for x, y in zip(x_points, y_points)]
+                        ax4.plot(distances, 'purple', linewidth=2)
+                        ax4.set_xlabel('Point Index')
+                        ax4.set_ylabel('Distance from Z-axis (mm)')
+                        ax4.set_title('Radial Distance vs Index')
+                        ax4.grid(True, alpha=0.3)
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig_cart)
+                        
+                        # Show first few points for debugging
+                        st.write("**First 10 Trajectory Points (Cartesian)**")
+                        debug_data_cart = []
+                        for i in range(min(10, len(x_points))):
+                            debug_data_cart.append({
+                                "Point": i,
+                                "x (mm)": f"{x_points[i]:.3f}",
+                                "y (mm)": f"{y_points[i]:.3f}",
+                                "z (mm)": f"{z_points[i]:.3f}",
+                                "Distance": f"{math.sqrt(x_points[i]**2 + y_points[i]**2):.3f}"
+                            })
+                        st.dataframe(debug_data_cart)
                     
                     # Display geodesic parameters
                     st.subheader("Geodesic Parameters")
