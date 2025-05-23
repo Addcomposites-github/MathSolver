@@ -620,7 +620,7 @@ class TrajectoryPlanner:
             'z_coords': np.array(z_coords),
             'alpha_deg': np.array(alpha_values),
             'phi_rad': np.array(phi_values),
-            'c_eff_m': c_eff,
+            'c_eff_m': self.effective_polar_opening_radius_m,
             'turn_around_angle_deg': math.degrees(self.turn_around_angle_rad),
             'alpha_equator_deg': self.alpha_eq_deg
         }
