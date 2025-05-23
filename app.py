@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import math
 from modules.geometry import VesselGeometry
 from modules.trajectories import TrajectoryPlanner
 from modules.materials import MaterialDatabase
