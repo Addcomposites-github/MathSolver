@@ -602,27 +602,32 @@ def trajectory_planning_page():
                             st.write(f"**All Trajectory Points - {traj_data['num_circuits']} Circuits ({traj_data['total_points']} total points)**")
                             debug_data_cyl = []
                             
-                            # Use multi-circuit data
-                            x_multi = traj_data['x_points']
-                            y_multi = traj_data['y_points'] 
-                            z_multi = traj_data['z_coords']
-                            phi_multi = traj_data['phi_rad_continuous']
-                            
-                            # Calculate rho and alpha for each point
-                            for i in range(len(x_multi)):
-                                rho_i = math.sqrt(x_multi[i]**2 + y_multi[i]**2)
-                                alpha_i = math.degrees(math.asin(min(traj_data['c_eff_m']*1000 / rho_i, 1.0))) if rho_i > 0 else 90.0
-                                circuit_num = (i // traj_data['points_per_circuit']) + 1
+                            # Use multi-circuit data - check if arrays exist
+                            if 'x_points' in traj_data and len(traj_data['x_points']) > 0:
+                                x_multi = traj_data['x_points']
+                                y_multi = traj_data['y_points'] 
+                                z_multi = traj_data['z_coords']
+                                phi_multi = traj_data['phi_rad_continuous']
                                 
-                                debug_data_cyl.append({
-                                    "Point": i,
-                                    "Circuit": circuit_num,
-                                    "ρ (mm)": f"{rho_i:.3f}",
-                                    "z (mm)": f"{z_multi[i]:.3f}",
-                                    "φ (rad)": f"{phi_multi[i]:.4f}",
-                                    "φ (deg)": f"{math.degrees(phi_multi[i]):.2f}",
-                                    "α (deg)": f"{alpha_i:.2f}"
-                                })
+                                # Calculate rho and alpha for each point
+                                for i in range(len(x_multi)):
+                                    rho_i = math.sqrt(x_multi[i]**2 + y_multi[i]**2)
+                                    alpha_i = math.degrees(math.asin(min(traj_data['c_eff_m']*1000 / rho_i, 1.0))) if rho_i > 0 else 90.0
+                                    circuit_num = (i // traj_data['points_per_circuit']) + 1
+                                    
+                                    debug_data_cyl.append({
+                                        "Point": i,
+                                        "Circuit": circuit_num,
+                                        "ρ (mm)": f"{rho_i:.3f}",
+                                        "z (mm)": f"{z_multi[i]:.3f}",
+                                        "φ (rad)": f"{phi_multi[i]:.4f}",
+                                        "φ (deg)": f"{math.degrees(phi_multi[i]):.2f}",
+                                        "α (deg)": f"{alpha_i:.2f}"
+                                    })
+                            else:
+                                st.error("Multi-circuit data structure not found. Please regenerate trajectory.")
+                                # Fall back to available data keys
+                                st.write("Available data keys:", list(traj_data.keys()))
                         else:
                             st.write("**All Trajectory Points (Single Circuit - Cylindrical Coordinates)**")
                             debug_data_cyl = []
