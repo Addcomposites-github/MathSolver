@@ -287,10 +287,10 @@ def trajectory_planning_page():
                     # Create interactive 3D visualization with Plotly
                     import plotly.graph_objects as go
                     
-                    # Convert to meters for better display
-                    x_m = x_points / 1000
-                    y_m = y_points / 1000  
-                    z_m = z_points / 1000
+                    # Points are already in meters from trajectory calculation
+                    x_m = x_points
+                    y_m = y_points  
+                    z_m = z_points
                     
                     # Create interactive plot
                     fig_plotly = go.Figure()
