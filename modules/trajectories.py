@@ -179,69 +179,130 @@ class TrajectoryPlanner:
         except ValueError:
             return None
 
-    def generate_geodesic_trajectory(self, num_points_half_circuit: int = 100) -> Dict:
+    def generate_geodesic_trajectory(self, num_points_on_profile: int = 200) -> Dict:
         """
-        Generates geodesic path points (rho, z, alpha, phi) for one half circuit.
+        Generates complete pole-to-pole geodesic path points (rho, z, alpha, phi).
         Based on Koussios geodesic theory with Clairaut's theorem.
         """
-        profile_points = self.vessel.get_profile_points()
-        rho_profile = profile_points['r_inner_mm']
-        z_profile = profile_points['z_mm']
+        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+            print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
+            return None
+        if self.effective_polar_opening_radius_m is None:
+            self._calculate_effective_polar_opening()
+            if self.effective_polar_opening_radius_m is None:
+                print("Error: Effective polar opening could not be calculated.")
+                return None
         
-        # Find dome section (typically first half of profile)
-        dome_end_idx = len(rho_profile) // 2
-        rho_dome = rho_profile[:dome_end_idx]
-        z_dome = z_profile[:dome_end_idx]
-        
-        # Generate points from effective polar opening to equator
         c_eff = self.effective_polar_opening_radius_m
-        rho_max = max(rho_dome)
+        print(f"\nDEBUG generate_geodesic_trajectory: Using c_eff = {c_eff:.6f} m")
+
+        # Get complete vessel profile in meters
+        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+
+        print(f"DEBUG: Original profile length: {len(profile_r_m_orig)} points")
+        print(f"DEBUG: Original profile Z range: {np.min(profile_z_m_orig):.4f}m to {np.max(profile_z_m_orig):.4f}m")
+        print(f"DEBUG: Original profile R range: {np.min(profile_r_m_orig):.4f}m to {np.max(profile_r_m_orig):.4f}m")
+
+        # Resample the complete profile for consistent point density
+        s_coords_orig = np.zeros_like(profile_r_m_orig)
+        for k_idx in range(1, len(profile_r_m_orig)):
+            ds_k = math.sqrt((profile_r_m_orig[k_idx] - profile_r_m_orig[k_idx-1])**2 + 
+                           (profile_z_m_orig[k_idx] - profile_z_m_orig[k_idx-1])**2)
+            s_coords_orig[k_idx] = s_coords_orig[k_idx-1] + ds_k
         
-        # Create rho points for geodesic calculation
-        rho_points = np.linspace(c_eff + 1e-6, min(rho_max, self.vessel.inner_radius), num_points_half_circuit)
+        if abs(s_coords_orig[-1]) < 1e-9:
+            profile_r_m_calc = profile_r_m_orig
+            profile_z_m_calc = profile_z_m_orig
+        else:
+            s_coords_new = np.linspace(s_coords_orig[0], s_coords_orig[-1], num_points_on_profile)
+            profile_r_m_calc = np.interp(s_coords_new, s_coords_orig, profile_r_m_orig)
+            profile_z_m_calc = np.interp(s_coords_new, s_coords_orig, profile_z_m_orig)
+            print(f"DEBUG: Resampled profile to {len(profile_r_m_calc)} points")
         
-        # Calculate geodesic properties at each point
-        alpha_values = []
-        phi_values = []
-        z_values = []
+        if len(profile_r_m_calc) < 2:
+            print("Error: Not enough profile points for trajectory calculation")
+            return None
         
-        phi_cumulative = 0.0
-        
-        for i, rho in enumerate(rho_points):
-            # Calculate winding angle using Clairaut's theorem
-            alpha = self.calculate_geodesic_alpha_at_rho(rho)
-            if alpha is None:
+        # Process complete vessel profile to find windable path
+        path_rho_m, path_z_m, path_alpha_rad, path_phi_rad_cumulative = [], [], [], []
+        path_x_m, path_y_m = [], []
+        current_phi_rad = 0.0
+        first_valid_point_found = False
+
+        for i in range(len(profile_r_m_calc)):
+            rho_i_m = profile_r_m_calc[i]
+            z_i_m = profile_z_m_calc[i]
+            
+            # Only process points where rho >= c_eff (windable surface)
+            if rho_i_m >= c_eff - 1e-7:  # Small tolerance
+                alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
+                if alpha_i_rad is None:
+                    if np.isclose(rho_i_m, c_eff):
+                        alpha_i_rad = constants.PI / 2.0  # Turn-around at polar opening
+                    else:
+                        alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else constants.PI / 2.0
+            else:
+                # Point is inside c_eff, skip if path hasn't started
+                if not first_valid_point_found:
+                    continue
+                else:
+                    print(f"Warning: Path dipped inside c_eff at rho={rho_i_m:.4f}m, stopping segment")
+                    break
+
+            if not first_valid_point_found:
+                # First valid point - start of trajectory
+                first_valid_point_found = True
+                path_rho_m.append(rho_i_m)
+                path_z_m.append(z_i_m)
+                path_alpha_rad.append(alpha_i_rad)
+                path_phi_rad_cumulative.append(current_phi_rad)
+                path_x_m.append(rho_i_m * math.cos(current_phi_rad))
+                path_y_m.append(rho_i_m * math.sin(current_phi_rad))
                 continue
-                
-            alpha_values.append(math.degrees(alpha))
+
+            # Calculate phi increment for segment
+            rho_prev_m = path_rho_m[-1]
+            z_prev_m = path_z_m[-1]
+            alpha_prev_rad = path_alpha_rad[-1]
+
+            d_rho = rho_i_m - rho_prev_m
+            d_z = z_i_m - z_prev_m
+            ds_segment_m = math.sqrt(d_rho**2 + d_z**2)
             
-            # Interpolate z coordinate from vessel profile
-            z_interp = np.interp(rho, rho_dome, z_dome)
-            z_values.append(z_interp)
+            delta_phi = 0.0
+            if ds_segment_m > 1e-9:
+                rho_avg_segment_m = (rho_i_m + rho_prev_m) / 2.0
+                alpha_avg_segment_rad = (alpha_i_rad + alpha_prev_rad) / 2.0
+                
+                if abs(rho_avg_segment_m) > 1e-7 and abs(math.cos(alpha_avg_segment_rad)) > 1e-8:
+                    tan_alpha_avg = math.tan(alpha_avg_segment_rad)
+                    if abs(tan_alpha_avg) > 1e8:  # Cap extremely large values
+                        tan_alpha_avg = np.sign(tan_alpha_avg) * 1e8
+                    delta_phi = (ds_segment_m / rho_avg_segment_m) * tan_alpha_avg
+
+            current_phi_rad += delta_phi
             
-            # Calculate incremental parallel angle using proper geodesic theory
-            if i > 0:
-                # Get previous values
-                rho_prev = rho_points[i-1]
-                z_prev = z_values[i-1]
-                alpha_prev = self.calculate_geodesic_alpha_at_rho(rho_prev)
-                
-                # Calculate meridional arc length
-                drho = rho - rho_prev
-                dz = z_interp - z_prev
-                ds_meridional = math.sqrt(drho**2 + dz**2)
-                
-                # Use average values for stability
-                rho_avg = (rho + rho_prev) / 2.0
-                alpha_avg = (alpha + alpha_prev) / 2.0 if alpha_prev is not None else alpha
-                
-                # Calculate parallel angle increment using geodesic formula
-                # dφ = (ds/ρ) * tan(α) for geodesic paths
-                if rho_avg > 1e-6 and abs(math.cos(alpha_avg)) > 1e-6:
-                    dphi = (ds_meridional / rho_avg) * math.tan(alpha_avg)
-                    phi_cumulative += dphi
-            
-            phi_values.append(phi_cumulative)
+            path_rho_m.append(rho_i_m)
+            path_z_m.append(z_i_m)
+            path_alpha_rad.append(alpha_i_rad)
+            path_phi_rad_cumulative.append(current_phi_rad)
+            path_x_m.append(rho_i_m * math.cos(current_phi_rad))
+            path_y_m.append(rho_i_m * math.sin(current_phi_rad))
+
+        if not path_rho_m:
+            print("Error: No valid trajectory points generated")
+            return None
+
+        # Convert to final format
+        alpha_values = [math.degrees(alpha) for alpha in path_alpha_rad]
+        phi_values = list(path_phi_rad_cumulative)
+        z_values = list(path_z_m)
+        rho_points = np.array(path_rho_m)
+        
+        print(f"DEBUG: Generated {len(path_rho_m)} trajectory points")
+        print(f"DEBUG: Z range in trajectory: {min(z_values):.4f}m to {max(z_values):.4f}m")
+        print(f"DEBUG: Phi accumulation: {phi_values[0]:.4f} to {phi_values[-1]:.4f} rad")
         
         # Store calculated profiles
         self.alpha_profile_deg = np.array(alpha_values)
