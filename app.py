@@ -223,6 +223,21 @@ def trajectory_planning_page():
             else:
                 st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
             
+            st.markdown("### 🔄 Circuit Configuration")
+            trajectory_mode = st.selectbox(
+                "Trajectory Mode",
+                ["Single Circuit", "Multi-Circuit Coverage"],
+                help="Single circuit shows one pass, Multi-circuit shows complete vessel coverage"
+            )
+            
+            if trajectory_mode == "Multi-Circuit Coverage":
+                num_circuits = st.number_input("Number of Circuits", min_value=2, max_value=12, value=4, step=1,
+                                             help="Number of circuits around vessel circumference for complete coverage")
+                st.info(f"🎯 **Multi-circuit mode**: {num_circuits} circuits for complete vessel coverage")
+            else:
+                num_circuits = 1
+                st.info("🔧 **Single circuit mode**: One pole-to-pole pass for analysis")
+
             st.markdown("### 🚀 Adaptive Point Distribution")
             st.info("**Smart Optimization**: Use more points in dome regions (high curvature) and fewer in cylinder (constant curvature)")
             col_dome, col_cyl = st.columns(2)
@@ -266,10 +281,15 @@ def trajectory_planning_page():
                         st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
                         st.info(f"🛡️ **Safety margin**: {validation['validation_details']['safety_margin_mm']:.1f}mm")
                     
-                    # Use adaptive point distribution for enhanced performance
-                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                    # Generate trajectory based on selected mode
+                    if trajectory_mode == "Multi-Circuit Coverage":
+                        trajectory_data = planner.generate_multi_circuit_trajectory(num_circuits, dome_points, cylinder_points)
+                        st.success(f"🎯 Multi-circuit trajectory with {num_circuits} circuits calculated successfully!")
+                    else:
+                        trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                        st.success("🎯 Single circuit trajectory calculated successfully!")
+                    
                     st.session_state.trajectory_data = trajectory_data
-                    st.success("🎯 Professional trajectory calculated successfully!")
                     st.rerun()
                 else:
                     planner = TrajectoryPlanner(st.session_state.vessel_geometry)
