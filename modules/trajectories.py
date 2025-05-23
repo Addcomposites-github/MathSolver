@@ -558,6 +558,8 @@ class TrajectoryPlanner:
             print(f"DEBUG: Profile R range: {np.min(profile_r_m_calc):.6f}m to {np.max(profile_r_m_calc):.6f}m")
             print(f"DEBUG: Number of points with rho >= c_for_winding: {np.sum(profile_r_m_calc >= c_for_winding - 1e-7)}")
             return None
+        
+        print(f"SUCCESS: Generated {len(path_rho_m)} valid trajectory points")
 
         # Convert to final format
         alpha_values = [math.degrees(alpha) for alpha in path_alpha_rad]
