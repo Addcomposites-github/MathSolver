@@ -295,41 +295,89 @@ def trajectory_planning_page():
                     # Create interactive plot
                     fig_plotly = go.Figure()
                     
-                    # Plot the geodesic trajectory with enhanced styling
-                    fig_plotly.add_trace(go.Scatter3d(
-                        x=x_m, y=y_m, z=z_m,
-                        mode='lines+markers',
-                        line=dict(color='red', width=6),
-                        marker=dict(size=3, color='darkred'),
-                        name='Geodesic Trajectory',
-                        hovertemplate='<b>Geodesic Path</b><br>' +
-                                      'X: %{x:.4f} m<br>' +
-                                      'Y: %{y:.4f} m<br>' +
-                                      'Z: %{z:.4f} m<extra></extra>'
-                    ))
+                    # Generate full coverage pattern with multiple circuits
+                    import math
                     
-                    # Add start and end points with clear markers
-                    fig_plotly.add_trace(go.Scatter3d(
-                        x=[x_m[0]], y=[y_m[0]], z=[z_m[0]],
-                        mode='markers',
-                        marker=dict(size=12, color='lime', symbol='diamond'),
-                        name='Start Point',
-                        hovertemplate='<b>Trajectory Start</b><br>' +
-                                      'X: %{x:.4f} m<br>' +
-                                      'Y: %{y:.4f} m<br>' +
-                                      'Z: %{z:.4f} m<extra></extra>'
-                    ))
+                    # Get base trajectory data
+                    base_rho_m = st.session_state.trajectory_data.get('rho_points', [])
+                    base_z_m = st.session_state.trajectory_data.get('z_coords', [])
+                    base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
+                    alpha_eq_deg = st.session_state.trajectory_data.get('alpha_equator_deg', 45.0)
                     
-                    fig_plotly.add_trace(go.Scatter3d(
-                        x=[x_m[-1]], y=[y_m[-1]], z=[z_m[-1]],
-                        mode='markers',
-                        marker=dict(size=12, color='blue', symbol='square'),
-                        name='End Point',
-                        hovertemplate='<b>Trajectory End</b><br>' +
-                                      'X: %{x:.4f} m<br>' +
-                                      'Y: %{y:.4f} m<br>' +
-                                      'Z: %{z:.4f} m<extra></extra>'
-                    ))
+                    if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
+                        # Calculate effective band width and circuit parameters
+                        dry_roving_width_m = 0.003  # 3mm from debug logs
+                        alpha_eq_rad = math.radians(alpha_eq_deg)
+                        
+                        if abs(math.cos(alpha_eq_rad)) > 1e-6:  # Avoid division by zero
+                            B_eff_m = dry_roving_width_m / math.cos(alpha_eq_rad)
+                            R_eq_m = st.session_state.vessel_geometry.r_inner / 1000  # Convert to meters
+                            delta_phi_small_rad = B_eff_m / R_eq_m
+                            
+                            # Calculate number of circuits for one layer (with reasonable limits)
+                            num_circuits = min(int(math.ceil(2 * math.pi / delta_phi_small_rad)), 20)  # Max 20 circuits for performance
+                            
+                            # Generate colors for different circuits
+                            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+                            
+                            # Plot multiple circuits
+                            for j in range(num_circuits):
+                                # Calculate phi offset for this circuit
+                                phi_offset = j * delta_phi_small_rad
+                                current_phi = np.array(base_phi_rad) + phi_offset
+                                
+                                # Convert to Cartesian coordinates
+                                x_circuit = np.array(base_rho_m) * np.cos(current_phi)
+                                y_circuit = np.array(base_rho_m) * np.sin(current_phi)
+                                z_circuit = np.array(base_z_m)
+                                
+                                # Select color for this circuit
+                                circuit_color = colors[j % len(colors)]
+                                
+                                # Add this circuit to the plot
+                                fig_plotly.add_trace(go.Scatter3d(
+                                    x=x_circuit, y=y_circuit, z=z_circuit,
+                                    mode='lines',
+                                    line=dict(color=circuit_color, width=4),
+                                    name=f'Circuit {j+1}',
+                                    showlegend=(j < 5),  # Only show first 5 in legend
+                                    hovertemplate=f'<b>Circuit {j+1}</b><br>' +
+                                                  'X: %{x:.4f} m<br>' +
+                                                  'Y: %{y:.4f} m<br>' +
+                                                  'Z: %{z:.4f} m<extra></extra>'
+                                ))
+                            
+                            # Add summary text
+                            st.info(f"🎯 **Full Coverage Pattern:** {num_circuits} circuits • "
+                                   f"Band width: {B_eff_m*1000:.1f}mm • "
+                                   f"Angular spacing: {math.degrees(delta_phi_small_rad):.1f}°")
+                        
+                        else:
+                            # Fallback to single trajectory if calculations fail
+                            fig_plotly.add_trace(go.Scatter3d(
+                                x=x_m, y=y_m, z=z_m,
+                                mode='lines+markers',
+                                line=dict(color='red', width=6),
+                                marker=dict(size=3, color='darkred'),
+                                name='Single Geodesic Path',
+                                hovertemplate='<b>Geodesic Path</b><br>' +
+                                              'X: %{x:.4f} m<br>' +
+                                              'Y: %{y:.4f} m<br>' +
+                                              'Z: %{z:.4f} m<extra></extra>'
+                            ))
+                    else:
+                        # Fallback to basic trajectory if data unavailable
+                        fig_plotly.add_trace(go.Scatter3d(
+                            x=x_m, y=y_m, z=z_m,
+                            mode='lines+markers',
+                            line=dict(color='red', width=6),
+                            marker=dict(size=3, color='darkred'),
+                            name='Basic Trajectory',
+                            hovertemplate='<b>Trajectory</b><br>' +
+                                          'X: %{x:.4f} m<br>' +
+                                          'Y: %{y:.4f} m<br>' +
+                                          'Z: %{z:.4f} m<extra></extra>'
+                        ))
                     
                     # Plot vessel outline in 3D (with error handling)
                     try:
