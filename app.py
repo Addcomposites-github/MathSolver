@@ -311,7 +311,7 @@ def trajectory_planning_page():
                         
                         if abs(math.cos(alpha_eq_rad)) > 1e-6:  # Avoid division by zero
                             B_eff_m = dry_roving_width_m / math.cos(alpha_eq_rad)
-                            R_eq_m = st.session_state.vessel_geometry.r_inner / 1000  # Convert to meters
+                            R_eq_m = st.session_state.vessel_geometry.inner_diameter / 2000  # Convert from mm diameter to meters radius
                             delta_phi_small_rad = B_eff_m / R_eq_m
                             
                             # Calculate number of circuits for one layer (with reasonable limits)
