@@ -416,8 +416,9 @@ class TrajectoryPlanner:
                 print("Error: Effective polar opening could not be calculated.")
                 return None
         
-        c_eff = self.effective_polar_opening_radius_m
-        print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): Using c_eff = {c_eff:.6f} m")
+        c_for_winding = self.clairauts_constant_for_path_m
+        print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): Using Clairaut's constant c = {c_for_winding:.6f} m")
+        print(f"DEBUG: Physical minimum c_eff = {self.effective_polar_opening_radius_m:.6f} m")
         print(f"DEBUG: Adaptive sampling - Dome points: {num_points_dome}, Cylinder points: {num_points_cylinder}")
         print(f"DEBUG: Roving parameters - width: {self.dry_roving_width_m*1000:.1f}mm, thickness: {self.dry_roving_thickness_m*1000:.1f}mm")
 
@@ -495,20 +496,20 @@ class TrajectoryPlanner:
             rho_i_m = profile_r_m_calc[i]
             z_i_m = profile_z_m_calc[i]
             
-            # Only process points where rho >= c_eff (windable surface)
-            if rho_i_m >= c_eff - 1e-7:  # Small tolerance
+            # Only process points where rho >= c_for_winding (windable surface)
+            if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
                 alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
                 if alpha_i_rad is None:
-                    if np.isclose(rho_i_m, c_eff):
+                    if np.isclose(rho_i_m, c_for_winding):
                         alpha_i_rad = math.pi / 2.0  # Turn-around at polar opening
                     else:
                         alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
             else:
-                # Point is inside c_eff, skip if path hasn't started
+                # Point is inside c_for_winding, skip if path hasn't started
                 if not first_valid_point_found:
                     continue
                 else:
-                    print(f"Warning: Path dipped inside c_eff at rho={rho_i_m:.4f}m, stopping segment")
+                    print(f"Warning: Path dipped inside c_for_winding at rho={rho_i_m:.4f}m, stopping segment")
                     break
 
             if not first_valid_point_found:
@@ -553,9 +554,9 @@ class TrajectoryPlanner:
 
         if not path_rho_m:
             print(f"Error: No valid trajectory points generated")
-            print(f"DEBUG: c_eff = {c_eff:.6f} m")
+            print(f"DEBUG: c_for_winding = {c_for_winding:.6f} m")
             print(f"DEBUG: Profile R range: {np.min(profile_r_m_calc):.6f}m to {np.max(profile_r_m_calc):.6f}m")
-            print(f"DEBUG: Number of points with rho >= c_eff: {np.sum(profile_r_m_calc >= c_eff - 1e-7)}")
+            print(f"DEBUG: Number of points with rho >= c_for_winding: {np.sum(profile_r_m_calc >= c_for_winding - 1e-7)}")
             return None
 
         # Convert to final format
