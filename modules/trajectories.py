@@ -326,7 +326,7 @@ class TrajectoryPlanner:
         # Store calculated profiles
         self.alpha_profile_deg = np.array(alpha_values)
         self.phi_profile_rad = np.array(phi_values)
-        self.turn_around_angle_rad = phi_cumulative if len(phi_values) > 0 else 0
+        self.turn_around_angle_rad = phi_values[-1] if len(phi_values) > 0 else 0
         
         # Calculate equatorial winding angle
         self.alpha_eq_deg = alpha_values[-1] if alpha_values else 0
