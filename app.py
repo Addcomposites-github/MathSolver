@@ -209,7 +209,16 @@ def trajectory_planning_page():
             roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
             roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
             polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
-            num_points = st.number_input("Number of Path Points", min_value=50, value=100, step=10)
+            
+            st.markdown("### 🎯 Adaptive Point Distribution")
+            st.info("**Smart Optimization**: Use more points in dome regions (high curvature) and fewer in cylinder (constant curvature)")
+            col_dome, col_cyl = st.columns(2)
+            with col_dome:
+                dome_points = st.slider("Dome Density", 50, 300, 150, 10,
+                                      help="Higher density for dome regions where curvature changes rapidly")
+            with col_cyl:
+                cylinder_points = st.slider("Cylinder Density", 5, 100, 20, 5,
+                                          help="Lower density for cylinder where curvature is constant")
         elif pattern_type == "Helical":
             st.markdown("### Pattern Parameters")
             circuits_to_close = st.number_input("Circuits to Close Pattern", min_value=1, value=8, step=1)
@@ -224,10 +233,11 @@ def trajectory_planning_page():
                         dry_roving_thickness_m=roving_thickness/1000,
                         roving_eccentricity_at_pole_m=polar_eccentricity/1000
                     )
-                    trajectory_params = {
-                        'pattern_type': pattern_type,
-                        'num_points': int(num_points)
-                    }
+                    # Use adaptive point distribution for enhanced performance
+                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                    st.session_state.trajectory_data = trajectory_data
+                    st.success("🎯 Adaptive trajectory calculated successfully!")
+                    st.rerun()
                 else:
                     planner = TrajectoryPlanner(st.session_state.vessel_geometry)
                     trajectory_params = {

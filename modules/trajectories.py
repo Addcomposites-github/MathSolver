@@ -194,10 +194,103 @@ class TrajectoryPlanner:
         except ValueError:
             return None
 
-    def generate_geodesic_trajectory(self, num_points_on_profile: int = 200) -> Dict:
+    def _resample_segment_adaptive(self, rho_segment: np.ndarray, z_segment: np.ndarray, 
+                                  num_points: int) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Generates complete pole-to-pole geodesic path points (rho, z, alpha, phi).
+        Resample a profile segment with adaptive arc-length distribution.
+        Focuses computational points where geometry changes most rapidly.
+        
+        Parameters:
+        -----------
+        rho_segment : np.ndarray
+            Radial coordinates of segment
+        z_segment : np.ndarray
+            Axial coordinates of segment
+        num_points : int
+            Target number of points for this segment
+            
+        Returns:
+        --------
+        Tuple[np.ndarray, np.ndarray] : Resampled (rho, z) coordinates
+        """
+        if len(rho_segment) < 2 or num_points < 2:
+            return rho_segment, z_segment
+        
+        # Calculate cumulative arc length for uniform spacing along the curve
+        s_coords = np.zeros_like(rho_segment)
+        for i in range(1, len(rho_segment)):
+            ds = math.sqrt((rho_segment[i] - rho_segment[i-1])**2 + 
+                          (z_segment[i] - z_segment[i-1])**2)
+            s_coords[i] = s_coords[i-1] + ds
+        
+        if abs(s_coords[-1]) < 1e-9:
+            return rho_segment, z_segment
+        
+        # Create uniform arc-length distribution
+        s_new = np.linspace(s_coords[0], s_coords[-1], num_points)
+        rho_resampled = np.interp(s_new, s_coords, rho_segment)
+        z_resampled = np.interp(s_new, s_coords, z_segment)
+        
+        return rho_resampled, z_resampled
+
+    def _identify_vessel_segments(self, profile_r_m: np.ndarray, profile_z_m: np.ndarray) -> Dict:
+        """
+        Identify dome and cylinder segments in the vessel profile for adaptive sampling.
+        
+        Returns:
+        --------
+        Dict : Segment indices and properties
+        """
+        cylinder_radius_m = self.vessel.inner_radius * 1e-3
+        cyl_half_length_m = self.vessel.cylindrical_length * 1e-3 / 2.0
+        
+        # Find points that are approximately at cylinder radius and cylinder z-positions
+        tolerance_r = cylinder_radius_m * 0.05  # 5% tolerance
+        tolerance_z = cyl_half_length_m * 0.05  # 5% tolerance
+        
+        # Forward dome to cylinder junction
+        fwd_junction_candidates = np.where(
+            (np.abs(profile_r_m - cylinder_radius_m) < tolerance_r) & 
+            (np.abs(profile_z_m - cyl_half_length_m) < tolerance_z)
+        )[0]
+        
+        # Aft cylinder to dome junction  
+        aft_junction_candidates = np.where(
+            (np.abs(profile_r_m - cylinder_radius_m) < tolerance_r) & 
+            (np.abs(profile_z_m + cyl_half_length_m) < tolerance_z)
+        )[0]
+        
+        if len(fwd_junction_candidates) == 0 or len(aft_junction_candidates) == 0:
+            # No clear cylinder section found - treat as all dome
+            return {
+                'has_cylinder': False,
+                'fwd_dome_end': len(profile_r_m) - 1,
+                'aft_dome_start': 0
+            }
+        
+        fwd_junction = fwd_junction_candidates[0]  # First occurrence
+        aft_junction = aft_junction_candidates[-1]  # Last occurrence
+        
+        return {
+            'has_cylinder': True,
+            'fwd_dome_end': fwd_junction,
+            'cylinder_start': fwd_junction,
+            'cylinder_end': aft_junction,
+            'aft_dome_start': aft_junction
+        }
+
+    def generate_geodesic_trajectory(self, num_points_dome: int = 150, num_points_cylinder: int = 20) -> Dict:
+        """
+        Generates complete pole-to-pole geodesic path with adaptive point distribution.
+        Uses higher density in dome regions (high curvature) and lower density in cylinder (constant curvature).
         Based on Koussios geodesic theory with Clairaut's theorem.
+        
+        Parameters:
+        -----------
+        num_points_dome : int
+            Number of points to use for each dome segment (default: 150)
+        num_points_cylinder : int
+            Number of points to use for cylinder segment (default: 20)
         """
         if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
             print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
@@ -209,7 +302,8 @@ class TrajectoryPlanner:
                 return None
         
         c_eff = self.effective_polar_opening_radius_m
-        print(f"\nDEBUG generate_geodesic_trajectory: Using c_eff = {c_eff:.6f} m")
+        print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): Using c_eff = {c_eff:.6f} m")
+        print(f"DEBUG: Adaptive sampling - Dome points: {num_points_dome}, Cylinder points: {num_points_cylinder}")
         print(f"DEBUG: Roving parameters - width: {self.dry_roving_width_m*1000:.1f}mm, thickness: {self.dry_roving_thickness_m*1000:.1f}mm")
 
         # Get complete vessel profile in meters
@@ -220,21 +314,57 @@ class TrajectoryPlanner:
         print(f"DEBUG: Original profile Z range: {np.min(profile_z_m_orig):.4f}m to {np.max(profile_z_m_orig):.4f}m")
         print(f"DEBUG: Original profile R range: {np.min(profile_r_m_orig):.4f}m to {np.max(profile_r_m_orig):.4f}m")
 
-        # Resample the complete profile for consistent point density
-        s_coords_orig = np.zeros_like(profile_r_m_orig)
-        for k_idx in range(1, len(profile_r_m_orig)):
-            ds_k = math.sqrt((profile_r_m_orig[k_idx] - profile_r_m_orig[k_idx-1])**2 + 
-                           (profile_z_m_orig[k_idx] - profile_z_m_orig[k_idx-1])**2)
-            s_coords_orig[k_idx] = s_coords_orig[k_idx-1] + ds_k
+        # Identify vessel segments for adaptive sampling
+        segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        print(f"DEBUG: Vessel segments identified - Has cylinder: {segments['has_cylinder']}")
+
+        # Build adaptive profile with different point densities
+        adaptive_r_segments = []
+        adaptive_z_segments = []
         
-        if abs(s_coords_orig[-1]) < 1e-9:
-            profile_r_m_calc = profile_r_m_orig
-            profile_z_m_calc = profile_z_m_orig
+        if segments['has_cylinder']:
+            # Forward dome segment
+            fwd_dome_r = profile_r_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_dome_z = profile_z_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_r_resampled, fwd_z_resampled = self._resample_segment_adaptive(
+                fwd_dome_r, fwd_dome_z, num_points_dome)
+            adaptive_r_segments.append(fwd_r_resampled)
+            adaptive_z_segments.append(fwd_z_resampled)
+            
+            # Cylinder segment  
+            cyl_r = profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_z = profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_r_resampled, cyl_z_resampled = self._resample_segment_adaptive(
+                cyl_r, cyl_z, num_points_cylinder)
+            # Skip first point to avoid duplication with dome end
+            adaptive_r_segments.append(cyl_r_resampled[1:])
+            adaptive_z_segments.append(cyl_z_resampled[1:])
+            
+            # Aft dome segment
+            aft_dome_r = profile_r_m_orig[segments['aft_dome_start']:]
+            aft_dome_z = profile_z_m_orig[segments['aft_dome_start']:]
+            aft_r_resampled, aft_z_resampled = self._resample_segment_adaptive(
+                aft_dome_r, aft_dome_z, num_points_dome)
+            # Skip first point to avoid duplication with cylinder end
+            adaptive_r_segments.append(aft_r_resampled[1:])
+            adaptive_z_segments.append(aft_z_resampled[1:])
+            
+            print(f"DEBUG: Adaptive segments - Fwd dome: {len(fwd_r_resampled)}, Cylinder: {len(cyl_r_resampled)-1}, Aft dome: {len(aft_r_resampled)-1}")
         else:
-            s_coords_new = np.linspace(s_coords_orig[0], s_coords_orig[-1], num_points_on_profile)
-            profile_r_m_calc = np.interp(s_coords_new, s_coords_orig, profile_r_m_orig)
-            profile_z_m_calc = np.interp(s_coords_new, s_coords_orig, profile_z_m_orig)
-            print(f"DEBUG: Resampled profile to {len(profile_r_m_calc)} points")
+            # No clear cylinder - treat as single dome with higher density
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(
+                profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            adaptive_r_segments.append(dome_r_resampled)
+            adaptive_z_segments.append(dome_z_resampled)
+            print(f"DEBUG: Single dome segment with {len(dome_r_resampled)} points")
+        
+        # Combine all segments
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        
+        print(f"DEBUG: Adaptive profile generated with {len(profile_r_m_calc)} total points")
+        print(f"DEBUG: Adaptive Z range: {np.min(profile_z_m_calc):.4f}m to {np.max(profile_z_m_calc):.4f}m")
+        print(f"DEBUG: Adaptive R range: {np.min(profile_r_m_calc):.4f}m to {np.max(profile_r_m_calc):.4f}m")
         
         if len(profile_r_m_calc) < 2:
             print("Error: Not enough profile points for trajectory calculation")
