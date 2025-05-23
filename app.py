@@ -324,6 +324,9 @@ def trajectory_planning_page():
         st.subheader("Trajectory Visualization")
         
         if st.session_state.trajectory_data is not None:
+            st.write(f"✅ Trajectory data loaded: {st.session_state.trajectory_data.get('pattern_type', 'Unknown')}")
+            st.write(f"📊 Data keys: {list(st.session_state.trajectory_data.keys())}")
+            
             visualizer = VesselVisualizer()
             
             # Plot trajectory - 2D view
@@ -333,8 +336,8 @@ def trajectory_planning_page():
             )
             st.pyplot(fig)
             
-            # Add 3D visualization for geodesic trajectories
-            if st.session_state.trajectory_data.get('pattern_type') == 'Geodesic':
+            # Add 3D visualization for geodesic trajectories (both single and multi-circuit)
+            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic']:
                 st.subheader("3D Trajectory Visualization")
                 
                 # Check if we have 3D coordinate data
@@ -745,7 +748,7 @@ def trajectory_planning_page():
                 if 'fiber_utilization' in traj_props:
                     st.metric("Fiber Utilization", f"{traj_props['fiber_utilization']:.1f}%")
         else:
-            st.info("Please calculate trajectory to see visualization and properties.")
+            st.write("❌ No trajectory data available in session state")
 
 def performance_analysis_page():
     st.header("Performance Analysis")
