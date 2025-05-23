@@ -236,14 +236,33 @@ class TrajectoryPlanner:
         # Calculate equatorial winding angle
         self.alpha_eq_deg = alpha_values[-1] if alpha_values else 0
         
-        # Create path_points in the format expected by visualization
+        # Create path_points with 3D Cartesian coordinates for visualization
         path_points = []
+        x_coords = []
+        y_coords = []
+        z_coords = []
+        
         for i in range(len(alpha_values)):
+            rho = rho_points[i] 
+            z = z_values[i]
+            phi = phi_values[i]
+            
+            # Convert cylindrical (rho, z, phi) to Cartesian (x, y, z)
+            x = rho * np.cos(phi)
+            y = rho * np.sin(phi)
+            # z remains the same (axial coordinate)
+            
+            x_coords.append(x)
+            y_coords.append(y)
+            z_coords.append(z)
+            
             path_points.append({
-                'r': rho_points[i],
-                'z': z_values[i],
-                'theta': phi_values[i],
+                'r': rho,
+                'z': z,
+                'theta': phi,
                 'alpha': alpha_values[i],
+                'x': x,
+                'y': y,
                 'circuit': 0  # Single geodesic path
             })
         
@@ -255,6 +274,9 @@ class TrajectoryPlanner:
             'coverage_efficiency': 0.95,
             'rho_points': rho_points[:len(alpha_values)],
             'z_points': np.array(z_values),
+            'x_points': np.array(x_coords),
+            'y_points': np.array(y_coords),
+            'z_coords': np.array(z_coords),
             'alpha_deg': np.array(alpha_values),
             'phi_rad': np.array(phi_values),
             'c_eff_m': c_eff,
