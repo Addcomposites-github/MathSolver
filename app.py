@@ -284,47 +284,119 @@ def trajectory_planning_page():
                     y_points = st.session_state.trajectory_data['y_points'] 
                     z_points = st.session_state.trajectory_data['z_coords']
                     
-                    # Plot the geodesic trajectory
-                    ax.plot(x_points, y_points, z_points, 'b-', linewidth=2, alpha=0.8, label='Geodesic Path')
-                    ax.scatter(x_points[0], y_points[0], z_points[0], color='green', s=100, label='Start Point')
-                    ax.scatter(x_points[-1], y_points[-1], z_points[-1], color='red', s=100, label='End Point')
+                    # Create interactive 3D visualization with Plotly
+                    import plotly.graph_objects as go
+                    
+                    # Convert to meters for better display
+                    x_m = x_points / 1000
+                    y_m = y_points / 1000  
+                    z_m = z_points / 1000
+                    
+                    # Create interactive plot
+                    fig_plotly = go.Figure()
+                    
+                    # Plot the geodesic trajectory with enhanced styling
+                    fig_plotly.add_trace(go.Scatter3d(
+                        x=x_m, y=y_m, z=z_m,
+                        mode='lines+markers',
+                        line=dict(color='red', width=6),
+                        marker=dict(size=3, color='darkred'),
+                        name='Geodesic Trajectory',
+                        hovertemplate='<b>Geodesic Path</b><br>' +
+                                      'X: %{x:.4f} m<br>' +
+                                      'Y: %{y:.4f} m<br>' +
+                                      'Z: %{z:.4f} m<extra></extra>'
+                    ))
+                    
+                    # Add start and end points with clear markers
+                    fig_plotly.add_trace(go.Scatter3d(
+                        x=[x_m[0]], y=[y_m[0]], z=[z_m[0]],
+                        mode='markers',
+                        marker=dict(size=12, color='lime', symbol='diamond'),
+                        name='Start Point',
+                        hovertemplate='<b>Trajectory Start</b><br>' +
+                                      'X: %{x:.4f} m<br>' +
+                                      'Y: %{y:.4f} m<br>' +
+                                      'Z: %{z:.4f} m<extra></extra>'
+                    ))
+                    
+                    fig_plotly.add_trace(go.Scatter3d(
+                        x=[x_m[-1]], y=[y_m[-1]], z=[z_m[-1]],
+                        mode='markers',
+                        marker=dict(size=12, color='blue', symbol='square'),
+                        name='End Point',
+                        hovertemplate='<b>Trajectory End</b><br>' +
+                                      'X: %{x:.4f} m<br>' +
+                                      'Y: %{y:.4f} m<br>' +
+                                      'Z: %{z:.4f} m<extra></extra>'
+                    ))
                     
                     # Plot vessel outline in 3D
                     vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                    r_vessel = vessel_profile['r_inner_mm']
-                    z_vessel = vessel_profile['z_mm']
+                    r_vessel = np.array(vessel_profile['r_inner_mm']) / 1000  # Convert to meters
+                    z_vessel = np.array(vessel_profile['z_mm']) / 1000        # Convert to meters
                     
                     # Create circular cross-sections at various z-positions
-                    theta_circle = np.linspace(0, 2*np.pi, 50)
-                    for i in range(0, len(z_vessel), 10):  # Sample every 10th point
-                        z_level = z_vessel[i]
-                        r_level = r_vessel[i]
-                        x_circle = r_level * np.cos(theta_circle)
-                        y_circle = r_level * np.sin(theta_circle)
-                        z_circle = np.full_like(x_circle, z_level)
-                        ax.plot(x_circle, y_circle, z_circle, 'k-', alpha=0.3, linewidth=0.5)
+                    theta_circle = np.linspace(0, 2*np.pi, 30)
+                    outline_colors = ['lightgray', 'silver', 'darkgray']
                     
-                    # Formatting
-                    ax.set_xlabel('X (mm)')
-                    ax.set_ylabel('Y (mm)')
-                    ax.set_zlabel('Z (mm)')
-                    ax.set_title('3D Geodesic Filament Winding Trajectory')
-                    ax.legend()
+                    for i, step in enumerate(range(0, len(z_vessel), 15)):  # Every 15th point
+                        if step < len(z_vessel):
+                            z_level = z_vessel[step]
+                            r_level = r_vessel[step]
+                            x_circle = r_level * np.cos(theta_circle)
+                            y_circle = r_level * np.sin(theta_circle)
+                            z_circle = np.full_like(x_circle, z_level)
+                            
+                            fig_plotly.add_trace(go.Scatter3d(
+                                x=x_circle, y=y_circle, z=z_circle,
+                                mode='lines',
+                                line=dict(color=outline_colors[i % len(outline_colors)], 
+                                        width=2, dash='dash'),
+                                name='Vessel Outline',
+                                showlegend=(i == 0),
+                                hoverinfo='skip'
+                            ))
                     
-                    # Equal aspect ratio
-                    max_range = max(max(x_points) - min(x_points), 
-                                   max(y_points) - min(y_points),
-                                   max(z_points) - min(z_points)) / 2
-                    mid_x = (max(x_points) + min(x_points)) / 2
-                    mid_y = (max(y_points) + min(y_points)) / 2
-                    mid_z = (max(z_points) + min(z_points)) / 2
-                    ax.set_xlim(mid_x - max_range, mid_x + max_range)
-                    ax.set_ylim(mid_y - max_range, mid_y + max_range)
-                    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+                    # Enhanced layout with better controls
+                    fig_plotly.update_layout(
+                        title=dict(
+                            text="🚀 Interactive 3D Geodesic Trajectory",
+                            x=0.5,
+                            font=dict(size=18)
+                        ),
+                        scene=dict(
+                            xaxis_title="X Coordinate (m)",
+                            yaxis_title="Y Coordinate (m)", 
+                            zaxis_title="Z Coordinate (m)",
+                            aspectmode='cube',
+                            camera=dict(
+                                eye=dict(x=1.8, y=1.8, z=1.2),
+                                center=dict(x=0, y=0, z=0)
+                            ),
+                            bgcolor='white'
+                        ),
+                        width=900,
+                        height=700,
+                        margin=dict(l=0, r=0, b=0, t=50),
+                        legend=dict(
+                            yanchor="top",
+                            y=0.99,
+                            xanchor="left",
+                            x=0.01
+                        )
+                    )
                     
-                    # Make 3D plot interactive by setting backend
-                    plt.ion()
-                    st.pyplot(fig_3d)
+                    # Display the interactive plot
+                    st.plotly_chart(fig_plotly, use_container_width=True)
+                    
+                    # Add helpful interaction instructions
+                    st.info("🎯 **Interactive Controls:** "
+                           "• **Rotate:** Click and drag to rotate the view "
+                           "• **Zoom:** Scroll wheel to zoom in/out "
+                           "• **Pan:** Hold Shift + drag to pan "
+                           "• **Reset:** Double-click to reset view "
+                           "• **Hover:** Mouse over points for coordinates")
                     
                     # Add trajectory debugging section
                     st.subheader("🔍 Trajectory Analysis & Debugging")
