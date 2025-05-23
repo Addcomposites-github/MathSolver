@@ -195,6 +195,7 @@ class TrajectoryPlanner:
         
         c_eff = self.effective_polar_opening_radius_m
         print(f"\nDEBUG generate_geodesic_trajectory: Using c_eff = {c_eff:.6f} m")
+        print(f"DEBUG: Roving parameters - width: {self.dry_roving_width_m*1000:.1f}mm, thickness: {self.dry_roving_thickness_m*1000:.1f}mm")
 
         # Get complete vessel profile in meters
         profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
@@ -239,9 +240,9 @@ class TrajectoryPlanner:
                 alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
                 if alpha_i_rad is None:
                     if np.isclose(rho_i_m, c_eff):
-                        alpha_i_rad = constants.PI / 2.0  # Turn-around at polar opening
+                        alpha_i_rad = math.pi / 2.0  # Turn-around at polar opening
                     else:
-                        alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else constants.PI / 2.0
+                        alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
             else:
                 # Point is inside c_eff, skip if path hasn't started
                 if not first_valid_point_found:
@@ -291,7 +292,10 @@ class TrajectoryPlanner:
             path_y_m.append(rho_i_m * math.sin(current_phi_rad))
 
         if not path_rho_m:
-            print("Error: No valid trajectory points generated")
+            print(f"Error: No valid trajectory points generated")
+            print(f"DEBUG: c_eff = {c_eff:.6f} m")
+            print(f"DEBUG: Profile R range: {np.min(profile_r_m_calc):.6f}m to {np.max(profile_r_m_calc):.6f}m")
+            print(f"DEBUG: Number of points with rho >= c_eff: {np.sum(profile_r_m_calc >= c_eff - 1e-7)}")
             return None
 
         # Convert to final format
