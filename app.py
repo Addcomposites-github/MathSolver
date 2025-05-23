@@ -284,7 +284,12 @@ def trajectory_planning_page():
                     # Generate trajectory based on selected mode
                     if trajectory_mode == "Multi-Circuit Coverage":
                         trajectory_data = planner.generate_multi_circuit_trajectory(num_circuits, dome_points, cylinder_points)
-                        st.success(f"🎯 Multi-circuit trajectory with {num_circuits} circuits calculated successfully!")
+                        if trajectory_data is not None:
+                            st.success(f"🎯 Multi-circuit trajectory with {num_circuits} circuits calculated successfully!")
+                            st.write(f"DEBUG: Multi-circuit data keys: {list(trajectory_data.keys())}")
+                        else:
+                            st.error("❌ Multi-circuit trajectory generation failed!")
+                            return
                     else:
                         trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
                         st.success("🎯 Single circuit trajectory calculated successfully!")
