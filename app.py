@@ -286,7 +286,6 @@ def trajectory_planning_page():
                         trajectory_data = planner.generate_multi_circuit_trajectory(num_circuits, dome_points, cylinder_points)
                         if trajectory_data is not None:
                             st.success(f"🎯 Multi-circuit trajectory with {num_circuits} circuits calculated successfully!")
-                            st.write(f"DEBUG: Multi-circuit data keys: {list(trajectory_data.keys())}")
                         else:
                             st.error("❌ Multi-circuit trajectory generation failed!")
                             return
@@ -608,19 +607,11 @@ def trajectory_planning_page():
                             debug_data_cyl = []
                             
                             # Use multi-circuit data - check if arrays exist
-                            st.write("DEBUG: Checking multi-circuit data structure...")
-                            st.write(f"Available keys: {list(traj_data.keys())}")
-                            st.write(f"x_points exists: {'x_points' in traj_data}")
-                            if 'x_points' in traj_data:
-                                st.write(f"x_points length: {len(traj_data['x_points'])}")
-                            
                             if 'x_points' in traj_data and len(traj_data['x_points']) > 0:
                                 x_multi = traj_data['x_points']
                                 y_multi = traj_data['y_points'] 
                                 z_multi = traj_data['z_coords']
                                 phi_multi = traj_data['phi_rad_continuous']
-                                
-                                st.write(f"✅ Successfully loaded multi-circuit data: {len(x_multi)} points")
                                 
                                 # Calculate rho and alpha for each point
                                 for i in range(len(x_multi)):
