@@ -698,7 +698,7 @@ class TrajectoryPlanner:
             'phi_rad_continuous': np.array(all_phi_continuous),
             'total_fiber_length_m': total_fiber_length,
             'target_cylinder_angle_deg': math.degrees(math.asin(self.clairauts_constant_for_path_m / 0.1)),
-            'c_eff_m': base_circuit.get('c_eff_m', 0),
+            'c_eff_m': base_circuit.get('c_eff_m', self.effective_polar_opening_radius_m),
             'coverage_efficiency': 0.95 * num_circuits / 4.0,  # Assumes 4 circuits for full coverage
             'base_circuit_data': base_circuit
         }
