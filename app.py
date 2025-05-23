@@ -333,8 +333,8 @@ def trajectory_planning_page():
                     
                     # Plot vessel outline in 3D
                     vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                    r_vessel = np.array(vessel_profile['r_inner_mm']) / 1000  # Convert to meters
-                    z_vessel = np.array(vessel_profile['z_mm']) / 1000        # Convert to meters
+                    r_vessel = np.array(vessel_profile['r_inner']) / 1000  # Convert to meters
+                    z_vessel = np.array(vessel_profile['z']) / 1000        # Convert to meters
                     
                     # Create circular cross-sections at various z-positions
                     theta_circle = np.linspace(0, 2*np.pi, 30)
