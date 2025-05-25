@@ -867,12 +867,17 @@ class TrajectoryPlanner:
             print(f"DEBUG: Processing {len(list(profile_range))} points for this pass")
             pass_points_start = len(path_rho_m)
             
-            for i in profile_range:
+            for idx, i in enumerate(profile_range):
                 rho_i_m = profile_r_m_calc[i]
                 z_i_m = profile_z_m_calc[i]
                 
                 # DEBUG: Log each point being processed
                 print(f"DEBUG Pass {pass_number + 1}: Processing point {i}: ρ={rho_i_m:.6f}m z={z_i_m:.6f}m c_for_winding={c_for_winding:.6f}m")
+                
+                # Check if this is the last point in the helical segment
+                is_last_point = (idx == len(list(profile_range)) - 1)
+                if is_last_point:
+                    print(f"DEBUG Pass {pass_number + 1}: *** LAST POINT IN HELICAL SEGMENT *** - should trigger turnaround")
                 
                 # Enhanced polar turnaround handling with circumferential path segments
                 # DEBUG: Check the condition for valid points
@@ -889,19 +894,19 @@ class TrajectoryPlanner:
                         else:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                             print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
-                else:
-                    print(f"DEBUG Pass {pass_number + 1}: SKIPPING point - radius too small (ρ={rho_i_m:.6f} < c_for_winding-tol={c_for_winding - 1e-7:.6f})")
-                
+                    
                     # Enhanced special handling at effective polar opening for true C¹ continuity  
                     # Check if we're at or very close to the polar opening (more lenient threshold)
                     polar_threshold = 1e-4  # 0.1mm tolerance for polar opening detection
                     at_polar_opening = abs(rho_i_m - c_for_winding) < polar_threshold
                     
-                    if at_polar_opening:
+                    # Also trigger turnaround at the last point of helical segment
+                    if at_polar_opening or is_last_point:
                         print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
                     
-                    if at_polar_opening:
+                    if at_polar_opening or is_last_point:
                         # At c_eff: implement smooth C¹ continuous turnaround with transition zones
+                        print(f"DEBUG: *** TRIGGERING TURNAROUND *** polar_opening={at_polar_opening}, last_point={is_last_point}")
                         if first_valid_point_found and len(path_rho_m) > 0:
                             print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
                             
