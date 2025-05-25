@@ -725,7 +725,7 @@ class TrajectoryPlanner:
             'aft_dome_start': aft_junction
         }
 
-    def generate_geodesic_trajectory(self, num_points_dome: int = 150, num_points_cylinder: int = 20) -> Dict:
+    def generate_geodesic_trajectory(self, num_points_dome: int = 150, num_points_cylinder: int = 20, number_of_passes: int = 2) -> Dict:
         """
         Generates complete pole-to-pole geodesic path with adaptive point distribution.
         Uses higher density in dome regions (high curvature) and lower density in cylinder (constant curvature).
@@ -817,34 +817,51 @@ class TrajectoryPlanner:
             print("Error: Not enough profile points for trajectory calculation")
             return None
         
-        # Process complete vessel profile to find windable path with smooth polar transitions
+        # Initialize multi-pass trajectory generation
         path_rho_m, path_z_m, path_alpha_rad, path_phi_rad_cumulative = [], [], [], []
         path_x_m, path_y_m = [], []
         current_phi_rad = 0.0
         first_valid_point_found = False
-
-        for i in range(len(profile_r_m_calc)):
-            rho_i_m = profile_r_m_calc[i]
-            z_i_m = profile_z_m_calc[i]
+        
+        print(f"\n=== MULTI-PASS GEODESIC TRAJECTORY GENERATION ===")
+        print(f"Target passes: {number_of_passes}")
+        print(f"Each pass: forward journey + turnaround + return journey + turnaround")
+        
+        total_points_generated = 0
+        
+        # Generate multiple complete passes
+        for pass_number in range(number_of_passes):
+            print(f"\n--- PASS {pass_number + 1} of {number_of_passes} ---")
             
-            # Enhanced polar turnaround handling with circumferential path segments
-            if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
-                alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
-                if alpha_i_rad is None:
-                    if abs(rho_i_m - c_for_winding) < 1e-6:
-                        alpha_i_rad = math.pi / 2.0  # Exact 90° at effective polar opening
-                    else:
-                        alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
+            # Direction alternates: odd passes go forward, even go reverse
+            forward_direction = (pass_number % 2 == 0)
+            profile_range = range(len(profile_r_m_calc)) if forward_direction else range(len(profile_r_m_calc)-1, -1, -1)
+            
+            print(f"Direction: {'Forward (+Z to -Z)' if forward_direction else 'Reverse (-Z to +Z)'}")
+            pass_points_start = len(path_rho_m)
+            
+            for i in profile_range:
+                rho_i_m = profile_r_m_calc[i]
+                z_i_m = profile_z_m_calc[i]
                 
-                # Enhanced special handling at effective polar opening for true C¹ continuity  
-                # Check if we're at or very close to the polar opening (more lenient threshold)
-                polar_threshold = 1e-4  # 0.1mm tolerance for polar opening detection
-                at_polar_opening = abs(rho_i_m - c_for_winding) < polar_threshold
+                # Enhanced polar turnaround handling with circumferential path segments
+                if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
+                    alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
+                    if alpha_i_rad is None:
+                        if abs(rho_i_m - c_for_winding) < 1e-6:
+                            alpha_i_rad = math.pi / 2.0  # Exact 90° at effective polar opening
+                        else:
+                            alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                 
-                if at_polar_opening:
-                    print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
-                
-                if at_polar_opening:
+                    # Enhanced special handling at effective polar opening for true C¹ continuity  
+                    # Check if we're at or very close to the polar opening (more lenient threshold)
+                    polar_threshold = 1e-4  # 0.1mm tolerance for polar opening detection
+                    at_polar_opening = abs(rho_i_m - c_for_winding) < polar_threshold
+                    
+                    if at_polar_opening:
+                        print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
+                    
+                    if at_polar_opening:
                     # At c_eff: implement smooth C¹ continuous turnaround with transition zones
                     if first_valid_point_found and len(path_rho_m) > 0:
                         print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
