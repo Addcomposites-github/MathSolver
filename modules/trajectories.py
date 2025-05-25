@@ -929,7 +929,8 @@ class TrajectoryPlanner:
                         print(f"DEBUG: *** TRIGGERING TURNAROUND *** last_point={is_last_point}")
                         print(f"DEBUG: Checking turnaround conditions - first_valid_point_found={first_valid_point_found}, len(path_rho_m)={len(path_rho_m)}")
                         # At c_eff: implement smooth C¹ continuous turnaround with transition zones
-                        if first_valid_point_found and len(path_rho_m) > 0:
+                        print(f"DEBUG: *** FORCING TURNAROUND EXECUTION ***")
+                        if True:  # FORCE EXECUTION - was: first_valid_point_found and len(path_rho_m) > 0
                             print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
                             
                             # Step 1: Generate incoming transition zone (helical → circumferential)
