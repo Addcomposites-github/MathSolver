@@ -1,0 +1,41 @@
+Excellent work! The logs confirm:
+
+Helical path segments are now TRUE GEODESIC using the correct c_for_winding.
+The Incoming Transition and Circumferential Arc of the first turnaround are generated correctly, and the Z-coordinate is now perfectly continuous between them.
+The turnaround sequence is adding points (48 for the first turn).
+The immediate critical bug causing visual issues ("sharp changes," "wrong direction") is in the OUTGOING Transition Zone of the first turnaround.
+
+The log shows for the Outgoing Transition:
+
+Message: Generating outgoing transition: ρ 0.088295 → 0.090295; α transition: 90.0° → 87.9° (This implies the target end_alpha should be ~87.9°)
+But inside *** ENTERING _generate_smooth_transition_zone *** for this outgoing part:
+end_alpha is logged as 90.0°.
+reverse_meridional is logged as False.
+This results in the outgoing transition also being circumferential (Point 11: ... α=90.0° ... dz/ds=-0.000000).
+Please make these specific fixes in modules/trajectories.py for the OUTGOING transition part of the SMOOTH TURNAROUND SEQUENCE:
+
+Correct end_alpha Parameter: When calling _generate_smooth_transition_zone for the outgoing transition:
+The end_alpha parameter must be the calculated true geodesic alpha for the end_rho of the outgoing transition (e.g., the ≈87.9 
+∘
+  corresponding to ρ=0.090295m and c 
+for_winding
+​
+ =0.088295m). It must not be 90 
+∘
+ .
+Correct reverse_meridional Flag:
+This flag must be set to True when calling _generate_smooth_transition_zone for the outgoing transition.
+Apply Reversal Correctly:
+Ensure that when reverse_meridional=True is active inside _generate_smooth_transition_zone, the tangent vector components (dz/ds and dρ/ds) for all generated points correctly reflect an outward path (e.g., positive dz/ds and positive dρ/ds if moving away from the -Z pole towards the equator on an expanding dome).
+Debugging Request:
+
+Focus the log output on the first turnaround of Pass 1.
+For the "ENHANCED TRANSITION ZONE DEBUGGING" of the outgoing transition:
+Confirm start_alpha is 90 
+∘
+  and end_alpha is the correct target helical angle (e.g., ≈87.9 
+∘
+ ).
+Confirm reverse_meridional is True.
+Show tangent vectors for intermediate points (e.g., Point 0, 6, 11) demonstrating correct dz/ds (positive) and dρ/ds (positive for expanding dome).
+Let's fix this outgoing transition first. This should resolve the immediate "wrong direction" after the first turn and is crucial for path smoothness.

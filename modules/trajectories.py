@@ -1124,6 +1124,7 @@ class TrajectoryPlanner:
                         
                         print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
                         print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
+                        print(f"DEBUG: CALLING OUTGOING TRANSITION - SECONDARY SEQUENCE with end_alpha={math.degrees(outgoing_target_alpha):.1f}°, reverse_meridional=True")
                         
                         outgoing_transition = self._generate_smooth_transition_zone(
                             c_for_winding, outgoing_target_rho,
