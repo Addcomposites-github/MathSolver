@@ -516,18 +516,35 @@ class TrajectoryPlanner:
         Interpolate Z coordinate from vessel profile at given radius.
         """
         try:
-            profile_r = self.vessel.profile_points['r_inner'] * 1e-3  # Convert to meters
-            profile_z = self.vessel.profile_points['z'] * 1e-3       # Convert to meters
+            profile_r = np.array(self.vessel.profile_points['r_inner']) * 1e-3  # Convert to meters
+            profile_z = np.array(self.vessel.profile_points['z']) * 1e-3       # Convert to meters
+            
+            # DEBUG: Show interpolation details
+            print(f"    DEBUG: Interpolating Z for ρ={rho_target:.6f}m")
+            print(f"    DEBUG: Profile ρ range: {profile_r[0]:.6f} to {profile_r[-1]:.6f}m")
+            print(f"    DEBUG: Profile Z range: {profile_z[0]:.6f} to {profile_z[-1]:.6f}m")
+            
+            # Ensure arrays are sorted for interpolation
+            sort_indices = np.argsort(profile_r)
+            profile_r_sorted = profile_r[sort_indices]
+            profile_z_sorted = profile_z[sort_indices]
             
             # Find interpolation range
-            if rho_target <= profile_r[0]:
-                return float(profile_z[0])
-            elif rho_target >= profile_r[-1]:
-                return float(profile_z[-1])
+            if rho_target <= profile_r_sorted[0]:
+                result = float(profile_z_sorted[0])
+                print(f"    DEBUG: Below range, using Z={result:.6f}m")
+                return result
+            elif rho_target >= profile_r_sorted[-1]:
+                result = float(profile_z_sorted[-1])
+                print(f"    DEBUG: Above range, using Z={result:.6f}m")
+                return result
             else:
                 # Linear interpolation
-                return float(np.interp(rho_target, profile_r, profile_z))
-        except:
+                result = float(np.interp(rho_target, profile_r_sorted, profile_z_sorted))
+                print(f"    DEBUG: Interpolated Z={result:.6f}m")
+                return result
+        except Exception as e:
+            print(f"    DEBUG: Interpolation failed: {e}")
             return None
 
     def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
