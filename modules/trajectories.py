@@ -458,8 +458,14 @@ class TrajectoryPlanner:
             rho_t = start_rho + (end_rho - start_rho) * h_smooth
             alpha_t = start_alpha + (end_alpha - start_alpha) * h_smooth
             
-            # Get Z coordinate from vessel profile
-            z_t = self._interpolate_z_from_profile(rho_t)
+            # Get Z coordinate from vessel profile with dome preference based on transition direction
+            prefer_positive = True  # Default
+            if len(transition_points) > 0:
+                # Base preference on current trajectory direction
+                prev_z = transition_points[-1]['z']
+                prefer_positive = prev_z >= 0
+            
+            z_t = self._interpolate_z_from_profile(rho_t, prefer_positive_dome=prefer_positive)
             if z_t is None:
                 continue
                 
@@ -543,45 +549,54 @@ class TrajectoryPlanner:
         print(f"*** EXITING _generate_smooth_transition_zone - Generated {len(transition_points)} points ***")
         return transition_points
 
-    def _interpolate_z_from_profile(self, rho_target: float) -> Optional[float]:
+    def _interpolate_z_from_profile(self, rho_target: float, prefer_positive_dome: bool = True) -> Optional[float]:
         """
-        Interpolate Z coordinate from vessel profile at given radius.
+        Interpolate Z coordinate from vessel profile at given radius with dome preference.
+        
+        Parameters:
+        -----------
+        rho_target : float
+            Target radius for interpolation
+        prefer_positive_dome : bool
+            If True, prefer positive Z values when multiple options exist
         """
         try:
-            # CRITICAL FIX: Access the correct profile arrays
+            # Access the profile arrays
             profile_r = np.array(self.vessel.profile_points['r_inner']) * 1e-3  # Convert to meters
             profile_z = np.array(self.vessel.profile_points['z']) * 1e-3       # Convert to meters
             
-            # DEBUG: Show interpolation details and profile data validation
-            print(f"    DEBUG: Interpolating Z for ρ={rho_target:.6f}m")
-            print(f"    DEBUG: Profile has {len(profile_r)} points")
-            print(f"    DEBUG: Profile ρ range: {np.min(profile_r):.6f} to {np.max(profile_r):.6f}m")
-            print(f"    DEBUG: Profile Z range: {np.min(profile_z):.6f} to {np.max(profile_z):.6f}m")
+            # Split profile into positive and negative dome sections
+            positive_dome_mask = profile_z >= 0
+            negative_dome_mask = profile_z < 0
             
-            # Validate profile data
-            if len(profile_r) < 2 or np.min(profile_r) == np.max(profile_r):
-                print(f"    ERROR: Invalid profile data - ρ range is degenerate!")
-                return None
+            # Try interpolation on preferred dome first
+            if prefer_positive_dome and np.any(positive_dome_mask):
+                r_pos = profile_r[positive_dome_mask]
+                z_pos = profile_z[positive_dome_mask]
+                
+                if len(r_pos) > 1 and rho_target >= np.min(r_pos) and rho_target <= np.max(r_pos):
+                    result = float(np.interp(rho_target, r_pos, z_pos))
+                    print(f"    DEBUG: Positive dome interpolation: Z={result:.6f}m")
+                    return result
             
-            # Ensure arrays are sorted for interpolation
+            if not prefer_positive_dome and np.any(negative_dome_mask):
+                r_neg = profile_r[negative_dome_mask]
+                z_neg = profile_z[negative_dome_mask]
+                
+                if len(r_neg) > 1 and rho_target >= np.min(r_neg) and rho_target <= np.max(r_neg):
+                    result = float(np.interp(rho_target, r_neg, z_neg))
+                    print(f"    DEBUG: Negative dome interpolation: Z={result:.6f}m")
+                    return result
+            
+            # Fallback to full profile interpolation if dome-specific fails
             sort_indices = np.argsort(profile_r)
             profile_r_sorted = profile_r[sort_indices]
             profile_z_sorted = profile_z[sort_indices]
             
-            # Find interpolation range
-            if rho_target <= profile_r_sorted[0]:
-                result = float(profile_z_sorted[0])
-                print(f"    DEBUG: Below range, using Z={result:.6f}m")
-                return result
-            elif rho_target >= profile_r_sorted[-1]:
-                result = float(profile_z_sorted[-1])
-                print(f"    DEBUG: Above range, using Z={result:.6f}m")
-                return result
-            else:
-                # Linear interpolation
-                result = float(np.interp(rho_target, profile_r_sorted, profile_z_sorted))
-                print(f"    DEBUG: Interpolated Z={result:.6f}m")
-                return result
+            result = float(np.interp(rho_target, profile_r_sorted, profile_z_sorted))
+            print(f"    DEBUG: Fallback interpolation: Z={result:.6f}m")
+            return result
+            
         except Exception as e:
             print(f"    DEBUG: Interpolation failed: {e}")
             return None
@@ -656,9 +671,10 @@ class TrajectoryPlanner:
             
             rho_turn = c_eff
             
-            # CRITICAL FIX: Interpolate Z from vessel profile instead of using fixed z_pole
-            # This ensures points stay on the correct dome surface
-            z_turn_interpolated = self._interpolate_z_from_profile(rho_turn)
+            # CRITICAL FIX: Interpolate Z from vessel profile with dome preference
+            # Determine dome preference based on z_pole parameter
+            prefer_positive = z_pole >= 0
+            z_turn_interpolated = self._interpolate_z_from_profile(rho_turn, prefer_positive_dome=prefer_positive)
             if z_turn_interpolated is not None:
                 z_turn = z_turn_interpolated
             else:
