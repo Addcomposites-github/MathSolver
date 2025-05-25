@@ -844,14 +844,26 @@ class TrajectoryPlanner:
                 rho_i_m = profile_r_m_calc[i]
                 z_i_m = profile_z_m_calc[i]
                 
+                # DEBUG: Log each point being processed
+                print(f"DEBUG Pass {pass_number + 1}: Processing point {i}: ρ={rho_i_m:.6f}m z={z_i_m:.6f}m c_for_winding={c_for_winding:.6f}m")
+                
                 # Enhanced polar turnaround handling with circumferential path segments
-                if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
+                # DEBUG: Check the condition for valid points
+                radius_condition = rho_i_m >= c_for_winding - 1e-7
+                print(f"DEBUG Pass {pass_number + 1}: Radius condition check: ρ={rho_i_m:.6f} >= c-tol={c_for_winding - 1e-7:.6f} = {radius_condition}")
+                
+                if radius_condition:  # Small tolerance
                     alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
+                    print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} (None if failed)")
                     if alpha_i_rad is None:
                         if abs(rho_i_m - c_for_winding) < 1e-6:
                             alpha_i_rad = math.pi / 2.0  # Exact 90° at effective polar opening
+                            print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° at polar opening")
                         else:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
+                            print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
+                else:
+                    print(f"DEBUG Pass {pass_number + 1}: SKIPPING point - radius too small (ρ={rho_i_m:.6f} < c_for_winding-tol={c_for_winding - 1e-7:.6f})")
                 
                     # Enhanced special handling at effective polar opening for true C¹ continuity  
                     # Check if we're at or very close to the polar opening (more lenient threshold)

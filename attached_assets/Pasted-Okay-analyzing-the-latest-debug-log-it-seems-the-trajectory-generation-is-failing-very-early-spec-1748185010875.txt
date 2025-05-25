@@ -1,0 +1,25 @@
+Okay, analyzing the latest debug log, it seems the trajectory generation is failing very early, specifically during the initial forward helical journey of Pass 1. The detailed turnaround sequence debugging we added isn't even being reached for the first turn.
+
+The log shows:
+
+Correct calculation of c_eff and the target c_for_winding.
+Under --- PASS 1 of 2 --- Direction: Forward (+Z to -Z), there are no logs of points being generated for this helical segment, nor any indication that the turnaround sequence was entered.
+The error "No valid trajectory points generated" appears under "PASS 2," likely because Pass 1 produced no data.
+It seems the main loop in generate_geodesic_trajectory that should be calculating the helical path points before the first turnaround is terminating prematurely or failing.
+
+Could you please:
+
+Focus your debugging on the initial helical path generation segment for Pass 1 within generate_geodesic_trajectory in modules/trajectories.py.
+Add detailed logging inside this specific loop (the one that should run from the starting pole until ρ≈c 
+for_winding
+​
+  at the other pole). For each iteration attempting to calculate a point in this first segment, please log:
+The current point's (ρ,z,ϕ,α).
+The calculated next point's (ρ,z,ϕ,α) before it's appended.
+The exact condition(s) being checked that might be causing this loop to exit or not add points (e.g., how it's checking against Z-limits of the vessel profile, or if ρ is becoming less than c_for_winding unexpectedly early, or if _calculate_geodesic_point_and_tangent is returning an invalid status).
+Specifically, let's verify the starting (ρ,z,ϕ,α) for Pass 1. Is it correctly initialized at one of the vessel's poles (e.g., at the minimum Z of the adaptive profile, with ρ corresponding to c_for_winding and α close to 90 
+∘
+  but allowing meridional movement)?
+The goal is to understand precisely why this first helical leg of Pass 1 is not generating points. The turnaround logic itself (incoming transition, arc, outgoing transition) seems more developed, but we're not reaching it.
+
+Thanks!"
