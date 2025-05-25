@@ -895,14 +895,15 @@ class TrajectoryPlanner:
                 print(f"DEBUG Pass {pass_number + 1}: Radius condition check: ρ={rho_i_m:.6f} >= c-tol={c_for_winding - 1e-7:.6f} = {radius_condition}")
                 
                 if radius_condition:  # Small tolerance
-                    # For points very close to c_for_winding, alpha should be close to 90°
-                    if abs(rho_i_m - c_for_winding) < 5e-3:  # Within 5mm of c_for_winding
-                        alpha_i_rad = math.pi / 2.0  # Start with 90° at effective polar opening
-                        print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° for point near c_for_winding (diff={abs(rho_i_m - c_for_winding)*1000:.1f}mm)")
-                    else:
-                        alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
-                        print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} ({math.degrees(alpha_i_rad) if alpha_i_rad else 'None'}°)")
-                        if alpha_i_rad is None:
+                    # Always use Clairaut's law for helical segments: sin(α) = c_for_winding / ρ
+                    alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
+                    print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} ({math.degrees(alpha_i_rad) if alpha_i_rad else 'None'}°)")
+                    if alpha_i_rad is None:
+                        # Only fallback to 90° for points exactly at c_for_winding
+                        if abs(rho_i_m - c_for_winding) < 1e-6:
+                            alpha_i_rad = math.pi / 2.0
+                            print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° at exact c_for_winding")
+                        else:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                             print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
                     
@@ -920,60 +921,60 @@ class TrajectoryPlanner:
                             last_helical_rho = path_rho_m[-1]
                             last_helical_alpha = path_alpha_rad[-1]
                             transition_length = 0.002  # 2mm transition zone
-                        
-                        print(f"Generating incoming transition: ρ {last_helical_rho:.6f} → {c_for_winding:.6f}")
-                        print(f"α transition: {math.degrees(last_helical_alpha):.1f}° → 90.0°")
-                        
-                        incoming_transition = self._generate_smooth_transition_zone(
-                            last_helical_rho, c_for_winding, 
-                            last_helical_alpha, math.pi/2,
-                            current_phi_rad, num_points=12
-                        )
-                        
-                        # Step 2: Generate circumferential turnaround segment
-                        if incoming_transition:
-                            turnaround_phi_start = incoming_transition[-1]['phi']
-                        else:
-                            turnaround_phi_start = current_phi_rad
                             
-                        print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
-                        turnaround_points = self._generate_polar_turnaround_segment(
-                            c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
-                        )
-                        
-                        # Step 3: Generate outgoing transition zone (circumferential → helical)
-                        if turnaround_points:
-                            outgoing_phi_start = turnaround_points[-1]['phi']
-                        else:
-                            outgoing_phi_start = turnaround_phi_start
-                        
-                        # Calculate target outgoing angle (reverse direction for next pass)
-                        outgoing_target_alpha = last_helical_alpha  # Same magnitude, different direction
-                        outgoing_target_rho = c_for_winding + transition_length
-                        
-                        print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
-                        print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
-                        
-                        outgoing_transition = self._generate_smooth_transition_zone(
-                            c_for_winding, outgoing_target_rho,
-                            math.pi/2, outgoing_target_alpha,
-                            outgoing_phi_start, num_points=12
-                        )
-                        
-                        # Step 4: Integrate all segments with debugging
-                        total_new_points = 0
-                        
-                        # Add incoming transition (skip first point to avoid duplication)
-                        if incoming_transition and len(incoming_transition) > 1:
-                            for i, point in enumerate(incoming_transition[1:], 1):
-                                path_rho_m.append(point['rho'])
-                                path_z_m.append(point['z'])
-                                path_alpha_rad.append(point['alpha'])
-                                path_phi_rad_cumulative.append(point['phi'])
-                                path_x_m.append(point['x'])
-                                path_y_m.append(point['y'])
-                                current_phi_rad = point['phi']
-                                total_new_points += 1
+                            print(f"Generating incoming transition: ρ {last_helical_rho:.6f} → {c_for_winding:.6f}")
+                            print(f"α transition: {math.degrees(last_helical_alpha):.1f}° → 90.0°")
+                            
+                            incoming_transition = self._generate_smooth_transition_zone(
+                                last_helical_rho, c_for_winding, 
+                                last_helical_alpha, math.pi/2,
+                                current_phi_rad, num_points=12
+                            )
+                            
+                            # Step 2: Generate circumferential turnaround segment
+                            if incoming_transition:
+                                turnaround_phi_start = incoming_transition[-1]['phi']
+                            else:
+                                turnaround_phi_start = current_phi_rad
+                                
+                            print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
+                            turnaround_points = self._generate_polar_turnaround_segment(
+                                c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
+                            )
+                            
+                            # Step 3: Generate outgoing transition zone (circumferential → helical)
+                            if turnaround_points:
+                                outgoing_phi_start = turnaround_points[-1]['phi']
+                            else:
+                                outgoing_phi_start = turnaround_phi_start
+                            
+                            # Calculate target outgoing angle (reverse direction for next pass)
+                            outgoing_target_alpha = last_helical_alpha  # Same magnitude, different direction
+                            outgoing_target_rho = c_for_winding + transition_length
+                            
+                            print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
+                            print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
+                            
+                            outgoing_transition = self._generate_smooth_transition_zone(
+                                c_for_winding, outgoing_target_rho,
+                                math.pi/2, outgoing_target_alpha,
+                                outgoing_phi_start, num_points=12
+                            )
+                            
+                            # Step 4: Integrate all segments with debugging
+                            total_new_points = 0
+                            
+                            # Add incoming transition (skip first point to avoid duplication)
+                            if incoming_transition and len(incoming_transition) > 1:
+                                for i, point in enumerate(incoming_transition[1:], 1):
+                                    path_rho_m.append(point['rho'])
+                                    path_z_m.append(point['z'])
+                                    path_alpha_rad.append(point['alpha'])
+                                    path_phi_rad_cumulative.append(point['phi'])
+                                    path_x_m.append(point['x'])
+                                    path_y_m.append(point['y'])
+                                    current_phi_rad = point['phi']
+                                    total_new_points += 1
                             print(f"Added {len(incoming_transition)-1} incoming transition points")
                         
                         # Add circumferential turnaround
