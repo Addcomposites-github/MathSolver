@@ -980,6 +980,7 @@ class TrajectoryPlanner:
                             print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
                             
                             print("DEBUG: Attempting to call outgoing transition zone...")
+                            print(f"DEBUG: CALLING OUTGOING TRANSITION - MAIN SEQUENCE with end_alpha={math.degrees(outgoing_target_alpha):.1f}°, reverse_meridional=True")
                             outgoing_transition = self._generate_smooth_transition_zone(
                                 c_for_winding, outgoing_target_rho,
                                 math.pi/2, outgoing_target_alpha,  # CRITICAL FIX: Use target helical angle
