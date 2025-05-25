@@ -272,10 +272,14 @@ def trajectory_planning_page():
                     
                     # Generate single circuit trajectory for continuous winding
                     trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
-                    st.success("🎯 Single circuit trajectory calculated successfully!")
                     
-                    st.session_state.trajectory_data = trajectory_data
-                    st.rerun()
+                    # Ensure trajectory data is properly stored
+                    if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                        st.session_state.trajectory_data = trajectory_data
+                        st.success(f"🎯 Single circuit trajectory calculated successfully! Generated {len(trajectory_data['path_points'])} points")
+                        st.rerun()
+                    else:
+                        st.error("❌ No trajectory points were generated. Check the debug logs for details.")
                 else:
                     planner = TrajectoryPlanner(st.session_state.vessel_geometry)
                     trajectory_params = {
