@@ -872,17 +872,14 @@ class TrajectoryPlanner:
                 print(f"DEBUG Pass {pass_number + 1}: Radius condition check: ρ={rho_i_m:.6f} >= c-tol={c_for_winding - 1e-7:.6f} = {radius_condition}")
                 
                 if radius_condition:  # Small tolerance
-                    # Always use Clairaut's law for helical segments: sin(α) = c_for_winding / ρ
-                    alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
-                    print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} ({math.degrees(alpha_i_rad) if alpha_i_rad else 'None'}°)")
-                    if alpha_i_rad is None:
-                        # Only fallback to 90° for points exactly at c_for_winding
-                        if abs(rho_i_m - c_for_winding) < 1e-6:
-                            alpha_i_rad = math.pi / 2.0
-                            print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° at exact c_for_winding")
-                        else:
-                            alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
-                            print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
+                    # CORRECTED: Use target c_for_winding for true geodesic calculation
+                    # Apply Clairaut's Law directly: sin(α) = c_for_winding / ρ
+                    sin_alpha = c_for_winding / rho_i_m
+                    if sin_alpha <= 1.0:
+                        alpha_i_rad = math.asin(sin_alpha)
+                    else:
+                        alpha_i_rad = math.pi / 2.0  # At exact c_for_winding
+                    print(f"DEBUG Pass {pass_number + 1}: Calculated TRUE GEODESIC alpha={alpha_i_rad:.4f} ({math.degrees(alpha_i_rad):.1f}°) using c_for_winding={c_for_winding:.6f}")
                     
                     # CRITICAL FIX: Add normal helical points to trajectory arrays
                     # Update phi based on geodesic advancement
