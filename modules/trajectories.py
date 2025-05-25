@@ -483,25 +483,22 @@ class TrajectoryPlanner:
             if tangent is None:
                 continue
                 
-            # Calculate radius of curvature for debugging
-            radius_curvature = self._estimate_path_curvature_radius(rho_t, z_t, tangent, start_rho, end_rho)
-            
-            # Debug output for curvature analysis
-            if i in [0, num_points//2, num_points-1]:  # Start, middle, end points
-                print(f"Point {i}: t={t:.3f} ρ={rho_t:.6f}m α={math.degrees(alpha_t):.1f}°")
-                print(f"  Tangent: dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
-                print(f"  Curvature radius: {radius_curvature:.4f}m ({radius_curvature*1000:.1f}mm)")
-            
-            # Apply meridional direction reversal if specified (for outgoing transitions)
+            # CRITICAL FIX: Apply meridional direction reversal BEFORE debug output
             if reverse_meridional:
-                # CRITICAL FIX 2: Proper meridional reversal for dome geometry
                 # For outgoing path on expanding dome: both dρ/ds and dz/ds should be positive
                 # Reverse dz/ds sign and ensure dρ/ds is positive for outward expansion
                 drho_ds_corrected = abs(tangent[0])  # Ensure positive for outward expansion
-                dz_ds_corrected = -tangent[1]        # Reverse to move away from pole
+                dz_ds_corrected = abs(tangent[1])    # Make positive to move away from pole
                 tangent = (drho_ds_corrected, dz_ds_corrected, tangent[2])
-                if i == 0:  # Log only for first point to avoid spam
-                    print(f"DEBUG: Applied corrected meridional reversal - dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
+                
+            # Calculate radius of curvature for debugging
+            radius_curvature = self._estimate_path_curvature_radius(rho_t, z_t, tangent, start_rho, end_rho)
+            
+            # Debug output for curvature analysis (now shows corrected tangent)
+            if i in [0, num_points//2, num_points-1]:  # Start, middle, end points
+                print(f"Point {i}: t={t:.3f} ρ={rho_t:.6f}m α={math.degrees(alpha_t):.1f}°")
+                print(f"  Tangent {'(REVERSED)' if reverse_meridional else ''}: dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
+                print(f"  Curvature radius: {radius_curvature:.4f}m ({radius_curvature*1000:.1f}mm)")
                 
             # Calculate Cartesian coordinates
             x_t = rho_t * math.cos(phi_current)
