@@ -815,9 +815,25 @@ class TrajectoryPlanner:
         print(f"Each pass: forward journey + turnaround + return journey + turnaround")
         
         # CRITICAL FIX: Use the target Clairaut's constant, not the physical minimum
-        c_for_winding = self.clairauts_constant_for_path_m
-        print(f"CALCULATED c_eff before assignment: {self.effective_polar_opening_radius_m:.6f} m (physical minimum).")
-        print(f"Using Clairaut's constant c = {c_for_winding:.6f} m (for target angle). This is the c_for_winding.")
+        print(f"DEBUG: self.clairauts_constant_for_path_m = {self.clairauts_constant_for_path_m}")
+        print(f"DEBUG: self.effective_polar_opening_radius_m = {self.effective_polar_opening_radius_m}")
+        print(f"DEBUG: self.target_cylinder_angle_deg = {self.target_cylinder_angle_deg}")
+        
+        if self.clairauts_constant_for_path_m is not None:
+            c_for_winding = self.clairauts_constant_for_path_m
+            print(f"SUCCESS: Using TARGET Clairaut's constant c = {c_for_winding:.6f} m (for {self.target_cylinder_angle_deg}° target angle)")
+        else:
+            # Force calculation of target Clairaut's constant
+            if self.target_cylinder_angle_deg is not None:
+                R_cyl_m = self.vessel.inner_radius * 1e-3  # Convert to meters
+                alpha_target_rad = math.radians(self.target_cylinder_angle_deg)
+                c_for_winding = R_cyl_m * math.sin(alpha_target_rad)
+                print(f"FORCED CALCULATION: Target {self.target_cylinder_angle_deg}° gives c = {c_for_winding:.6f} m")
+            else:
+                c_for_winding = self.effective_polar_opening_radius_m
+                print(f"FALLBACK: Using physical minimum c = {c_for_winding:.6f} m")
+        
+        print(f"FINAL c_for_winding = {c_for_winding:.6f} m - THIS WILL BE USED FOR ALL GEODESIC CALCULATIONS")
         
         total_points_generated = 0
         

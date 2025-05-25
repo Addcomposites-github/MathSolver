@@ -1,0 +1,73 @@
+Thank you for providing the CSV data. Analysis confirms:
+
+Z-Coordinate continuity within each 3-part turnaround sequence (incoming transition -> arc -> outgoing transition) is now EXCELLENT.
+The meridional (dz/ds) and radial (dρ/ds) tangent components at the end of the outgoing transitions are also correctly reversed and directed.
+The CRITICAL, UNRESOLVED ISSUE is that the 'helical' segments are NOT GEODESIC for the target c_for_winding.
+
+From the CSV:
+
+For a target like 62° (implying c_for_winding ≈0.0883 m), the alpha_rad values in the helical segments (both dome and cylinder portions) produce a calculated Clairaut's constant C=ρsinα of only ≈0.0411 m.
+This means the winding angle α being used is much lower than required by Clairaut's Law for the target c_for_winding. For example, on the cylinder (ρ=0.1m), instead of α≈62 
+∘
+ , the path has α≈24 
+∘
+ , making it appear "almost along the axis."
+Your Immediate and Top Priority Task:
+
+Please correct the calculation of alpha_rad within the main loop that generates points for all 'helical' segments in modules/trajectories.py.
+
+For every point (ρ 
+i
+​
+ ,z 
+i
+​
+ ) on a helical segment (i.e., between turnarounds):
+The winding angle α 
+i
+​
+  MUST be calculated strictly using Clairaut's Law: α 
+i
+​
+ =arcsin(c 
+for_winding
+​
+ /ρ 
+i
+​
+ ).
+Ensure the c_for_winding used here is the one derived from the user's target cylinder angle (e.g., ≈0.0883 m), not the physical c 
+eff
+​
+ .
+Handle potential arcsin domain errors if ρ 
+i
+​
+  becomes slightly less than c_for_winding due to numerical precision (in such cases, α 
+i
+​
+  should be 90 
+∘
+ ).
+Debugging Request:
+
+After this fix, please provide a new CSV export of all generated points for a 2-pass trajectory (which forms one full circuit).
+In the console log, for each 'helical' segment of each pass, please log:
+The c_for_winding being used for alpha calculation.
+For at least 5-10 sample points spanning the dome and cylinder portions of that helical segment: log ρ 
+i
+​
+ , the newly calculated (corrected) α 
+i
+​
+  (in degrees), and the resulting ρ 
+i
+​
+ sinα 
+i
+​
+  to verify it closely matches c_for_winding.
+Once the helical paths are truly geodesic for the target angle, the overall trajectory should look much more correct. We can then fine-tune the visual smoothness of the transition zones if any minor kinks remain.
+Please also ensure the UI displays the generated profile. If it's "no profile output in UI," confirm the all_trajectory_points list is correctly populated and passed to the Streamlit visualization components.
+
+Thank you!
