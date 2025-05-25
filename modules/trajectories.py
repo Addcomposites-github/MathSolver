@@ -1042,10 +1042,14 @@ class TrajectoryPlanner:
                             # Initialize total_new_points to prevent variable scope error
                             total_new_points = 0
                                 
+                            # CRITICAL DEBUG: Check what Z-coordinate is being passed
+                            z_pole_passed = (incoming_transition[-1]["z"] if incoming_transition else z_i_m)
                             print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
+                            print(f"🚨 CRITICAL: z_pole being passed = {z_pole_passed:.6f}m")
+                            print(f"🚨 CRITICAL: This Z value determines which dome the turnaround uses!")
                             print("DEBUG: Attempting to call polar turnaround segment...")
                             turnaround_points = self._generate_polar_turnaround_segment(
-                                c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
+                                c_for_winding, z_pole_passed, turnaround_phi_start, math.pi/2, None
                             )
                             print("DEBUG: Successfully returned from polar turnaround segment")
                             
