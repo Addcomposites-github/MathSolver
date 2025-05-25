@@ -516,13 +516,20 @@ class TrajectoryPlanner:
         Interpolate Z coordinate from vessel profile at given radius.
         """
         try:
+            # CRITICAL FIX: Access the correct profile arrays
             profile_r = np.array(self.vessel.profile_points['r_inner']) * 1e-3  # Convert to meters
             profile_z = np.array(self.vessel.profile_points['z']) * 1e-3       # Convert to meters
             
-            # DEBUG: Show interpolation details
+            # DEBUG: Show interpolation details and profile data validation
             print(f"    DEBUG: Interpolating Z for ρ={rho_target:.6f}m")
-            print(f"    DEBUG: Profile ρ range: {profile_r[0]:.6f} to {profile_r[-1]:.6f}m")
-            print(f"    DEBUG: Profile Z range: {profile_z[0]:.6f} to {profile_z[-1]:.6f}m")
+            print(f"    DEBUG: Profile has {len(profile_r)} points")
+            print(f"    DEBUG: Profile ρ range: {np.min(profile_r):.6f} to {np.max(profile_r):.6f}m")
+            print(f"    DEBUG: Profile Z range: {np.min(profile_z):.6f} to {np.max(profile_z):.6f}m")
+            
+            # Validate profile data
+            if len(profile_r) < 2 or np.min(profile_r) == np.max(profile_r):
+                print(f"    ERROR: Invalid profile data - ρ range is degenerate!")
+                return None
             
             # Ensure arrays are sorted for interpolation
             sort_indices = np.argsort(profile_r)
