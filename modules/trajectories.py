@@ -665,6 +665,17 @@ class TrajectoryPlanner:
             else:
                 z_turn = z_pole  # Fallback to original if interpolation fails
                 
+            # DOME CONSISTENCY CHECK for circumferential points
+            if len(turnaround_points) > 0:
+                prev_z = turnaround_points[-1]['z']
+                target_dome_sign = np.sign(prev_z)
+                
+                # If interpolated Z is on wrong dome, correct it to maintain consistency
+                if np.sign(z_turn) != target_dome_sign and abs(z_turn) > 1e-6:
+                    z_turn_corrected = -abs(z_turn) if target_dome_sign < 0 else abs(z_turn)
+                    print(f"    🔧 CIRCUMFERENTIAL DOME FIX: Changed Z from {z_turn:.6f}m to {z_turn_corrected:.6f}m")
+                    z_turn = z_turn_corrected
+                
             # DEBUG: Show which Z value is being used
             if i < 3:
                 print(f"    Point {i}: Using Z={z_turn:.6f}m (interpolated={z_turn_interpolated:.6f}m, original_z_pole={z_pole:.6f}m)")
