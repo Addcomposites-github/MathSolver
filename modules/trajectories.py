@@ -814,6 +814,11 @@ class TrajectoryPlanner:
         print(f"Target passes: {number_of_passes}")
         print(f"Each pass: forward journey + turnaround + return journey + turnaround")
         
+        # CRITICAL FIX: Use the target Clairaut's constant, not the physical minimum
+        c_for_winding = self.clairauts_constant_for_path_m
+        print(f"CALCULATED c_eff before assignment: {self.effective_polar_opening_radius_m:.6f} m (physical minimum).")
+        print(f"Using Clairaut's constant c = {c_for_winding:.6f} m (for target angle). This is the c_for_winding.")
+        
         total_points_generated = 0
         
         # Generate multiple complete passes
