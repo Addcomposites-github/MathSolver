@@ -813,7 +813,7 @@ class TrajectoryPlanner:
                             
                         print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
                         turnaround_points = self._generate_polar_turnaround_segment(
-                            c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
+                            c_for_winding, z_i_m, turnaround_phi_start, math.pi/2, None
                         )
                         
                         # Step 3: Generate outgoing transition zone (circumferential → helical)
@@ -919,7 +919,7 @@ class TrajectoryPlanner:
                             
                         print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
                         turnaround_points = self._generate_polar_turnaround_segment(
-                            c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
+                            c_for_winding, z_i_m, turnaround_phi_start, math.pi/2, None
                         )
                         
                         # Step 3: Generate outgoing transition zone (circumferential → helical)
