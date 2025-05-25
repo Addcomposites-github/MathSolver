@@ -517,7 +517,7 @@ class TrajectoryPlanner:
         
         # Create genuine circular arc at constant radius c_eff and constant z_pole
         # This represents the actual physical path of the fiber during turnaround
-        num_turn_points = 24  # Sufficient points for smooth circular arc
+        num_turn_points = 36  # Increased points for smoother circular arc visualization
         
         # Calculate arc length and parameterization
         arc_length = c_eff * delta_phi_pattern  # Total arc length
@@ -802,7 +802,7 @@ class TrajectoryPlanner:
                         incoming_transition = self._generate_smooth_transition_zone(
                             last_helical_rho, c_for_winding, 
                             last_helical_alpha, math.pi/2,
-                            current_phi_rad, num_points=6
+                            current_phi_rad, num_points=12
                         )
                         
                         # Step 2: Generate circumferential turnaround segment
@@ -832,7 +832,7 @@ class TrajectoryPlanner:
                         outgoing_transition = self._generate_smooth_transition_zone(
                             c_for_winding, outgoing_target_rho,
                             math.pi/2, outgoing_target_alpha,
-                            outgoing_phi_start, num_points=6
+                            outgoing_phi_start, num_points=12
                         )
                         
                         # Step 4: Integrate all segments with debugging
@@ -908,7 +908,7 @@ class TrajectoryPlanner:
                         incoming_transition = self._generate_smooth_transition_zone(
                             last_helical_rho, c_for_winding, 
                             last_helical_alpha, math.pi/2,
-                            current_phi_rad, num_points=6
+                            current_phi_rad, num_points=12
                         )
                         
                         # Step 2: Generate circumferential turnaround segment
@@ -947,7 +947,7 @@ class TrajectoryPlanner:
                         outgoing_transition = self._generate_smooth_transition_zone(
                             c_for_winding, outgoing_target_rho,
                             math.pi/2, outgoing_target_alpha,
-                            outgoing_phi_start, num_points=6,
+                            outgoing_phi_start, num_points=12,
                             reverse_meridional=True  # CRITICAL: Reverse direction for outgoing path
                         )
                         
