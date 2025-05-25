@@ -426,6 +426,7 @@ class TrajectoryPlanner:
                                        start_alpha: float, end_alpha: float,
                                        phi_current: float, num_points: int = 6,
                                        reverse_meridional: bool = False) -> List[Dict]:
+        print("DEBUG: Successfully entered _generate_smooth_transition_zone")
         print(f"*** ENTERING _generate_smooth_transition_zone ***")
         print(f"start_rho={start_rho:.6f}m, end_rho={end_rho:.6f}m")
         print(f"start_alpha={math.degrees(start_alpha):.1f}°, end_alpha={math.degrees(end_alpha):.1f}°")
@@ -550,6 +551,7 @@ class TrajectoryPlanner:
     def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
                                          phi_start: float, alpha_pole: float,
                                          incoming_tangent: tuple = None) -> List[Dict]:
+        print("DEBUG: Successfully entered _generate_polar_turnaround_segment")
         print(f"*** ENTERING _generate_polar_turnaround_segment ***")
         print(f"c_eff={c_eff:.6f}m, z_pole={z_pole:.6f}m")
         print(f"phi_start={math.degrees(phi_start):.1f}°, alpha_pole={math.degrees(alpha_pole):.1f}°")
@@ -925,11 +927,13 @@ class TrajectoryPlanner:
                             print(f"Generating incoming transition: ρ {last_helical_rho:.6f} → {c_for_winding:.6f}")
                             print(f"α transition: {math.degrees(last_helical_alpha):.1f}° → 90.0°")
                             
+                            print("DEBUG: Attempting to call incoming transition zone...")
                             incoming_transition = self._generate_smooth_transition_zone(
                                 last_helical_rho, c_for_winding, 
-                                last_helical_alpha, math.pi/2,
+                                math.pi/2, math.pi/2,  # Force both start and end to 90° for proper transition
                                 current_phi_rad, num_points=12
                             )
+                            print("DEBUG: Successfully returned from incoming transition zone")
                             
                             # Step 2: Generate circumferential turnaround segment
                             if incoming_transition:
@@ -938,9 +942,11 @@ class TrajectoryPlanner:
                                 turnaround_phi_start = current_phi_rad
                                 
                             print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
+                            print("DEBUG: Attempting to call polar turnaround segment...")
                             turnaround_points = self._generate_polar_turnaround_segment(
                                 c_for_winding, (incoming_transition[-1]["z"] if incoming_transition else z_i_m), turnaround_phi_start, math.pi/2, None
                             )
+                            print("DEBUG: Successfully returned from polar turnaround segment")
                             
                             # Step 3: Generate outgoing transition zone (circumferential → helical)
                             if turnaround_points:
@@ -955,11 +961,13 @@ class TrajectoryPlanner:
                             print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
                             print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
                             
+                            print("DEBUG: Attempting to call outgoing transition zone...")
                             outgoing_transition = self._generate_smooth_transition_zone(
                                 c_for_winding, outgoing_target_rho,
-                                math.pi/2, outgoing_target_alpha,
+                                math.pi/2, math.pi/2,  # Force both to 90° for consistency
                                 outgoing_phi_start, num_points=12
                             )
+                            print("DEBUG: Successfully returned from outgoing transition zone")
                             
                             # Step 4: Integrate all segments with debugging
                             total_new_points = 0
