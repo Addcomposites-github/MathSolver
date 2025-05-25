@@ -462,6 +462,9 @@ class TrajectoryPlanner:
             z_t = self._interpolate_z_from_profile(rho_t)
             if z_t is None:
                 continue
+            
+            # DEBUG: Verify Z coordinate is on vessel surface
+            print(f"  Point {i}: ρ={rho_t:.6f}m → Z_from_profile={z_t:.6f}m (should be on vessel surface)")
                 
             # Calculate enhanced tangent vector with curvature-aware derivatives
             tangent = self._calculate_enhanced_tangent_vector(rho_t, z_t, phi_current, alpha_t, h_derivative, t)
