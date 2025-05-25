@@ -927,6 +927,7 @@ class TrajectoryPlanner:
                     if is_last_point:
                         print(f"DEBUG: *** LAST POINT REACHED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
                         print(f"DEBUG: *** TRIGGERING TURNAROUND *** last_point={is_last_point}")
+                        print(f"DEBUG: Checking turnaround conditions - first_valid_point_found={first_valid_point_found}, len(path_rho_m)={len(path_rho_m)}")
                         # At c_eff: implement smooth C¹ continuous turnaround with transition zones
                         if first_valid_point_found and len(path_rho_m) > 0:
                             print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
