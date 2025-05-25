@@ -943,7 +943,8 @@ class TrajectoryPlanner:
                         outgoing_transition = self._generate_smooth_transition_zone(
                             c_for_winding, outgoing_target_rho,
                             math.pi/2, outgoing_target_alpha,
-                            outgoing_phi_start, num_points=6
+                            outgoing_phi_start, num_points=6,
+                            reverse_meridional=True  # CRITICAL: Reverse direction for outgoing path
                         )
                         
                         # Step 4: Integrate all transition and turnaround segments with interface debugging
