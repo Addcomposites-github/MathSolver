@@ -379,7 +379,8 @@ class TrajectoryPlanner:
 
     def _generate_smooth_transition_zone(self, start_rho: float, end_rho: float,
                                        start_alpha: float, end_alpha: float,
-                                       phi_current: float, num_points: int = 6) -> List[Dict]:
+                                       phi_current: float, num_points: int = 6,
+                                       reverse_meridional: bool = False) -> List[Dict]:
         """
         Generate smooth transition zone with cubic spline interpolation for winding angle.
         Creates C¹ continuous transition between helical and circumferential paths.
@@ -428,6 +429,13 @@ class TrajectoryPlanner:
             tangent = self._calculate_tangent_vector(rho_t, z_t, phi_current, alpha_t)
             if tangent is None:
                 continue
+            
+            # Apply meridional direction reversal if specified (for outgoing transitions)
+            if reverse_meridional:
+                # Reverse the meridional components (dρ/ds and dz/ds) while keeping dφ/ds
+                tangent = (-tangent[0], -tangent[1], tangent[2])
+                if i == 0:  # Log only for first point to avoid spam
+                    print(f"DEBUG: Applied meridional reversal - new tangent: dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
                 
             # Calculate Cartesian coordinates
             x_t = rho_t * math.cos(phi_current)
