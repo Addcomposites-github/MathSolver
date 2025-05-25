@@ -916,9 +916,18 @@ class TrajectoryPlanner:
                         else:
                             outgoing_phi_start = turnaround_phi_start
                         
-                        # Calculate target outgoing angle for return pass
-                        outgoing_target_alpha = last_helical_alpha  # Same magnitude
+                        # Calculate target outgoing angle for return pass (REVERSED DIRECTION)
+                        # For proper turnaround, meridional direction must be reversed
+                        # If incoming was going towards pole (decreasing z), outgoing goes away from pole
+                        outgoing_target_alpha = last_helical_alpha  # Same magnitude but will reverse meridional direction
                         outgoing_target_rho = c_for_winding + transition_length
+                        
+                        # DEBUG: Check meridional direction reversal
+                        incoming_z_velocity = -math.cos(last_helical_alpha)  # Incoming dz/ds component
+                        outgoing_z_velocity = math.cos(outgoing_target_alpha)  # Should be opposite
+                        print(f"DEBUG MERIDIONAL REVERSAL:")
+                        print(f"  Incoming dz/ds sign: {incoming_z_velocity:.6f} (towards {'pole' if incoming_z_velocity < 0 else 'equator'})")
+                        print(f"  Outgoing dz/ds sign: {outgoing_z_velocity:.6f} (towards {'pole' if outgoing_z_velocity < 0 else 'equator'})")
                         
                         print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
                         print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
@@ -929,11 +938,30 @@ class TrajectoryPlanner:
                             outgoing_phi_start, num_points=6
                         )
                         
-                        # Step 4: Integrate all transition and turnaround segments
+                        # Step 4: Integrate all transition and turnaround segments with interface debugging
                         total_new_points = 0
+                        
+                        # DEBUG: Log last helical point tangent vector
+                        if len(path_rho_m) > 1:
+                            last_helical_tangent = self._calculate_tangent_vector(
+                                path_rho_m[-1], path_z_m[-1], path_phi_rad_cumulative[-1], path_alpha_rad[-1]
+                            )
+                            print(f"\n=== INTERFACE TANGENT DEBUGGING ===")
+                            print(f"LAST HELICAL POINT:")
+                            print(f"  Position: ρ={path_rho_m[-1]:.6f} z={path_z_m[-1]:.6f} φ={math.degrees(path_phi_rad_cumulative[-1]):7.2f}°")
+                            print(f"  Tangent: dρ/ds={last_helical_tangent[0]:.6f} dz/ds={last_helical_tangent[1]:.6f} dφ/ds={last_helical_tangent[2]:.6f}")
+                            print(f"  Cartesian tangent: dx/ds={last_helical_tangent[0]*math.cos(path_phi_rad_cumulative[-1]) - path_rho_m[-1]*math.sin(path_phi_rad_cumulative[-1])*last_helical_tangent[2]:.6f}")
+                            print(f"                     dy/ds={last_helical_tangent[0]*math.sin(path_phi_rad_cumulative[-1]) + path_rho_m[-1]*math.cos(path_phi_rad_cumulative[-1])*last_helical_tangent[2]:.6f}")
+                            print(f"                     dz/ds={last_helical_tangent[1]:.6f}")
                         
                         # Add incoming transition (skip first point to avoid duplication)
                         if incoming_transition and len(incoming_transition) > 1:
+                            # DEBUG: First incoming transition point
+                            first_inc = incoming_transition[1]
+                            print(f"FIRST INCOMING TRANSITION:")
+                            print(f"  Position: ρ={first_inc['rho']:.6f} z={first_inc['z']:.6f} φ={math.degrees(first_inc['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={first_inc['drho_ds']:.6f} dz/ds={first_inc['dz_ds']:.6f} dφ/ds={first_inc['dphi_ds']:.6f}")
+                            
                             for point in incoming_transition[1:]:
                                 path_rho_m.append(point['rho'])
                                 path_z_m.append(point['z'])
@@ -943,10 +971,23 @@ class TrajectoryPlanner:
                                 path_y_m.append(point['y'])
                                 current_phi_rad = point['phi']
                                 total_new_points += 1
+                            
+                            # DEBUG: Last incoming transition point
+                            last_inc = incoming_transition[-1]
+                            print(f"LAST INCOMING TRANSITION:")
+                            print(f"  Position: ρ={last_inc['rho']:.6f} z={last_inc['z']:.6f} φ={math.degrees(last_inc['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={last_inc['drho_ds']:.6f} dz/ds={last_inc['dz_ds']:.6f} dφ/ds={last_inc['dphi_ds']:.6f}")
                             print(f"Added {len(incoming_transition)-1} incoming transition points")
                         
                         # Add circumferential turnaround
                         if turnaround_points:
+                            # DEBUG: First and last turnaround points
+                            first_turn = turnaround_points[0]
+                            last_turn = turnaround_points[-1]
+                            print(f"FIRST CIRCUMFERENTIAL POINT:")
+                            print(f"  Position: ρ={first_turn['rho']:.6f} z={first_turn['z']:.6f} φ={math.degrees(first_turn['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={first_turn['drho_ds']:.6f} dz/ds={first_turn['dz_ds']:.6f} dφ/ds={first_turn['dphi_ds']:.6f}")
+                            
                             for point in turnaround_points:
                                 path_rho_m.append(point['rho'])
                                 path_z_m.append(point['z'])
@@ -956,10 +997,21 @@ class TrajectoryPlanner:
                                 path_y_m.append(point['y'])
                                 current_phi_rad = point['phi']
                                 total_new_points += 1
+                            
+                            print(f"LAST CIRCUMFERENTIAL POINT:")
+                            print(f"  Position: ρ={last_turn['rho']:.6f} z={last_turn['z']:.6f} φ={math.degrees(last_turn['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={last_turn['drho_ds']:.6f} dz/ds={last_turn['dz_ds']:.6f} dφ/ds={last_turn['dphi_ds']:.6f}")
                             print(f"Added {len(turnaround_points)} circumferential turnaround points")
                         
                         # Add outgoing transition
                         if outgoing_transition:
+                            # DEBUG: First and last outgoing transition points
+                            first_out = outgoing_transition[0]
+                            last_out = outgoing_transition[-1]
+                            print(f"FIRST OUTGOING TRANSITION:")
+                            print(f"  Position: ρ={first_out['rho']:.6f} z={first_out['z']:.6f} φ={math.degrees(first_out['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={first_out['drho_ds']:.6f} dz/ds={first_out['dz_ds']:.6f} dφ/ds={first_out['dphi_ds']:.6f}")
+                            
                             for point in outgoing_transition:
                                 path_rho_m.append(point['rho'])
                                 path_z_m.append(point['z'])
@@ -969,7 +1021,13 @@ class TrajectoryPlanner:
                                 path_y_m.append(point['y'])
                                 current_phi_rad = point['phi']
                                 total_new_points += 1
+                            
+                            print(f"LAST OUTGOING TRANSITION:")
+                            print(f"  Position: ρ={last_out['rho']:.6f} z={last_out['z']:.6f} φ={math.degrees(last_out['phi']):7.2f}°")
+                            print(f"  Tangent: dρ/ds={last_out['drho_ds']:.6f} dz/ds={last_out['dz_ds']:.6f} dφ/ds={last_out['dphi_ds']:.6f}")
                             print(f"Added {len(outgoing_transition)} outgoing transition points")
+                        
+                        print(f"=== END INTERFACE DEBUGGING ===")
                         
                         print(f"=== SMOOTH TURNAROUND COMPLETE ===")
                         print(f"Total new points added: {total_new_points}")
