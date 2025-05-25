@@ -862,15 +862,15 @@ class TrajectoryPlanner:
                         print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
                     
                     if at_polar_opening:
-                    # At c_eff: implement smooth C¹ continuous turnaround with transition zones
-                    if first_valid_point_found and len(path_rho_m) > 0:
-                        print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
-                        
-                        # Step 1: Generate incoming transition zone (helical → circumferential)
-                        # Create smooth transition from last helical point to polar opening
-                        last_helical_rho = path_rho_m[-1]
-                        last_helical_alpha = path_alpha_rad[-1]
-                        transition_length = 0.002  # 2mm transition zone
+                        # At c_eff: implement smooth C¹ continuous turnaround with transition zones
+                        if first_valid_point_found and len(path_rho_m) > 0:
+                            print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
+                            
+                            # Step 1: Generate incoming transition zone (helical → circumferential)
+                            # Create smooth transition from last helical point to polar opening
+                            last_helical_rho = path_rho_m[-1]
+                            last_helical_alpha = path_alpha_rad[-1]
+                            transition_length = 0.002  # 2mm transition zone
                         
                         print(f"Generating incoming transition: ρ {last_helical_rho:.6f} → {c_for_winding:.6f}")
                         print(f"α transition: {math.degrees(last_helical_alpha):.1f}° → 90.0°")
