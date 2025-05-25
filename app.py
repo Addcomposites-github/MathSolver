@@ -211,13 +211,13 @@ def trajectory_planning_page():
             polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
             
             st.markdown("### 🎯 Target Winding Angle")
-            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=False,
+            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
                                          help="Define desired winding angle instead of using geometric limit")
             
             target_angle = None
             if use_target_angle:
                 target_angle = st.slider("Target Cylinder Angle (degrees)", 
-                                        min_value=10.0, max_value=80.0, value=55.0, step=1.0,
+                                        min_value=10.0, max_value=80.0, value=62.0, step=1.0,
                                         help="Desired winding angle on cylinder section")
                 st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
             else:
