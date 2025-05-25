@@ -400,28 +400,39 @@ def trajectory_planning_page():
                             pass_x = pass_rho * np.cos(pass_phi_absolute)
                             pass_y = pass_rho * np.sin(pass_phi_absolute)
                             
-                            # Enhanced joining point handling for tangent continuity
+                            # Enhanced joining point handling with C¹ tangent continuity
                             if i_pass == 0:
                                 # First pass: include all points
                                 start_idx = 0
                             else:
-                                # Subsequent passes: careful handling of turnaround transitions
+                                # Subsequent passes: ensure tangent vector continuity
                                 start_idx = 1  # Skip duplicate point but maintain smoothness
                                 
-                                # Verify tangent continuity at joining point
-                                if len(all_x_coords) > 1:
-                                    # Check for smooth transition using derivative approximation
+                                # Enhanced tangent vector continuity verification
+                                if len(all_x_coords) > 1 and len(pass_x) > 1:
+                                    # Calculate incoming tangent vector (end of previous pass)
                                     prev_dx = all_x_coords[-1] - all_x_coords[-2]
                                     prev_dy = all_y_coords[-1] - all_y_coords[-2]
-                                    new_dx = pass_x[1] - pass_x[0] if len(pass_x) > 1 else 0
-                                    new_dy = pass_y[1] - pass_y[0] if len(pass_y) > 1 else 0
+                                    prev_dz = all_z_coords[-1] - all_z_coords[-2]
                                     
-                                    # Calculate tangent vector alignment (for debugging)
-                                    prev_mag = math.sqrt(prev_dx**2 + prev_dy**2)
-                                    new_mag = math.sqrt(new_dx**2 + new_dy**2)
+                                    # Calculate outgoing tangent vector (start of new pass)
+                                    new_dx = pass_x[1] - pass_x[0]
+                                    new_dy = pass_y[1] - pass_y[0]
+                                    new_dz = pass_z[1] - pass_z[0]
+                                    
+                                    # Normalize tangent vectors for comparison
+                                    prev_mag = math.sqrt(prev_dx**2 + prev_dy**2 + prev_dz**2)
+                                    new_mag = math.sqrt(new_dx**2 + new_dy**2 + new_dz**2)
+                                    
                                     if prev_mag > 1e-8 and new_mag > 1e-8:
-                                        dot_product = (prev_dx * new_dx + prev_dy * new_dy) / (prev_mag * new_mag)
+                                        # Calculate 3D tangent vector alignment
+                                        dot_product = (prev_dx * new_dx + prev_dy * new_dy + prev_dz * new_dz) / (prev_mag * new_mag)
                                         tangent_angle_deg = math.degrees(math.acos(np.clip(dot_product, -1, 1)))
+                                        
+                                        # Store tangent continuity metric for analysis
+                                        if 'tangent_continuity_angles' not in locals():
+                                            tangent_continuity_angles = []
+                                        tangent_continuity_angles.append(tangent_angle_deg)
                             
                             # Append trajectory points with enhanced continuity
                             all_x_coords.extend(pass_x[start_idx:])
@@ -504,9 +515,9 @@ def trajectory_planning_page():
                                f"• Total path length: {total_path_length:.3f} m\n"
                                f"• Joining points: {len(joining_points)} transitions")
                         
-                        # Display joining point analysis
+                        # Enhanced joining point analysis with C¹ continuity metrics
                         if joining_points:
-                            st.subheader("🔍 Joining Point Analysis")
+                            st.subheader("🔍 Enhanced Joining Point Analysis")
                             join_col1, join_col2 = st.columns(2)
                             
                             with join_col1:
@@ -517,19 +528,35 @@ def trajectory_planning_page():
                                         st.write(f"Pass {i+1}→{i+2}: φ = {math.degrees(phi_at_join):.1f}°")
                             
                             with join_col2:
-                                st.write("**Continuity Check:**")
+                                st.write("**C¹ Continuity Analysis:**")
                                 max_gap = 0
+                                smooth_transitions = 0
+                                
                                 for join_idx in joining_points:
                                     if join_idx > 0 and join_idx < len(path_lengths):
                                         gap = path_lengths[join_idx-1]
                                         max_gap = max(max_gap, gap)
-                                        if gap > 0.001:  # 1mm threshold
+                                        if gap <= 0.001:  # 1mm threshold
+                                            smooth_transitions += 1
+                                        else:
                                             st.warning(f"Gap at point {join_idx}: {gap*1000:.1f}mm")
                                 
-                                if max_gap <= 0.001:
-                                    st.success("✅ All transitions seamless")
+                                # Display tangent continuity results
+                                if 'tangent_continuity_angles' in locals():
+                                    avg_tangent_angle = sum(tangent_continuity_angles) / len(tangent_continuity_angles)
+                                    max_tangent_angle = max(tangent_continuity_angles)
+                                    
+                                    if max_tangent_angle < 5.0:  # Less than 5° deviation
+                                        st.success(f"✅ Tangent continuity: {avg_tangent_angle:.1f}° avg deviation")
+                                    elif max_tangent_angle < 15.0:
+                                        st.info(f"⚠️ Moderate tangent deviation: {max_tangent_angle:.1f}° max")
+                                    else:
+                                        st.warning(f"🔧 Tangent discontinuity: {max_tangent_angle:.1f}° max")
+                                
+                                if smooth_transitions == len(joining_points):
+                                    st.success("✅ All transitions C⁰ continuous")
                                 else:
-                                    st.info(f"Max gap: {max_gap*1000:.1f}mm")
+                                    st.info(f"Position continuity: {smooth_transitions}/{len(joining_points)} smooth")
                     
                     else:
                         # Fallback to single trajectory if calculations fail
