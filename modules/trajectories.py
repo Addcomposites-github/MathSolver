@@ -377,13 +377,58 @@ class TrajectoryPlanner:
         
         return drho_ds, dz_ds, dphi_ds
 
+    def _calculate_enhanced_tangent_vector(self, rho: float, z: float, phi: float, alpha: float, 
+                                         h_derivative: float, t: float) -> Optional[Tuple[float, float, float]]:
+        """
+        Calculate enhanced tangent vector with curvature-aware derivatives.
+        Modulates tangent components based on transition parameter to create smooth curves.
+        """
+        # Base tangent from geodesic calculation
+        base_tangent = self._calculate_tangent_vector(rho, z, phi, alpha)
+        if base_tangent is None:
+            return None
+            
+        drho_ds_base, dz_ds_base, dphi_ds_base = base_tangent
+        
+        # Apply curvature modulation based on transition progress
+        # Reduce meridional speed near transition points to increase curvature
+        curvature_factor = 1.0 - 0.3 * h_derivative  # Modulate based on transition rate
+        
+        drho_ds_enhanced = drho_ds_base * curvature_factor
+        dz_ds_enhanced = dz_ds_base * curvature_factor
+        dphi_ds_enhanced = dphi_ds_base / max(curvature_factor, 0.5)  # Compensate phi rate
+        
+        return drho_ds_enhanced, dz_ds_enhanced, dphi_ds_enhanced
+
+    def _estimate_path_curvature_radius(self, rho: float, z: float, tangent: Tuple[float, float, float],
+                                      start_rho: float, end_rho: float) -> float:
+        """
+        Estimate local radius of curvature for the path.
+        Returns radius in meters for debugging analysis.
+        """
+        drho_ds, dz_ds, dphi_ds = tangent
+        
+        # Calculate approximate curvature using change in tangent direction
+        speed = math.sqrt(drho_ds**2 + dz_ds**2)
+        if speed < 1e-8:
+            return float('inf')  # Straight line
+            
+        # Approximate curvature radius from transition zone geometry
+        transition_span = abs(end_rho - start_rho)
+        if transition_span < 1e-8:
+            return rho  # Circumferential arc
+            
+        # Estimate based on path geometry
+        curvature_radius = transition_span / (2 * abs(dphi_ds) * speed + 1e-8)
+        return max(curvature_radius, rho * 0.1)  # Minimum reasonable value
+
     def _generate_smooth_transition_zone(self, start_rho: float, end_rho: float,
                                        start_alpha: float, end_alpha: float,
                                        phi_current: float, num_points: int = 6,
                                        reverse_meridional: bool = False) -> List[Dict]:
         """
-        Generate smooth transition zone with cubic spline interpolation for winding angle.
-        Creates C¹ continuous transition between helical and circumferential paths.
+        Generate smooth transition zone with enhanced curvature management.
+        Creates geometrically smooth curve with controlled radius of curvature.
         
         Parameters:
         -----------
@@ -402,33 +447,50 @@ class TrajectoryPlanner:
             
         Returns:
         --------
-        List[Dict] : Smooth transition path points with interpolated angles
+        List[Dict] : Smooth transition path points with controlled curvature
         """
         transition_points = []
         
-        # Create smooth parameter progression from 0 to 1
+        # Enhanced smoothing with curvature control
         t_values = np.linspace(0, 1, num_points)
         
-        # Cubic Hermite spline for smooth alpha transition
-        # Ensures C¹ continuity with zero derivative at endpoints
+        # Get vessel profile slopes at start and end for tangent matching
+        start_slope = self._get_slope_dz_drho_at_rho(start_rho)
+        end_slope = self._get_slope_dz_drho_at_rho(end_rho)
+        
+        print(f"=== ENHANCED TRANSITION ZONE DEBUGGING ===")
+        print(f"Start: ρ={start_rho:.6f}m α={math.degrees(start_alpha):.2f}° slope={start_slope:.6f}")
+        print(f"End:   ρ={end_rho:.6f}m α={math.degrees(end_alpha):.2f}° slope={end_slope:.6f}")
+        
         for i, t in enumerate(t_values):
-            # Cubic Hermite interpolation: smooth S-curve with flat tangents at ends
-            # h(t) = 3t² - 2t³ (standard smoothstep function)
-            h = 3 * t**2 - 2 * t**3
+            # Enhanced cubic Hermite spline with curvature control
+            # Use quintic polynomial for C² continuity: f(t) = 6t⁵ - 15t⁴ + 10t³
+            h_smooth = 6 * t**5 - 15 * t**4 + 10 * t**3  # Smoother than cubic
+            h_derivative = 30 * t**4 - 60 * t**3 + 30 * t**2  # Derivative for tangent calculation
             
-            # Interpolate radius and angle
-            rho_t = start_rho + (end_rho - start_rho) * t
-            alpha_t = start_alpha + (end_alpha - start_alpha) * h
+            # CRITICAL FIX: Smooth path interpolation instead of linear
+            # Use smoothstep for radius to create curved path geometry
+            rho_t = start_rho + (end_rho - start_rho) * h_smooth
+            alpha_t = start_alpha + (end_alpha - start_alpha) * h_smooth
             
             # Get Z coordinate from vessel profile
             z_t = self._interpolate_z_from_profile(rho_t)
             if z_t is None:
                 continue
                 
-            # Calculate tangent vector using interpolated angle
-            tangent = self._calculate_tangent_vector(rho_t, z_t, phi_current, alpha_t)
+            # Calculate enhanced tangent vector with curvature-aware derivatives
+            tangent = self._calculate_enhanced_tangent_vector(rho_t, z_t, phi_current, alpha_t, h_derivative, t)
             if tangent is None:
                 continue
+                
+            # Calculate radius of curvature for debugging
+            radius_curvature = self._estimate_path_curvature_radius(rho_t, z_t, tangent, start_rho, end_rho)
+            
+            # Debug output for curvature analysis
+            if i in [0, num_points//2, num_points-1]:  # Start, middle, end points
+                print(f"Point {i}: t={t:.3f} ρ={rho_t:.6f}m α={math.degrees(alpha_t):.1f}°")
+                print(f"  Tangent: dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
+                print(f"  Curvature radius: {radius_curvature:.4f}m ({radius_curvature*1000:.1f}mm)")
             
             # Apply meridional direction reversal if specified (for outgoing transitions)
             if reverse_meridional:
