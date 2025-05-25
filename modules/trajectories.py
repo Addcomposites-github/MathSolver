@@ -401,6 +401,10 @@ class TrajectoryPlanner:
                                        start_alpha: float, end_alpha: float,
                                        phi_current: float, num_points: int = 6,
                                        reverse_meridional: bool = False) -> List[Dict]:
+        print(f"DEBUG: *** ENTERED _generate_smooth_transition_zone ***")
+        print(f"DEBUG: Parameters - start_rho={start_rho:.6f}, end_rho={end_rho:.6f}")
+        print(f"DEBUG: Parameters - start_alpha={math.degrees(start_alpha):.1f}°, end_alpha={math.degrees(end_alpha):.1f}°")
+        print(f"DEBUG: Parameters - phi_current={phi_current:.4f}, num_points={num_points}")
         print("DEBUG: Successfully entered _generate_smooth_transition_zone")
         print(f"*** ENTERING _generate_smooth_transition_zone ***")
         print(f"start_rho={start_rho:.6f}m, end_rho={end_rho:.6f}m")
@@ -526,6 +530,9 @@ class TrajectoryPlanner:
     def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
                                          phi_start: float, alpha_pole: float,
                                          incoming_tangent: tuple = None) -> List[Dict]:
+        print(f"DEBUG: *** ENTERED _generate_polar_turnaround_segment ***")
+        print(f"DEBUG: Parameters - c_eff={c_eff:.6f}, z_pole={z_pole:.6f}")
+        print(f"DEBUG: Parameters - phi_start={phi_start:.4f}, alpha_pole={math.degrees(alpha_pole):.1f}°")
         print("DEBUG: Successfully entered _generate_polar_turnaround_segment")
         print(f"*** ENTERING _generate_polar_turnaround_segment ***")
         print(f"c_eff={c_eff:.6f}m, z_pole={z_pole:.6f}m")
