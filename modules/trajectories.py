@@ -1020,6 +1020,14 @@ class TrajectoryPlanner:
                             total_new_points = 0
                         print(f"Total new points added: {total_new_points}")
                         print(f"Path now has {len(path_rho_m)} total points")
+                        # Safety checks for all variables to prevent scope errors
+                        if 'turnaround_points' not in locals():
+                            turnaround_points = None
+                        if 'incoming_transition' not in locals():
+                            incoming_transition = None
+                        if 'outgoing_transition' not in locals():
+                            outgoing_transition = None
+                            
                         if turnaround_points:
                             total_angular_span = turnaround_points[-1]['phi'] - incoming_transition[0]['phi'] if incoming_transition else 0
                             print(f"Total angular span of complete turnaround: {math.degrees(total_angular_span):.2f}°")
