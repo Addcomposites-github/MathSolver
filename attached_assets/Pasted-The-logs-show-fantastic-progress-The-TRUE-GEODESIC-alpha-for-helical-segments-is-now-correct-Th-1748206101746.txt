@@ -1,0 +1,41 @@
+The logs show fantastic progress!
+
+The 'TRUE GEODESIC alpha' for helical segments is now correct.
+The turnaround sequence is being called, and the Z-coordinate for the circumferential arc (z_pole) correctly matches the Z of the incoming transition's end point for the first turnaround.
+The incoming transition and circumferential arc segments seem to be generating their points correctly.
+The primary issue now causing visual problems ("sharp changes", "wrong direction") lies in the _generate_smooth_transition_zone when it's called for the OUTGOING transition.
+
+Looking at the log for the outgoing transition:
+
+Generating outgoing transition: ρ 0.088295 → 0.090295
+α transition: 90.0° → 87.9° (This implies the target alpha at end_rho should be 87.9°)
+However, inside *** ENTERING _generate_smooth_transition_zone *** for outgoing:
+end_alpha is logged as 90.0°.
+reverse_meridional is logged as False.
+This leads to the outgoing transition also being generated as a purely circumferential path (as seen with Point 11: ... α=90.0° Tangent : dρ/ds=0.000000 dz/ds=-0.000000), which then cannot smoothly connect to the next helical segment.
+
+Please make these specific fixes in _generate_smooth_transition_zone or its call site for the OUTGOING transition:
+
+Correct end_alpha Parameter: Ensure that the end_alpha passed to _generate_smooth_transition_zone for the outgoing transition is the actual target helical angle for the end_rho of that transition (e.g., 87.9° from the log, or more precisely, $\arcsin(c_{for\_winding} / \text{end_rho_outgoing_transition})$). It should not be 90 
+∘
+ .
+Correct reverse_meridional Flag: Ensure that reverse_meridional is set to True when _generate_smooth_transition_zone is called for the outgoing transition. The DEBUG MERIDIONAL REVERSAL log shows the intent is correct, but this flag needs to be passed and used by the function.
+Apply Reversal Correctly: Inside _generate_smooth_transition_zone, when reverse_meridional is True:
+The interpolated α values (from 90 
+∘
+  down to the target helical angle) should be used to calculate tangent components.
+The dz/ds component of the tangent must have its sign flipped to reflect movement away from the pole.
+The dρ/ds component should also have a sign consistent with an outward path on an expanding dome (likely positive if dz/ds becomes positive). The log DEBUG: Applied corrected meridional reversal - dρ/ds=0.000000 dz/ds=0.000000 for the start of the outgoing transition needs to evolve correctly through this zone.
+Debugging Request for this fix:
+
+The "ENHANCED TRANSITION ZONE DEBUGGING" for the outgoing transition should now show:
+Correct start_alpha (90 
+∘
+ ) and end_alpha (e.g., ≈87.9 
+∘
+  or the actual target helical α).
+reverse_meridional=True.
+Tangent vectors for intermediate points (e.g., Point 6) and the last point (Point 11) with dz/ds having the correct positive sign and dρ/ds also having a correct positive sign (for an expanding dome).
+Let's focus solely on getting this outgoing transition zone to generate points that correctly move away from the pole both axially and radially, with the winding angle smoothly changing from 90 
+∘
+ . Thanks!

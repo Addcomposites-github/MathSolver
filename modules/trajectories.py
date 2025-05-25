@@ -982,8 +982,9 @@ class TrajectoryPlanner:
                             print("DEBUG: Attempting to call outgoing transition zone...")
                             outgoing_transition = self._generate_smooth_transition_zone(
                                 c_for_winding, outgoing_target_rho,
-                                math.pi/2, math.pi/2,  # Force both to 90° for consistency
-                                outgoing_phi_start, num_points=12
+                                math.pi/2, outgoing_target_alpha,  # CRITICAL FIX: Use target helical angle
+                                outgoing_phi_start, num_points=12,
+                                reverse_meridional=True  # CRITICAL FIX: Enable meridional reversal
                             )
                             print("DEBUG: Successfully returned from outgoing transition zone")
                             
