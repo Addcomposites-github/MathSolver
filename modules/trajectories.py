@@ -1018,7 +1018,14 @@ class TrajectoryPlanner:
                             total_angular_span = turnaround_points[-1]['phi'] - incoming_transition[0]['phi'] if incoming_transition else 0
                             print(f"Total angular span of complete turnaround: {math.degrees(total_angular_span):.2f}°")
                         
-                        continue  # Skip normal processing for this point
+                        # Update current position to continue from end of turnaround
+                        if outgoing_transition and len(outgoing_transition) > 0:
+                            current_phi_rad = outgoing_transition[-1]['phi']
+                            print(f"DEBUG: Turnaround complete, continuing from φ={math.degrees(current_phi_rad):.1f}°")
+                        
+                        # Mark that we've completed a leg and should reverse direction
+                        print(f"DEBUG: Completed leg {pass_number + 1}, continuing with return path...")
+                        continue  # Skip normal processing for this specific point, but continue iteration
             else:
                 # Point is inside c_for_winding, skip if path hasn't started
                 if not first_valid_point_found:
