@@ -432,10 +432,14 @@ class TrajectoryPlanner:
             
             # Apply meridional direction reversal if specified (for outgoing transitions)
             if reverse_meridional:
-                # Reverse the meridional components (dρ/ds and dz/ds) while keeping dφ/ds
-                tangent = (-tangent[0], -tangent[1], tangent[2])
+                # CRITICAL FIX 2: Proper meridional reversal for dome geometry
+                # For outgoing path on expanding dome: both dρ/ds and dz/ds should be positive
+                # Reverse dz/ds sign and ensure dρ/ds is positive for outward expansion
+                drho_ds_corrected = abs(tangent[0])  # Ensure positive for outward expansion
+                dz_ds_corrected = -tangent[1]        # Reverse to move away from pole
+                tangent = (drho_ds_corrected, dz_ds_corrected, tangent[2])
                 if i == 0:  # Log only for first point to avoid spam
-                    print(f"DEBUG: Applied meridional reversal - new tangent: dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
+                    print(f"DEBUG: Applied corrected meridional reversal - dρ/ds={tangent[0]:.6f} dz/ds={tangent[1]:.6f} dφ/ds={tangent[2]:.6f}")
                 
             # Calculate Cartesian coordinates
             x_t = rho_t * math.cos(phi_current)
