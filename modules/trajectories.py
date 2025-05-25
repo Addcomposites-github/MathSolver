@@ -895,18 +895,12 @@ class TrajectoryPlanner:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                             print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
                     
-                    # Enhanced special handling at effective polar opening for true C¹ continuity  
-                    # Check if we're at or very close to the polar opening (more lenient threshold)
-                    polar_threshold = 1e-4  # 0.1mm tolerance for polar opening detection
-                    at_polar_opening = abs(rho_i_m - c_for_winding) < polar_threshold
-                    
-                    # Also trigger turnaround at the last point of helical segment
-                    if at_polar_opening or is_last_point:
-                        print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
-                    
-                    if at_polar_opening or is_last_point:
+                    # Only trigger turnaround at the last point of helical segment, not at intermediate points
+                    # This ensures the complete helical path is generated before the turnaround
+                    if is_last_point:
+                        print(f"DEBUG: *** LAST POINT REACHED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
+                        print(f"DEBUG: *** TRIGGERING TURNAROUND *** last_point={is_last_point}")
                         # At c_eff: implement smooth C¹ continuous turnaround with transition zones
-                        print(f"DEBUG: *** TRIGGERING TURNAROUND *** polar_opening={at_polar_opening}, last_point={is_last_point}")
                         if first_valid_point_found and len(path_rho_m) > 0:
                             print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
                             
