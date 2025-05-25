@@ -975,31 +975,31 @@ class TrajectoryPlanner:
                                     path_y_m.append(point['y'])
                                     current_phi_rad = point['phi']
                                     total_new_points += 1
-                            print(f"Added {len(incoming_transition)-1} incoming transition points")
-                        
-                        # Add circumferential turnaround
-                        if turnaround_points:
-                            for point in turnaround_points:
-                                path_rho_m.append(point['rho'])
-                                path_z_m.append(point['z'])
-                                path_alpha_rad.append(point['alpha'])
-                                path_phi_rad_cumulative.append(point['phi'])
-                                path_x_m.append(point['x'])
-                                path_y_m.append(point['y'])
-                                current_phi_rad = point['phi']
-                                total_new_points += 1
-                            print(f"Added {len(turnaround_points)} circumferential turnaround points")
-                        
-                        # Add outgoing transition
-                        if outgoing_transition:
-                            for point in outgoing_transition:
-                                path_rho_m.append(point['rho'])
-                                path_z_m.append(point['z'])
-                                path_alpha_rad.append(point['alpha'])
-                                path_phi_rad_cumulative.append(point['phi'])
-                                path_x_m.append(point['x'])
-                                path_y_m.append(point['y'])
-                                current_phi_rad = point['phi']
+                                print(f"Added {len(incoming_transition)-1} incoming transition points")
+                            
+                            # Add circumferential turnaround
+                            if turnaround_points:
+                                for point in turnaround_points:
+                                    path_rho_m.append(point['rho'])
+                                    path_z_m.append(point['z'])
+                                    path_alpha_rad.append(point['alpha'])
+                                    path_phi_rad_cumulative.append(point['phi'])
+                                    path_x_m.append(point['x'])
+                                    path_y_m.append(point['y'])
+                                    current_phi_rad = point['phi']
+                                    total_new_points += 1
+                                print(f"Added {len(turnaround_points)} circumferential turnaround points")
+                            
+                            # Add outgoing transition
+                            if outgoing_transition:
+                                for point in outgoing_transition:
+                                    path_rho_m.append(point['rho'])
+                                    path_z_m.append(point['z'])
+                                    path_alpha_rad.append(point['alpha'])
+                                    path_phi_rad_cumulative.append(point['phi'])
+                                    path_x_m.append(point['x'])
+                                    path_y_m.append(point['y'])
+                                    current_phi_rad = point['phi']
                                 total_new_points += 1
                             print(f"Added {len(outgoing_transition)} outgoing transition points")
                         
