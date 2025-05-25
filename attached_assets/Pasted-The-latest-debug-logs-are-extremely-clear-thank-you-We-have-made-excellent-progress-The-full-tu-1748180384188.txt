@@ -1,0 +1,25 @@
+The latest debug logs are extremely clear – thank you! We have made excellent progress:
+
+The full turnaround sequence (incoming transition, circumferential arc, outgoing transition) is executing.
+The meridional reversal for the dz/ds component of the tangent vector in the outgoing transition is working! The log shows Outgoing dz/ds sign: 0.918726 (towards equator) and the "LAST OUTGOING TRANSITION" tangent has dz/ds=0.813251 (positive).
+However, two critical issues persist, causing the visual "jumping" and "wrong direction" problems:
+
+Z-Coordinate Discontinuity at the Circumferential Arc:
+
+The "LAST INCOMING TRANSITION" point is at z=-0.222641m.
+But the "FIRST CIRCUMFERENTIAL POINT" (and the entire arc) is generated at z_pole=-0.180924m.
+This creates an axial jump.
+Required Fix: Please ensure the _generate_polar_turnaround_segment method uses the actual Z-coordinate of the vessel profile at the point where the incoming transition ends (i.e., where ρ=c 
+for_winding
+​
+ ) as the constant Z-value for the circumferential arc. This ending Z-value from the incoming transition should be passed to or queried by the arc generation function.
+Incorrect Radial Direction (dρ/ds) in Outgoing Transition:
+
+The "LAST OUTGOING TRANSITION" tangent is dρ/ds=**-0.413094** while dz/ds=**0.813251**.
+While dz/ds is correctly positive (moving away from the pole), a negative dρ/ds means the vessel radius is decreasing as the path moves away from the pole. For a typical dome expanding towards the cylinder, dρ/ds should be positive when dz/ds is positive.
+Required Fix: In the _generate_smooth_transition_zone function, when reverse_meridional=True is active (for the outgoing transition), please verify that the calculation of dρ/ds from the interpolated winding angle α results in the correct sign for an outward path on the dome. If the winding angle α is between 0 
+∘
+  and 90 
+∘
+  (typical for leaving the pole), and dz/ds is positive, dρ/ds must also be positive to reflect the path moving towards a larger radius. The current logic for reversing dz/ds needs to be consistently applied to ensure dρ/ds also reflects this outward meridional travel.
+Addressing these two points, especially the Z-coordinate continuity for the arc, should make a very significant improvement in the visual smoothness and correctness of the 3D trajectory.
