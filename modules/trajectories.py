@@ -1045,6 +1045,12 @@ class TrajectoryPlanner:
                     if len(path_rho_m) > 0:
                         print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
                         
+                        # Initialize variables to prevent scope errors
+                        total_new_points = 0
+                        incoming_transition = None
+                        turnaround_points = None
+                        outgoing_transition = None
+                        
                         # Step 1: Generate incoming transition zone (helical → circumferential)
                         last_helical_rho = path_rho_m[-1]
                         last_helical_alpha = path_alpha_rad[-1]
