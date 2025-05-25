@@ -316,45 +316,20 @@ class TrajectoryPlanner:
         if abs(rho_m - c_eff) < 1e-8:
             return math.pi / 2.0
         
-        # Enhanced Clairaut's theorem with smooth polar transition
-        # For points very close to c_eff, use smoothed transition
-        rho_ratio = rho_m / c_eff
+        # CORRECTED: Pure Clairaut's Law implementation
+        # α = arcsin(c_eff / ρ) for all points where ρ >= c_eff
         
-        if rho_ratio < 1.001:  # Within 0.1% of c_eff - apply smoothing
-            # Smooth transition zone to avoid infinite dα/ds
-            epsilon = rho_ratio - 1.0  # Small positive value
-            
-            # Taylor expansion approach for smooth α near 90°
-            # sin(α) ≈ 1 - (1/2)(π/2 - α)² for α close to π/2
-            # This ensures smooth dα/dρ as ρ → c_eff
-            
-            if epsilon > 0:
-                # Use smoothed calculation to avoid sharp transitions
-                sin_alpha = 1.0 / rho_ratio
-                sin_alpha = min(sin_alpha, 1.0)  # Ensure ≤ 1
-                
-                # Apply continuity constraint for smooth dα/ds
-                # Use higher-order approximation near the pole
-                alpha_raw = math.asin(sin_alpha)
-                
-                # Smooth the transition using polynomial blending
-                blend_factor = min(epsilon / 0.001, 1.0)  # Smooth over 0.1%
-                alpha_smooth = (math.pi / 2.0) * (1.0 - blend_factor) + alpha_raw * blend_factor
-                
-                return alpha_smooth
-            else:
-                return math.pi / 2.0
+        # Direct application of Clairaut's theorem: ρ sin(α) = c_eff
+        sin_alpha = c_eff / rho_m
         
-        else:
-            # Standard Clairaut's theorem for points away from pole
-            sin_alpha = c_eff / rho_m
-            sin_alpha = np.clip(sin_alpha, -1.0, 1.0)
-            
-            try:
-                alpha_rad = math.asin(sin_alpha)
-                return alpha_rad
-            except ValueError:
-                return None
+        # Ensure sin_alpha is within valid range [0, 1]
+        if sin_alpha > 1.0:
+            return None  # Point is unreachable by geodesic
+        
+        # Calculate true geodesic angle using Clairaut's Law
+        alpha_rad = math.asin(sin_alpha)
+        
+        return alpha_rad
 
     def _calculate_tangent_vector(self, rho: float, z: float, phi: float, alpha: float) -> tuple:
         """
