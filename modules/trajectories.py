@@ -673,8 +673,14 @@ class TrajectoryPlanner:
                         alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                 
                 # Enhanced special handling at effective polar opening for true C¹ continuity  
-                print(f"DEBUG: Checking turnaround at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
-                if abs(rho_i_m - c_for_winding) < 1e-6:
+                # Check if we're at or very close to the polar opening (more lenient threshold)
+                polar_threshold = 1e-4  # 0.1mm tolerance for polar opening detection
+                at_polar_opening = abs(rho_i_m - c_for_winding) < polar_threshold
+                
+                if at_polar_opening:
+                    print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
+                
+                if at_polar_opening:
                     # At c_eff: implement true circumferential turnaround with tangent matching
                     if first_valid_point_found and len(path_rho_m) > 0:
                         # Calculate incoming tangent vector from last helical path segment
@@ -690,11 +696,27 @@ class TrajectoryPlanner:
                             incoming_tangent = None
                         
                         # Generate circumferential path segment with proper tangent matching
+                        print(f"DEBUG: *** ENTERING polar turnaround generation ***")
+                        print(f"Parameters: c_eff={c_for_winding:.6f}, z_pole={z_i_m:.6f}, phi_start={math.degrees(current_phi_rad):.2f}°")
+                        
                         turnaround_points = self._generate_polar_turnaround_segment(
                             c_for_winding, z_i_m, current_phi_rad, alpha_i_rad, incoming_tangent
                         )
                         
+                        print(f"DEBUG: *** EXITED polar turnaround generation. Generated {len(turnaround_points)} turnaround points ***")
+                        
+                        # Log tangent vectors at critical interfaces
+                        if turnaround_points:
+                            first_turn = turnaround_points[0]
+                            last_turn = turnaround_points[-1]
+                            print(f"=== INTERFACE TANGENT VERIFICATION ===")
+                            print(f"First turnaround point: ρ={first_turn['rho']:.6f} z={first_turn['z']:.6f} φ={math.degrees(first_turn['phi']):7.2f}°")
+                            print(f"First turnaround tangent: dρ/ds={first_turn['drho_ds']:.6f} dz/ds={first_turn['dz_ds']:.6f} dφ/ds={first_turn['dphi_ds']:.6f}")
+                            print(f"Last turnaround point: ρ={last_turn['rho']:.6f} z={last_turn['z']:.6f} φ={math.degrees(last_turn['phi']):7.2f}°")
+                            print(f"Last turnaround tangent: dρ/ds={last_turn['drho_ds']:.6f} dz/ds={last_turn['dz_ds']:.6f} dφ/ds={last_turn['dphi_ds']:.6f}")
+                        
                         # Add turnaround points to path with tangent vector information
+                        turnaround_start_idx = len(path_rho_m)
                         for turn_point in turnaround_points:
                             path_rho_m.append(turn_point['rho'])
                             path_z_m.append(turn_point['z'])
@@ -703,6 +725,10 @@ class TrajectoryPlanner:
                             path_x_m.append(turn_point['x'])
                             path_y_m.append(turn_point['y'])
                             current_phi_rad = turn_point['phi']
+                        
+                        print(f"DEBUG: Integrated turnaround points into main path. Total path points now: {len(path_rho_m)}")
+                        print(f"Turnaround points occupy indices {turnaround_start_idx} to {len(path_rho_m)-1}")
+                        print(f"Angular span of turnaround: {math.degrees(turnaround_points[-1]['phi'] - turnaround_points[0]['phi']):.2f}°")
                         
                         continue  # Skip normal processing for this point
             else:
