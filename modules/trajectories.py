@@ -632,6 +632,8 @@ class TrajectoryPlanner:
         print(f"delta_phi_pattern: {math.degrees(delta_phi_pattern):.2f}°")
         print(f"arc_length: {arc_length:.6f} m")
         print(f"num_turn_points: {num_turn_points}")
+        print(f"🔍 CRITICAL: z_pole should be CONSISTENT throughout turnaround")
+        print(f"🔍 CRITICAL: All circumferential points should have Z={z_pole:.6f}m")
         
         for i in range(num_turn_points):
             # Parameter along arc from 0 to 1
@@ -643,7 +645,18 @@ class TrajectoryPlanner:
             # φ varies linearly with arc length
             
             rho_turn = c_eff
-            z_turn = z_pole  # Constant Z for proper geodesic at pole
+            
+            # CRITICAL FIX: Interpolate Z from vessel profile instead of using fixed z_pole
+            # This ensures points stay on the correct dome surface
+            z_turn_interpolated = self._interpolate_z_from_profile(rho_turn)
+            if z_turn_interpolated is not None:
+                z_turn = z_turn_interpolated
+            else:
+                z_turn = z_pole  # Fallback to original if interpolation fails
+                
+            # DEBUG: Show which Z value is being used
+            if i < 3:
+                print(f"    Point {i}: Using Z={z_turn:.6f}m (interpolated={z_turn_interpolated:.6f}m, original_z_pole={z_pole:.6f}m)")
             
             # Linear phi progression for circular arc (this is geometrically correct)
             phi_turn = phi_start + delta_phi_pattern * t
