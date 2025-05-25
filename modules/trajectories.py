@@ -1026,44 +1026,9 @@ class TrajectoryPlanner:
                         # Mark that we've completed a leg and should reverse direction
                         print(f"DEBUG: Completed leg {pass_number + 1}, continuing with return path...")
                         
-                        # CRITICAL FIX: Generate return helical path after turnaround
-                        print(f"DEBUG: *** STARTING RETURN HELICAL PATH GENERATION ***")
+                        # Set flag to generate return path after this pass completes
+                        generate_return_path = True
                         
-                        # Reverse direction for return journey
-                        return_profile_range = range(len(profile_r_m_calc) - 1, -1, -1) if forward_direction else range(len(profile_r_m_calc))
-                        print(f"DEBUG: Return journey will process {len(list(return_profile_range))} points in {'reverse' if forward_direction else 'forward'} direction")
-                        
-                        # Generate return helical path from current position
-                        for ret_idx, ret_i in enumerate(return_profile_range):
-                            ret_rho_i_m = profile_r_m_calc[ret_i]
-                            ret_z_i_m = profile_z_m_calc[ret_i]
-                            
-                            # Only process points that are reachable (ρ >= c_for_winding)
-                            if ret_rho_i_m >= c_for_winding - 1e-6:
-                                # Calculate alpha for return journey
-                                ret_alpha_rad = self.calculate_geodesic_alpha_at_rho(ret_rho_i_m)
-                                if ret_alpha_rad is not None:
-                                    # Calculate phi advancement
-                                    if len(path_rho_m) > 0:
-                                        d_phi = abs(ret_alpha_rad) * 0.01  # Small phi increment
-                                        current_phi_rad += d_phi
-                                    
-                                    # Convert to Cartesian coordinates
-                                    ret_x_m = ret_rho_i_m * math.cos(current_phi_rad)
-                                    ret_y_m = ret_rho_i_m * math.sin(current_phi_rad)
-                                    
-                                    # Add return path point
-                                    path_rho_m.append(ret_rho_i_m)
-                                    path_z_m.append(ret_z_i_m)
-                                    path_alpha_rad.append(ret_alpha_rad)
-                                    path_phi_rad_cumulative.append(current_phi_rad)
-                                    path_x_m.append(ret_x_m)
-                                    path_y_m.append(ret_y_m)
-                                    
-                                    if len(path_rho_m) % 50 == 0:
-                                        print(f"DEBUG Return: Point {len(path_rho_m)}: ρ={ret_rho_i_m:.6f}m z={ret_z_i_m:.6f}m α={math.degrees(ret_alpha_rad):.1f}°")
-                        
-                        print(f"DEBUG: *** RETURN HELICAL PATH COMPLETE *** - Added {len(path_rho_m) - total_points_generated} points")
                         continue  # Skip normal processing for this specific point, but continue iteration
             else:
                 # Point is inside c_for_winding, skip if path hasn't started
@@ -1285,6 +1250,53 @@ class TrajectoryPlanner:
             return None
         
         print(f"SUCCESS: Generated {len(path_rho_m)} valid trajectory points")
+        
+        # CRITICAL FIX: Generate return helical path for complete circuit
+        if len(path_rho_m) > 0:
+            print(f"\nDEBUG: *** GENERATING RETURN HELICAL PATH FOR COMPLETE CIRCUIT ***")
+            initial_points = len(path_rho_m)
+            
+            # Generate return journey (reverse direction from last turnaround)
+            return_profile_range = range(len(profile_r_m_calc) - 1, -1, -1)
+            print(f"DEBUG: Return journey processing {len(list(return_profile_range))} points in reverse direction")
+            
+            # Continue from last phi position
+            if len(path_phi_rad_cumulative) > 0:
+                current_phi_rad = path_phi_rad_cumulative[-1]
+            
+            # Generate return helical path
+            for ret_idx, ret_i in enumerate(return_profile_range):
+                ret_rho_i_m = profile_r_m_calc[ret_i]
+                ret_z_i_m = profile_z_m_calc[ret_i]
+                
+                # Only process points that are reachable (ρ >= c_for_winding)
+                if ret_rho_i_m >= c_for_winding - 1e-6:
+                    # Calculate alpha for return journey
+                    ret_alpha_rad = self.calculate_geodesic_alpha_at_rho(ret_rho_i_m)
+                    if ret_alpha_rad is not None:
+                        # Calculate phi advancement  
+                        if len(path_rho_m) > 0:
+                            d_phi = abs(ret_alpha_rad) * 0.01  # Small phi increment
+                            current_phi_rad += d_phi
+                        
+                        # Convert to Cartesian coordinates
+                        ret_x_m = ret_rho_i_m * math.cos(current_phi_rad)
+                        ret_y_m = ret_rho_i_m * math.sin(current_phi_rad)
+                        
+                        # Add return path point
+                        path_rho_m.append(ret_rho_i_m)
+                        path_z_m.append(ret_z_i_m)
+                        path_alpha_rad.append(ret_alpha_rad)
+                        path_phi_rad_cumulative.append(current_phi_rad)
+                        path_x_m.append(ret_x_m)
+                        path_y_m.append(ret_y_m)
+                        
+                        if len(path_rho_m) % 50 == 0:
+                            print(f"DEBUG Return: Point {len(path_rho_m)}: ρ={ret_rho_i_m:.6f}m z={ret_z_i_m:.6f}m α={math.degrees(ret_alpha_rad):.1f}°")
+            
+            final_points = len(path_rho_m)
+            print(f"DEBUG: *** RETURN PATH COMPLETE *** - Added {final_points - initial_points} return points")
+            print(f"DEBUG: *** TOTAL TRAJECTORY POINTS: {final_points} ***")
 
         # Convert to final format
         alpha_values = [math.degrees(alpha) for alpha in path_alpha_rad]
