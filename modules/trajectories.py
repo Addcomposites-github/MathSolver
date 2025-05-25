@@ -418,6 +418,14 @@ class TrajectoryPlanner:
         arc_length = c_eff * delta_phi_pattern  # Total arc length
         ds_increment = arc_length / (num_turn_points - 1)  # Arc length per segment
         
+        print(f"\n=== TURNAROUND SEGMENT DEBUG ===")
+        print(f"c_eff: {c_eff:.6f} m")
+        print(f"z_pole: {z_pole:.6f} m") 
+        print(f"phi_start: {math.degrees(phi_start):.2f}°")
+        print(f"delta_phi_pattern: {math.degrees(delta_phi_pattern):.2f}°")
+        print(f"arc_length: {arc_length:.6f} m")
+        print(f"num_turn_points: {num_turn_points}")
+        
         for i in range(num_turn_points):
             # Parameter along arc from 0 to 1
             t = i / (num_turn_points - 1)
@@ -446,6 +454,11 @@ class TrajectoryPlanner:
             dz_ds = 0.0    # No axial motion during turnaround  
             dphi_ds = 1.0 / c_eff  # Pure circumferential motion
             
+            # Log detailed point data for first few and last few points
+            if i < 3 or i >= num_turn_points - 3:
+                print(f"Point {i:2d}: t={t:.3f} | ρ={rho_turn:.6f} z={z_turn:.6f} φ={math.degrees(phi_turn):7.2f}° | x={x_turn:.6f} y={y_turn:.6f}")
+                print(f"         Tangent: dρ/ds={drho_ds:.6f} dz/ds={dz_ds:.6f} dφ/ds={dphi_ds:.6f}")
+            
             turnaround_points.append({
                 'rho': rho_turn,
                 'z': z_turn,
@@ -457,6 +470,9 @@ class TrajectoryPlanner:
                 'dz_ds': dz_ds,
                 'dphi_ds': dphi_ds
             })
+        
+        print(f"Generated {len(turnaround_points)} turnaround points")
+        print(f"=== END TURNAROUND DEBUG ===\n")
         
         return turnaround_points
 
@@ -656,7 +672,8 @@ class TrajectoryPlanner:
                     else:
                         alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                 
-                # Enhanced special handling at effective polar opening for true C¹ continuity
+                # Enhanced special handling at effective polar opening for true C¹ continuity  
+                print(f"DEBUG: Checking turnaround at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
                 if abs(rho_i_m - c_for_winding) < 1e-6:
                     # At c_eff: implement true circumferential turnaround with tangent matching
                     if first_valid_point_found and len(path_rho_m) > 0:
@@ -666,6 +683,9 @@ class TrajectoryPlanner:
                             incoming_tangent = self._calculate_tangent_vector(
                                 path_rho_m[-1], path_z_m[-1], path_phi_rad_cumulative[-1], prev_alpha
                             )
+                            print(f"\n=== INTERFACE DEBUG: Before Turnaround ===")
+                            print(f"Last helical point: ρ={path_rho_m[-1]:.6f} z={path_z_m[-1]:.6f} φ={math.degrees(path_phi_rad_cumulative[-1]):7.2f}° α={math.degrees(prev_alpha):5.1f}°")
+                            print(f"Incoming tangent: dρ/ds={incoming_tangent[0]:.6f} dz/ds={incoming_tangent[1]:.6f} dφ/ds={incoming_tangent[2]:.6f}")
                         else:
                             incoming_tangent = None
                         
