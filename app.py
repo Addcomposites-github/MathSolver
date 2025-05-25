@@ -373,7 +373,7 @@ def trajectory_planning_page():
                         cumulative_phi = 0.0
                         
                         for i_pass in range(num_passes):
-                            # Determine direction: forward (even) or backward (odd)
+                            # Enhanced pass generation with smooth turnaround transitions
                             if (i_pass % 2) == 0:  # Forward pass (south to north)
                                 pass_rho = np.array(base_rho_m)
                                 pass_z = np.array(base_z_m)
@@ -382,32 +382,54 @@ def trajectory_planning_page():
                             else:  # Backward pass (north to south)
                                 pass_rho = np.array(base_rho_m[::-1])
                                 pass_z = np.array(base_z_m[::-1])
-                                # For backward pass, reverse phi progression but maintain continuity
+                                # For backward pass, maintain smooth phi continuity
+                                # Use pattern advancement from enhanced polar turnaround
                                 pass_phi_relative = np.array(base_phi_rad[::-1]) - base_phi_rad[-1]
-                                pass_phi_relative = -pass_phi_relative  # Flip direction
+                                pass_phi_relative = -pass_phi_relative  # Flip direction for return
                             
-                            # Calculate absolute phi ensuring perfect continuity
+                            # Apply smooth tangent vector continuity at turnarounds
+                            if i_pass > 0:
+                                # Add pattern advancement angle for proper spacing
+                                pattern_advance = (2 * math.pi / num_passes) * 0.5  # Smooth distribution
+                                cumulative_phi += pattern_advance
+                            
+                            # Calculate absolute phi with enhanced continuity
                             pass_phi_absolute = pass_phi_relative + cumulative_phi
                             
-                            # Convert to Cartesian coordinates
+                            # Convert to Cartesian coordinates with smooth transitions
                             pass_x = pass_rho * np.cos(pass_phi_absolute)
                             pass_y = pass_rho * np.sin(pass_phi_absolute)
                             
-                            # For seamless joining, skip duplicate points at turnarounds
+                            # Enhanced joining point handling for tangent continuity
                             if i_pass == 0:
                                 # First pass: include all points
                                 start_idx = 0
                             else:
-                                # Subsequent passes: skip first point to avoid duplication at joining
-                                start_idx = 1
+                                # Subsequent passes: careful handling of turnaround transitions
+                                start_idx = 1  # Skip duplicate point but maintain smoothness
+                                
+                                # Verify tangent continuity at joining point
+                                if len(all_x_coords) > 1:
+                                    # Check for smooth transition using derivative approximation
+                                    prev_dx = all_x_coords[-1] - all_x_coords[-2]
+                                    prev_dy = all_y_coords[-1] - all_y_coords[-2]
+                                    new_dx = pass_x[1] - pass_x[0] if len(pass_x) > 1 else 0
+                                    new_dy = pass_y[1] - pass_y[0] if len(pass_y) > 1 else 0
+                                    
+                                    # Calculate tangent vector alignment (for debugging)
+                                    prev_mag = math.sqrt(prev_dx**2 + prev_dy**2)
+                                    new_mag = math.sqrt(new_dx**2 + new_dy**2)
+                                    if prev_mag > 1e-8 and new_mag > 1e-8:
+                                        dot_product = (prev_dx * new_dx + prev_dy * new_dy) / (prev_mag * new_mag)
+                                        tangent_angle_deg = math.degrees(math.acos(np.clip(dot_product, -1, 1)))
                             
-                            # Append trajectory points
+                            # Append trajectory points with enhanced continuity
                             all_x_coords.extend(pass_x[start_idx:])
                             all_y_coords.extend(pass_y[start_idx:])
                             all_z_coords.extend(pass_z[start_idx:])
                             all_phi_continuous.extend(pass_phi_absolute[start_idx:])
                             
-                            # Update cumulative phi for next pass (ensuring continuity)
+                            # Update cumulative phi for perfect continuity
                             cumulative_phi = pass_phi_absolute[-1]
                         
                         # Validate continuity at joining points

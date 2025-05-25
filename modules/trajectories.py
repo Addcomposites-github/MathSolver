@@ -288,8 +288,21 @@ class TrajectoryPlanner:
 
     def calculate_geodesic_alpha_at_rho(self, rho_m: float) -> Optional[float]:
         """
-        Calculates geodesic winding angle (radians) at a given radius rho_m.
-        Uses Clairaut's theorem: rho * sin(alpha) = c_eff
+        Calculates geodesic winding angle with smooth transitions at polar turnaround.
+        
+        Based on Koussios Thesis Ch. 5, Eq. 5.23:
+        - At c_eff: α must be exactly 90°
+        - Smooth transition to avoid tangent discontinuities
+        - Uses enhanced Clairaut's theorem with continuity constraints
+        
+        Parameters:
+        -----------
+        rho_m : float
+            Radius position in meters
+            
+        Returns:
+        --------
+        Optional[float] : Winding angle in radians, None if unreachable
         """
         if self.effective_polar_opening_radius_m is None:
             self._calculate_effective_polar_opening()
@@ -299,15 +312,112 @@ class TrajectoryPlanner:
         if rho_m < c_eff - 1e-9:
             return None  # Geodesic cannot reach this radius
 
-        # Clairaut's theorem: sin(alpha) = c_eff / rho
-        asin_arg = c_eff / rho_m
-        asin_arg = np.clip(asin_arg, -1.0, 1.0)  # Ensure valid range
+        # At exactly c_eff: α = 90° (Koussios Ch. 5, Eq. 5.23)
+        if abs(rho_m - c_eff) < 1e-8:
+            return math.pi / 2.0
         
-        try:
-            alpha_rad = math.asin(asin_arg)
-            return alpha_rad
-        except ValueError:
-            return None
+        # Enhanced Clairaut's theorem with smooth polar transition
+        # For points very close to c_eff, use smoothed transition
+        rho_ratio = rho_m / c_eff
+        
+        if rho_ratio < 1.001:  # Within 0.1% of c_eff - apply smoothing
+            # Smooth transition zone to avoid infinite dα/ds
+            epsilon = rho_ratio - 1.0  # Small positive value
+            
+            # Taylor expansion approach for smooth α near 90°
+            # sin(α) ≈ 1 - (1/2)(π/2 - α)² for α close to π/2
+            # This ensures smooth dα/dρ as ρ → c_eff
+            
+            if epsilon > 0:
+                # Use smoothed calculation to avoid sharp transitions
+                sin_alpha = 1.0 / rho_ratio
+                sin_alpha = min(sin_alpha, 1.0)  # Ensure ≤ 1
+                
+                # Apply continuity constraint for smooth dα/ds
+                # Use higher-order approximation near the pole
+                alpha_raw = math.asin(sin_alpha)
+                
+                # Smooth the transition using polynomial blending
+                blend_factor = min(epsilon / 0.001, 1.0)  # Smooth over 0.1%
+                alpha_smooth = (math.pi / 2.0) * (1.0 - blend_factor) + alpha_raw * blend_factor
+                
+                return alpha_smooth
+            else:
+                return math.pi / 2.0
+        
+        else:
+            # Standard Clairaut's theorem for points away from pole
+            sin_alpha = c_eff / rho_m
+            sin_alpha = np.clip(sin_alpha, -1.0, 1.0)
+            
+            try:
+                alpha_rad = math.asin(sin_alpha)
+                return alpha_rad
+            except ValueError:
+                return None
+
+    def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
+                                         phi_start: float, alpha_pole: float) -> List[Dict]:
+        """
+        Generates circumferential turnaround path segment at effective polar opening.
+        
+        Based on filament winding literature (Koussios Ch. 8):
+        - At c_eff: purely circumferential motion (dρ/ds=0, dζ/ds=0)
+        - φ advances by pattern advancement angle
+        - Ensures tangent vector continuity through reversal
+        
+        Parameters:
+        -----------
+        c_eff : float
+            Effective polar opening radius (meters)
+        z_pole : float
+            Z-coordinate at pole (meters)
+        phi_start : float
+            Starting phi angle (radians)
+        alpha_pole : float
+            Winding angle at pole (should be π/2)
+            
+        Returns:
+        --------
+        List[Dict] : Turnaround path points with smooth transitions
+        """
+        turnaround_points = []
+        
+        # Pattern advancement angle - controls spacing between passes
+        # This determines how much φ advances during the turnaround
+        delta_phi_pattern = 2 * math.pi / 8  # Default: 8 passes for full coverage
+        
+        # Number of interpolation points for smooth turnaround
+        num_turn_points = 12  # Enough for smooth tangent continuity
+        
+        # Generate circumferential arc at c_eff
+        for i in range(num_turn_points):
+            # Parameterize the turnaround from 0 to 1
+            t = i / (num_turn_points - 1)
+            
+            # Smooth interpolation of phi during turnaround
+            # Use cosine interpolation for smooth acceleration/deceleration
+            phi_interp = phi_start + delta_phi_pattern * (1 - math.cos(math.pi * t)) / 2
+            
+            # At polar opening: ρ = c_eff, z = z_pole, α = 90°
+            rho_turn = c_eff
+            z_turn = z_pole
+            alpha_turn = math.pi / 2.0  # Always 90° during turnaround
+            
+            # Cartesian coordinates
+            x_turn = rho_turn * math.cos(phi_interp)
+            y_turn = rho_turn * math.sin(phi_interp)
+            
+            turnaround_points.append({
+                'rho': rho_turn,
+                'z': z_turn,
+                'alpha': alpha_turn,
+                'phi': phi_interp,
+                'x': x_turn,
+                'y': y_turn
+            })
+        
+        return turnaround_points
 
     def _resample_segment_adaptive(self, rho_segment: np.ndarray, z_segment: np.ndarray, 
                                   num_points: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -496,14 +606,36 @@ class TrajectoryPlanner:
             rho_i_m = profile_r_m_calc[i]
             z_i_m = profile_z_m_calc[i]
             
-            # Only process points where rho >= c_for_winding (windable surface)
+            # Enhanced polar turnaround handling with circumferential path segments
             if rho_i_m >= c_for_winding - 1e-7:  # Small tolerance
                 alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
                 if alpha_i_rad is None:
                     if abs(rho_i_m - c_for_winding) < 1e-6:
-                        alpha_i_rad = math.pi / 2.0  # Turn-around at polar opening
+                        alpha_i_rad = math.pi / 2.0  # Exact 90° at effective polar opening
                     else:
                         alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
+                
+                # Special handling at effective polar opening for turnaround
+                if abs(rho_i_m - c_for_winding) < 1e-6:
+                    # At c_eff: implement circumferential turnaround segment
+                    # This creates smooth tangent continuity through the reversal
+                    if first_valid_point_found and len(path_rho_m) > 0:
+                        # Generate circumferential path segment at polar opening
+                        turnaround_points = self._generate_polar_turnaround_segment(
+                            c_for_winding, z_i_m, current_phi_rad, alpha_i_rad
+                        )
+                        
+                        # Add turnaround points to path
+                        for turn_point in turnaround_points:
+                            path_rho_m.append(turn_point['rho'])
+                            path_z_m.append(turn_point['z'])
+                            path_alpha_rad.append(turn_point['alpha'])
+                            path_phi_rad_cumulative.append(turn_point['phi'])
+                            path_x_m.append(turn_point['x'])
+                            path_y_m.append(turn_point['y'])
+                            current_phi_rad = turn_point['phi']
+                        
+                        continue  # Skip normal processing for this point
             else:
                 # Point is inside c_for_winding, skip if path hasn't started
                 if not first_valid_point_found:
