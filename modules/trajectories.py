@@ -463,16 +463,15 @@ class TrajectoryPlanner:
             if z_t is None:
                 continue
                 
-            # CRITICAL FIX: DOME CONSISTENCY CHECK to prevent 404mm jumps
+            # SMART TRANSITION CHECK: Detect large jumps but allow natural dome transitions
             if len(transition_points) > 0:
                 prev_z = transition_points[-1]['z']
-                target_dome_sign = np.sign(prev_z)
+                z_jump = abs(z_t - prev_z)
                 
-                # If interpolated Z is on wrong dome, correct it to maintain consistency
-                if np.sign(z_t) != target_dome_sign and abs(z_t) > 1e-6:
-                    z_t_corrected = -abs(z_t) if target_dome_sign < 0 else abs(z_t)
-                    print(f"    🔧 DOME CONSISTENCY FIX: Changed Z from {z_t:.6f}m to {z_t_corrected:.6f}m")
-                    z_t = z_t_corrected
+                # Only flag genuinely problematic jumps (>100mm)
+                if z_jump > 0.1:  # 100mm threshold
+                    print(f"    ⚠️  LARGE TRANSITION JUMP: {z_jump*1000:.1f}mm (from {prev_z:.6f}m to {z_t:.6f}m)")
+                    # Log but don't auto-correct - allow natural geodesic progression
             
             # DEBUG: Verify Z coordinate is on vessel surface
             print(f"  Point {i}: ρ={rho_t:.6f}m → Z_from_profile={z_t:.6f}m (should be on vessel surface)")
@@ -1019,16 +1018,16 @@ class TrajectoryPlanner:
                     d_phi = abs(alpha_i_rad) * 0.01  # Small increment for visualization
                     current_phi_rad += d_phi
                     
-                    # UNIVERSAL DOME CONSISTENCY CHECK before adding to trajectory
+                    # SMART TRANSITION CHECK: Allow dome transitions but ensure they're smooth
                     z_to_add = z_i_m
-                    if len(path_z_m) > 0:  # Check against previous point
+                    if len(path_z_m) > 0:  # Check for sudden jumps only
                         prev_z = path_z_m[-1]
-                        target_dome_sign = np.sign(prev_z)
+                        z_jump = abs(z_to_add - prev_z)
                         
-                        if np.sign(z_to_add) != target_dome_sign and abs(z_to_add) > 1e-6:
-                            z_corrected = -abs(z_to_add) if target_dome_sign < 0 else abs(z_to_add)
-                            print(f"    🔧 HELICAL DOME FIX: Point {len(path_z_m)+1} - Changed Z from {z_to_add:.6f}m to {z_corrected:.6f}m")
-                            z_to_add = z_corrected
+                        # Only flag massive jumps (>100mm), allow natural dome transitions
+                        if z_jump > 0.1:  # 100mm threshold for genuine errors
+                            print(f"    ⚠️  LARGE Z JUMP DETECTED: Point {len(path_z_m)+1} - Jump of {z_jump*1000:.1f}mm (from {prev_z:.6f}m to {z_to_add:.6f}m)")
+                            # Don't auto-correct - let natural geodesic path proceed
                     
                     # Add this helical point to trajectory arrays
                     path_rho_m.append(rho_i_m)
