@@ -462,6 +462,17 @@ class TrajectoryPlanner:
             z_t = self._interpolate_z_from_profile(rho_t)
             if z_t is None:
                 continue
+                
+            # CRITICAL FIX: DOME CONSISTENCY CHECK to prevent 404mm jumps
+            if len(transition_points) > 0:
+                prev_z = transition_points[-1]['z']
+                target_dome_sign = np.sign(prev_z)
+                
+                # If interpolated Z is on wrong dome, correct it to maintain consistency
+                if np.sign(z_t) != target_dome_sign and abs(z_t) > 1e-6:
+                    z_t_corrected = -abs(z_t) if target_dome_sign < 0 else abs(z_t)
+                    print(f"    🔧 DOME CONSISTENCY FIX: Changed Z from {z_t:.6f}m to {z_t_corrected:.6f}m")
+                    z_t = z_t_corrected
             
             # DEBUG: Verify Z coordinate is on vessel surface
             print(f"  Point {i}: ρ={rho_t:.6f}m → Z_from_profile={z_t:.6f}m (should be on vessel surface)")
