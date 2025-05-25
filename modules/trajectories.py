@@ -943,7 +943,7 @@ class TrajectoryPlanner:
                             print("DEBUG: Attempting to call incoming transition zone...")
                             incoming_transition = self._generate_smooth_transition_zone(
                                 last_helical_rho, c_for_winding, 
-                                math.pi/2, math.pi/2,  # Force both start and end to 90° for proper transition
+                                last_helical_alpha, math.pi/2,  # CRITICAL FIX: Use actual last alpha, not pi/2
                                 current_phi_rad, num_points=12
                             )
                             print("DEBUG: Successfully returned from incoming transition zone")
