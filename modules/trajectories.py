@@ -1252,6 +1252,7 @@ class TrajectoryPlanner:
         print(f"SUCCESS: Generated {len(path_rho_m)} valid trajectory points")
         
         # CRITICAL FIX: Generate return helical path for complete circuit
+        print(f"DEBUG: About to check if we should generate return path. Current points: {len(path_rho_m)}")
         if len(path_rho_m) > 0:
             print(f"\nDEBUG: *** GENERATING RETURN HELICAL PATH FOR COMPLETE CIRCUIT ***")
             initial_points = len(path_rho_m)
