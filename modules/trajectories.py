@@ -909,6 +909,19 @@ class TrajectoryPlanner:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                             print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
                     
+                    # CRITICAL FIX: Add normal helical points to trajectory arrays
+                    # Update phi based on geodesic advancement
+                    d_phi = abs(alpha_i_rad) * 0.01  # Small increment for visualization
+                    current_phi_rad += d_phi
+                    
+                    # Add this helical point to trajectory arrays
+                    path_rho_m.append(rho_i_m)
+                    path_z_m.append(z_i_m)
+                    path_alpha_rad.append(alpha_i_rad)
+                    path_phi_rad_cumulative.append(current_phi_rad)
+                    path_x_m.append(rho_i_m * math.cos(current_phi_rad))
+                    path_y_m.append(rho_i_m * math.sin(current_phi_rad))
+                    
                     # Only trigger turnaround at the last point of helical segment, not at intermediate points
                     # This ensures the complete helical path is generated before the turnaround
                     if is_last_point:
