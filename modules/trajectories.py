@@ -426,6 +426,11 @@ class TrajectoryPlanner:
                                        start_alpha: float, end_alpha: float,
                                        phi_current: float, num_points: int = 6,
                                        reverse_meridional: bool = False) -> List[Dict]:
+        print(f"*** ENTERING _generate_smooth_transition_zone ***")
+        print(f"start_rho={start_rho:.6f}m, end_rho={end_rho:.6f}m")
+        print(f"start_alpha={math.degrees(start_alpha):.1f}°, end_alpha={math.degrees(end_alpha):.1f}°")
+        print(f"phi_current={math.degrees(phi_current):.1f}°, num_points={num_points}")
+        print(f"reverse_meridional={reverse_meridional}")
         """
         Generate smooth transition zone with enhanced curvature management.
         Creates geometrically smooth curve with controlled radius of curvature.
@@ -520,6 +525,7 @@ class TrajectoryPlanner:
             phi_increment = tangent[2] * 0.001  # Small arc length step
             phi_current += phi_increment
             
+        print(f"*** EXITING _generate_smooth_transition_zone - Generated {len(transition_points)} points ***")
         return transition_points
 
     def _interpolate_z_from_profile(self, rho_target: float) -> Optional[float]:
@@ -544,6 +550,10 @@ class TrajectoryPlanner:
     def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
                                          phi_start: float, alpha_pole: float,
                                          incoming_tangent: tuple = None) -> List[Dict]:
+        print(f"*** ENTERING _generate_polar_turnaround_segment ***")
+        print(f"c_eff={c_eff:.6f}m, z_pole={z_pole:.6f}m")
+        print(f"phi_start={math.degrees(phi_start):.1f}°, alpha_pole={math.degrees(alpha_pole):.1f}°")
+        print(f"incoming_tangent={'None' if incoming_tangent is None else f'({incoming_tangent[0]:.4f}, {incoming_tangent[1]:.4f}, {incoming_tangent[2]:.4f})'}")
         """
         Generates truly smooth C¹ continuous turnaround path segment with proper tangent matching.
         
@@ -885,13 +895,14 @@ class TrajectoryPlanner:
                 print(f"DEBUG Pass {pass_number + 1}: Radius condition check: ρ={rho_i_m:.6f} >= c-tol={c_for_winding - 1e-7:.6f} = {radius_condition}")
                 
                 if radius_condition:  # Small tolerance
-                    alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
-                    print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} (None if failed)")
-                    if alpha_i_rad is None:
-                        if abs(rho_i_m - c_for_winding) < 1e-6:
-                            alpha_i_rad = math.pi / 2.0  # Exact 90° at effective polar opening
-                            print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° at polar opening")
-                        else:
+                    # For points very close to c_for_winding, alpha should be close to 90°
+                    if abs(rho_i_m - c_for_winding) < 5e-3:  # Within 5mm of c_for_winding
+                        alpha_i_rad = math.pi / 2.0  # Start with 90° at effective polar opening
+                        print(f"DEBUG Pass {pass_number + 1}: Set alpha to 90° for point near c_for_winding (diff={abs(rho_i_m - c_for_winding)*1000:.1f}mm)")
+                    else:
+                        alpha_i_rad = self.calculate_geodesic_alpha_at_rho(rho_i_m)
+                        print(f"DEBUG Pass {pass_number + 1}: Calculated alpha={alpha_i_rad} ({math.degrees(alpha_i_rad) if alpha_i_rad else 'None'}°)")
+                        if alpha_i_rad is None:
                             alpha_i_rad = path_alpha_rad[-1] if path_alpha_rad else math.pi / 2.0
                             print(f"DEBUG Pass {pass_number + 1}: Used fallback alpha={math.degrees(alpha_i_rad):.1f}°")
                     
