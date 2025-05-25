@@ -465,6 +465,28 @@ class TrajectoryPlanner:
             
             # DEBUG: Verify Z coordinate is on vessel surface
             print(f"  Point {i}: ρ={rho_t:.6f}m → Z_from_profile={z_t:.6f}m (should be on vessel surface)")
+            
+            # VECTOR CONSISTENCY CHECK: Validate smooth transitions
+            if len(transition_points) > 0:
+                prev_point = transition_points[-1]
+                prev_pos = np.array([prev_point['rho'], prev_point['z']])
+                curr_pos = np.array([rho_t, z_t])
+                
+                # Calculate direction vector
+                direction_vec = curr_pos - prev_pos
+                direction_length = np.linalg.norm(direction_vec)
+                
+                if direction_length > 0:
+                    direction_normalized = direction_vec / direction_length
+                    
+                    # Check for sudden position jumps (inconsistent with surface continuity)
+                    position_jump = direction_length
+                    if position_jump > 0.01:  # 10mm threshold
+                        print(f"    WARNING: Large position jump: {position_jump*1000:.1f}mm - possible dome switching!")
+                    
+                    # Check Z-direction consistency within turnaround
+                    z_direction = direction_normalized[1]  # Z component of normalized direction
+                    print(f"    Vector check: Δρ={direction_vec[0]*1000:.2f}mm, ΔZ={direction_vec[1]*1000:.2f}mm, |jump|={position_jump*1000:.1f}mm")
                 
             # Calculate enhanced tangent vector with curvature-aware derivatives
             tangent = self._calculate_enhanced_tangent_vector(rho_t, z_t, phi_current, alpha_t, h_derivative, t)
@@ -638,6 +660,27 @@ class TrajectoryPlanner:
             drho_ds = 0.0  # No radial motion during turnaround
             dz_ds = 0.0    # No axial motion during turnaround  
             dphi_ds = 1.0 / c_eff  # Pure circumferential motion
+            
+            # VECTOR CONSISTENCY CHECK for circumferential turnaround
+            if len(turnaround_points) > 0:
+                prev_point = turnaround_points[-1]
+                prev_pos = np.array([prev_point['rho'], prev_point['z']])
+                curr_pos = np.array([rho_turn, z_turn])
+                
+                # Calculate position jump
+                position_jump = np.linalg.norm(curr_pos - prev_pos)
+                direction_vec = curr_pos - prev_pos
+                
+                # Check for dome switching (large Z jumps)
+                if abs(direction_vec[1]) > 0.05:  # 50mm Z threshold
+                    print(f"    🚨 DOME SWITCH DETECTED: ΔZ={direction_vec[1]*1000:.1f}mm at φ={math.degrees(phi_turn):.1f}°")
+                
+                if position_jump > 0.01:  # 10mm threshold
+                    print(f"    WARNING: Large circumferential jump: {position_jump*1000:.1f}mm")
+                
+                # Log vector details for first few points to check consistency
+                if i < 5:
+                    print(f"    Vector check: Δρ={direction_vec[0]*1000:.2f}mm, ΔZ={direction_vec[1]*1000:.2f}mm, |jump|={position_jump*1000:.2f}mm")
             
             # Log detailed point data for first few and last few points
             if i < 3 or i >= num_turn_points - 3:
