@@ -835,9 +835,36 @@ class TrajectoryPlanner:
             
             # Direction alternates: odd passes go forward, even go reverse
             forward_direction = (pass_number % 2 == 0)
-            profile_range = range(len(profile_r_m_calc)) if forward_direction else range(len(profile_r_m_calc)-1, -1, -1)
             
-            print(f"Direction: {'Forward (+Z to -Z)' if forward_direction else 'Reverse (-Z to +Z)'}")
+            # Find the correct starting point where vessel radius ≈ c_for_winding
+            start_index = None
+            end_index = None
+            
+            # Find indices where vessel radius equals c_for_winding
+            for i in range(len(profile_r_m_calc)):
+                if profile_r_m_calc[i] >= c_for_winding - 1e-6:
+                    if start_index is None:
+                        start_index = i
+                    end_index = i
+            
+            if start_index is None:
+                print(f"ERROR: No points found on vessel profile where ρ >= c_for_winding ({c_for_winding:.6f}m)")
+                print(f"Max vessel radius: {np.max(profile_r_m_calc):.6f}m")
+                continue
+                
+            print(f"DEBUG: Found trajectory segment from index {start_index} to {end_index}")
+            print(f"DEBUG: ρ range: {profile_r_m_calc[start_index]:.6f}m to {profile_r_m_calc[end_index]:.6f}m")
+            print(f"DEBUG: z range: {profile_z_m_calc[start_index]:.6f}m to {profile_z_m_calc[end_index]:.6f}m")
+            
+            # Create the correct profile range for this pass
+            if forward_direction:
+                profile_range = range(start_index, end_index + 1)
+                print(f"Direction: Forward (ρ={profile_r_m_calc[start_index]:.6f} to ρ={profile_r_m_calc[end_index]:.6f})")
+            else:
+                profile_range = range(end_index, start_index - 1, -1)
+                print(f"Direction: Reverse (ρ={profile_r_m_calc[end_index]:.6f} to ρ={profile_r_m_calc[start_index]:.6f})")
+            
+            print(f"DEBUG: Processing {len(list(profile_range))} points for this pass")
             pass_points_start = len(path_rho_m)
             
             for i in profile_range:
@@ -1142,12 +1169,18 @@ class TrajectoryPlanner:
             if not first_valid_point_found:
                 # First valid point - start of trajectory
                 first_valid_point_found = True
+                
+                # Set initial phi for this pass
+                current_phi_rad = pass_number * 0.1  # Advance phi between passes
+                
                 path_rho_m.append(rho_i_m)
                 path_z_m.append(z_i_m)
                 path_alpha_rad.append(alpha_i_rad)
                 path_phi_rad_cumulative.append(current_phi_rad)
                 path_x_m.append(rho_i_m * math.cos(current_phi_rad))
                 path_y_m.append(rho_i_m * math.sin(current_phi_rad))
+                
+                print(f"DEBUG Pass {pass_number + 1}: STARTING POINT - ρ={rho_i_m:.6f}m z={z_i_m:.6f}m α={math.degrees(alpha_i_rad):.1f}° φ={math.degrees(current_phi_rad):.1f}°")
                 continue
 
             # Calculate phi increment for segment
