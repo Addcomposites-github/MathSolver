@@ -1015,6 +1015,9 @@ class TrajectoryPlanner:
                             print(f"Added {len(outgoing_transition)} outgoing transition points")
                         
                         print(f"=== SMOOTH TURNAROUND COMPLETE ===")
+                        # Safety check for variable scope
+                        if 'total_new_points' not in locals():
+                            total_new_points = 0
                         print(f"Total new points added: {total_new_points}")
                         print(f"Path now has {len(path_rho_m)} total points")
                         if turnaround_points:
