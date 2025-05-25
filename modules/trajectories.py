@@ -940,6 +940,9 @@ class TrajectoryPlanner:
                                 turnaround_phi_start = incoming_transition[-1]['phi']
                             else:
                                 turnaround_phi_start = current_phi_rad
+                            
+                            # Initialize total_new_points to prevent variable scope error
+                            total_new_points = 0
                                 
                             print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
                             print("DEBUG: Attempting to call polar turnaround segment...")
