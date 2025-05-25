@@ -223,20 +223,9 @@ def trajectory_planning_page():
             else:
                 st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
             
-            st.markdown("### 🔄 Circuit Configuration")
-            trajectory_mode = st.selectbox(
-                "Trajectory Mode",
-                ["Single Circuit", "Multi-Circuit Coverage"],
-                help="Single circuit shows one pass, Multi-circuit shows complete vessel coverage"
-            )
-            
-            if trajectory_mode == "Multi-Circuit Coverage":
-                num_circuits = st.number_input("Number of Circuits", min_value=2, max_value=12, value=4, step=1,
-                                             help="Number of circuits around vessel circumference for complete coverage")
-                st.info(f"🎯 **Multi-circuit mode**: {num_circuits} circuits for complete vessel coverage")
-            else:
-                num_circuits = 1
-                st.info("🔧 **Single circuit mode**: One pole-to-pole pass for analysis")
+            st.markdown("### 🔄 Continuous Winding Configuration")
+            st.info("🔧 **Continuous Winding Mode**: Single continuous filament path with multiple passes for complete coverage")
+            num_circuits = 1  # Always single circuit with multiple passes
 
             st.markdown("### 🚀 Adaptive Point Distribution")
             st.info("**Smart Optimization**: Use more points in dome regions (high curvature) and fewer in cylinder (constant curvature)")
@@ -281,17 +270,9 @@ def trajectory_planning_page():
                         st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
                         st.info(f"🛡️ **Safety margin**: {validation['validation_details']['safety_margin_mm']:.1f}mm")
                     
-                    # Generate trajectory based on selected mode
-                    if trajectory_mode == "Multi-Circuit Coverage":
-                        trajectory_data = planner.generate_multi_circuit_trajectory(num_circuits, dome_points, cylinder_points)
-                        if trajectory_data is not None:
-                            st.success(f"🎯 Multi-circuit trajectory with {num_circuits} circuits calculated successfully!")
-                        else:
-                            st.error("❌ Multi-circuit trajectory generation failed!")
-                            return
-                    else:
-                        trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
-                        st.success("🎯 Single circuit trajectory calculated successfully!")
+                    # Generate single circuit trajectory for continuous winding
+                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                    st.success("🎯 Single circuit trajectory calculated successfully!")
                     
                     st.session_state.trajectory_data = trajectory_data
                     st.rerun()
@@ -379,39 +360,70 @@ def trajectory_planning_page():
                                          help="Number of pole-to-pole passes to simulate")
                     
                     if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
-                        # Calculate delta_phi for one complete pass
+                        # Enhanced continuous winding with seamless joining points
+                        
+                        # Calculate phi range for one complete pass
                         delta_phi_one_pass = base_phi_rad[-1] - base_phi_rad[0]
                         
-                        # Generate continuous trajectory
+                        # Initialize continuous arrays
                         all_x_coords, all_y_coords, all_z_coords = [], [], []
-                        current_phi_offset = 0.0
+                        all_phi_continuous = []
+                        
+                        # Track cumulative phi for perfect continuity
+                        cumulative_phi = 0.0
                         
                         for i_pass in range(num_passes):
                             # Determine direction: forward (even) or backward (odd)
-                            if (i_pass % 2) == 0:  # Forward pass
+                            if (i_pass % 2) == 0:  # Forward pass (south to north)
                                 pass_rho = np.array(base_rho_m)
                                 pass_z = np.array(base_z_m)
-                                pass_phi_relative = np.array(base_phi_rad)
-                            else:  # Backward pass (reverse direction)
+                                # For forward pass, use original phi progression
+                                pass_phi_relative = np.array(base_phi_rad) - base_phi_rad[0]
+                            else:  # Backward pass (north to south)
                                 pass_rho = np.array(base_rho_m[::-1])
                                 pass_z = np.array(base_z_m[::-1])
-                                pass_phi_relative = np.array(base_phi_rad)
+                                # For backward pass, reverse phi progression but maintain continuity
+                                pass_phi_relative = np.array(base_phi_rad[::-1]) - base_phi_rad[-1]
+                                pass_phi_relative = -pass_phi_relative  # Flip direction
                             
-                            # Calculate absolute phi for this pass
-                            pass_phi_absolute = pass_phi_relative + current_phi_offset
+                            # Calculate absolute phi ensuring perfect continuity
+                            pass_phi_absolute = pass_phi_relative + cumulative_phi
                             
                             # Convert to Cartesian coordinates
                             pass_x = pass_rho * np.cos(pass_phi_absolute)
                             pass_y = pass_rho * np.sin(pass_phi_absolute)
                             
-                            # Append points (skip first point for subsequent passes to avoid duplication)
-                            start_idx = 1 if i_pass > 0 else 0
+                            # For seamless joining, skip duplicate points at turnarounds
+                            if i_pass == 0:
+                                # First pass: include all points
+                                start_idx = 0
+                            else:
+                                # Subsequent passes: skip first point to avoid duplication at joining
+                                start_idx = 1
+                            
+                            # Append trajectory points
                             all_x_coords.extend(pass_x[start_idx:])
                             all_y_coords.extend(pass_y[start_idx:])
                             all_z_coords.extend(pass_z[start_idx:])
+                            all_phi_continuous.extend(pass_phi_absolute[start_idx:])
                             
-                            # Update phi offset for next pass
-                            current_phi_offset += delta_phi_one_pass
+                            # Update cumulative phi for next pass (ensuring continuity)
+                            cumulative_phi = pass_phi_absolute[-1]
+                        
+                        # Validate continuity at joining points
+                        phi_jumps = []
+                        for i in range(1, len(all_phi_continuous)):
+                            phi_diff = abs(all_phi_continuous[i] - all_phi_continuous[i-1])
+                            if phi_diff > 0.1:  # Threshold for detecting jumps
+                                phi_jumps.append((i, phi_diff))
+                        
+                        # Display continuity diagnostic
+                        if phi_jumps:
+                            st.warning(f"⚠️ Found {len(phi_jumps)} potential discontinuities at joining points")
+                            for idx, jump in phi_jumps[:3]:  # Show first 3
+                                st.info(f"Point {idx}: φ jump = {math.degrees(jump):.1f}°")
+                        else:
+                            st.success("✅ Continuous trajectory validated - no discontinuities detected")
                         
                         # Plot the continuous trajectory
                         fig_plotly.add_trace(go.Scatter3d(
@@ -441,14 +453,61 @@ def trajectory_planning_page():
                             name='End Point'
                         ))
                         
-                        # Calculate total path statistics
-                        total_phi_rotation = current_phi_offset
+                        # Enhanced trajectory analysis and statistics
                         total_points = len(all_x_coords)
+                        total_phi_rotation = all_phi_continuous[-1] - all_phi_continuous[0]
                         
-                        # Add summary
-                        st.info(f"🎯 **Continuous Winding Simulation:** {num_passes} passes • "
-                               f"{total_points} trajectory points • "
-                               f"Total φ rotation: {math.degrees(total_phi_rotation):.1f}°")
+                        # Calculate path lengths between consecutive points
+                        path_lengths = []
+                        for i in range(1, len(all_x_coords)):
+                            dx = all_x_coords[i] - all_x_coords[i-1]
+                            dy = all_y_coords[i] - all_y_coords[i-1] 
+                            dz = all_z_coords[i] - all_z_coords[i-1]
+                            path_lengths.append(math.sqrt(dx*dx + dy*dy + dz*dz))
+                        
+                        total_path_length = sum(path_lengths) if path_lengths else 0
+                        
+                        # Identify joining points (transitions between passes)
+                        joining_points = []
+                        points_per_pass = len(base_rho_m)
+                        for i in range(1, num_passes):
+                            join_index = i * points_per_pass - (i-1)  # Account for skipped duplicate points
+                            if join_index < len(all_x_coords):
+                                joining_points.append(join_index)
+                        
+                        # Enhanced summary with continuity metrics
+                        st.info(f"🎯 **Continuous Winding Analysis:**\n"
+                               f"• {num_passes} passes with {total_points} trajectory points\n"
+                               f"• Total φ rotation: {math.degrees(total_phi_rotation):.1f}°\n"
+                               f"• Total path length: {total_path_length:.3f} m\n"
+                               f"• Joining points: {len(joining_points)} transitions")
+                        
+                        # Display joining point analysis
+                        if joining_points:
+                            st.subheader("🔍 Joining Point Analysis")
+                            join_col1, join_col2 = st.columns(2)
+                            
+                            with join_col1:
+                                st.write("**Transition Points:**")
+                                for i, join_idx in enumerate(joining_points):
+                                    if join_idx < len(all_phi_continuous):
+                                        phi_at_join = all_phi_continuous[join_idx]
+                                        st.write(f"Pass {i+1}→{i+2}: φ = {math.degrees(phi_at_join):.1f}°")
+                            
+                            with join_col2:
+                                st.write("**Continuity Check:**")
+                                max_gap = 0
+                                for join_idx in joining_points:
+                                    if join_idx > 0 and join_idx < len(path_lengths):
+                                        gap = path_lengths[join_idx-1]
+                                        max_gap = max(max_gap, gap)
+                                        if gap > 0.001:  # 1mm threshold
+                                            st.warning(f"Gap at point {join_idx}: {gap*1000:.1f}mm")
+                                
+                                if max_gap <= 0.001:
+                                    st.success("✅ All transitions seamless")
+                                else:
+                                    st.info(f"Max gap: {max_gap*1000:.1f}mm")
                     
                     else:
                         # Fallback to single trajectory if calculations fail
