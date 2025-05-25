@@ -377,6 +377,99 @@ class TrajectoryPlanner:
         
         return drho_ds, dz_ds, dphi_ds
 
+    def _generate_smooth_transition_zone(self, start_rho: float, end_rho: float,
+                                       start_alpha: float, end_alpha: float,
+                                       phi_current: float, num_points: int = 6) -> List[Dict]:
+        """
+        Generate smooth transition zone with cubic spline interpolation for winding angle.
+        Creates C¹ continuous transition between helical and circumferential paths.
+        
+        Parameters:
+        -----------
+        start_rho : float
+            Starting radius (meters)
+        end_rho : float
+            Ending radius (meters)
+        start_alpha : float
+            Starting winding angle (radians)
+        end_alpha : float
+            Target winding angle (radians, typically π/2 at polar opening)
+        phi_current : float
+            Current azimuthal angle (radians)
+        num_points : int
+            Number of transition points (default: 6 for smooth curve)
+            
+        Returns:
+        --------
+        List[Dict] : Smooth transition path points with interpolated angles
+        """
+        transition_points = []
+        
+        # Create smooth parameter progression from 0 to 1
+        t_values = np.linspace(0, 1, num_points)
+        
+        # Cubic Hermite spline for smooth alpha transition
+        # Ensures C¹ continuity with zero derivative at endpoints
+        for i, t in enumerate(t_values):
+            # Cubic Hermite interpolation: smooth S-curve with flat tangents at ends
+            # h(t) = 3t² - 2t³ (standard smoothstep function)
+            h = 3 * t**2 - 2 * t**3
+            
+            # Interpolate radius and angle
+            rho_t = start_rho + (end_rho - start_rho) * t
+            alpha_t = start_alpha + (end_alpha - start_alpha) * h
+            
+            # Get Z coordinate from vessel profile
+            z_t = self._interpolate_z_from_profile(rho_t)
+            if z_t is None:
+                continue
+                
+            # Calculate tangent vector using interpolated angle
+            tangent = self._calculate_tangent_vector(rho_t, z_t, phi_current, alpha_t)
+            if tangent is None:
+                continue
+                
+            # Calculate Cartesian coordinates
+            x_t = rho_t * math.cos(phi_current)
+            y_t = rho_t * math.sin(phi_current)
+            
+            transition_points.append({
+                'rho': rho_t,
+                'z': z_t,
+                'alpha': alpha_t,
+                'phi': phi_current,
+                'x': x_t,
+                'y': y_t,
+                'drho_ds': tangent[0],
+                'dz_ds': tangent[1],
+                'dphi_ds': tangent[2]
+            })
+            
+            # Update phi for next point (small increment)
+            phi_increment = tangent[2] * 0.001  # Small arc length step
+            phi_current += phi_increment
+            
+        return transition_points
+
+    def _interpolate_z_from_profile(self, rho_target: float) -> Optional[float]:
+        """
+        Interpolate Z coordinate from vessel profile at given radius.
+        """
+        try:
+            profile_r = self.vessel.profile_points['r_inner'] * 1e-3  # Convert to meters
+            profile_z = self.vessel.profile_points['z'] * 1e-3       # Convert to meters
+            
+            # Find interpolation range
+            if rho_target <= profile_r[0]:
+                return float(profile_z[0])
+            elif rho_target >= profile_r[-1]:
+                return float(profile_z[-1])
+            else:
+                # Linear interpolation
+                return float(np.interp(rho_target, profile_r, profile_z))
+        except:
+            return None
+
     def _generate_polar_turnaround_segment(self, c_eff: float, z_pole: float, 
                                          phi_start: float, alpha_pole: float,
                                          incoming_tangent: tuple = None) -> List[Dict]:
@@ -681,54 +774,103 @@ class TrajectoryPlanner:
                     print(f"DEBUG: *** POLAR OPENING DETECTED *** at ρ={rho_i_m:.6f}, c_for_winding={c_for_winding:.6f}, diff={abs(rho_i_m - c_for_winding):.8f}")
                 
                 if at_polar_opening:
-                    # At c_eff: implement true circumferential turnaround with tangent matching
+                    # At c_eff: implement smooth C¹ continuous turnaround with transition zones
                     if first_valid_point_found and len(path_rho_m) > 0:
-                        # Calculate incoming tangent vector from last helical path segment
-                        if len(path_rho_m) > 1:
-                            prev_alpha = path_alpha_rad[-1]
-                            incoming_tangent = self._calculate_tangent_vector(
-                                path_rho_m[-1], path_z_m[-1], path_phi_rad_cumulative[-1], prev_alpha
-                            )
-                            print(f"\n=== INTERFACE DEBUG: Before Turnaround ===")
-                            print(f"Last helical point: ρ={path_rho_m[-1]:.6f} z={path_z_m[-1]:.6f} φ={math.degrees(path_phi_rad_cumulative[-1]):7.2f}° α={math.degrees(prev_alpha):5.1f}°")
-                            print(f"Incoming tangent: dρ/ds={incoming_tangent[0]:.6f} dz/ds={incoming_tangent[1]:.6f} dφ/ds={incoming_tangent[2]:.6f}")
-                        else:
-                            incoming_tangent = None
+                        print(f"DEBUG: *** ENTERING SMOOTH TURNAROUND SEQUENCE ***")
                         
-                        # Generate circumferential path segment with proper tangent matching
-                        print(f"DEBUG: *** ENTERING polar turnaround generation ***")
-                        print(f"Parameters: c_eff={c_for_winding:.6f}, z_pole={z_i_m:.6f}, phi_start={math.degrees(current_phi_rad):.2f}°")
+                        # Step 1: Generate incoming transition zone (helical → circumferential)
+                        # Create smooth transition from last helical point to polar opening
+                        last_helical_rho = path_rho_m[-1]
+                        last_helical_alpha = path_alpha_rad[-1]
+                        transition_length = 0.002  # 2mm transition zone
                         
-                        turnaround_points = self._generate_polar_turnaround_segment(
-                            c_for_winding, z_i_m, current_phi_rad, alpha_i_rad, incoming_tangent
+                        print(f"Generating incoming transition: ρ {last_helical_rho:.6f} → {c_for_winding:.6f}")
+                        print(f"α transition: {math.degrees(last_helical_alpha):.1f}° → 90.0°")
+                        
+                        incoming_transition = self._generate_smooth_transition_zone(
+                            last_helical_rho, c_for_winding, 
+                            last_helical_alpha, math.pi/2,
+                            current_phi_rad, num_points=6
                         )
                         
-                        print(f"DEBUG: *** EXITED polar turnaround generation. Generated {len(turnaround_points)} turnaround points ***")
+                        # Step 2: Generate circumferential turnaround segment
+                        if incoming_transition:
+                            turnaround_phi_start = incoming_transition[-1]['phi']
+                        else:
+                            turnaround_phi_start = current_phi_rad
+                            
+                        print(f"Generating circumferential turnaround at ρ={c_for_winding:.6f}")
+                        turnaround_points = self._generate_polar_turnaround_segment(
+                            c_for_winding, z_i_m, turnaround_phi_start, math.pi/2, None
+                        )
                         
-                        # Log tangent vectors at critical interfaces
+                        # Step 3: Generate outgoing transition zone (circumferential → helical)
                         if turnaround_points:
-                            first_turn = turnaround_points[0]
-                            last_turn = turnaround_points[-1]
-                            print(f"=== INTERFACE TANGENT VERIFICATION ===")
-                            print(f"First turnaround point: ρ={first_turn['rho']:.6f} z={first_turn['z']:.6f} φ={math.degrees(first_turn['phi']):7.2f}°")
-                            print(f"First turnaround tangent: dρ/ds={first_turn['drho_ds']:.6f} dz/ds={first_turn['dz_ds']:.6f} dφ/ds={first_turn['dphi_ds']:.6f}")
-                            print(f"Last turnaround point: ρ={last_turn['rho']:.6f} z={last_turn['z']:.6f} φ={math.degrees(last_turn['phi']):7.2f}°")
-                            print(f"Last turnaround tangent: dρ/ds={last_turn['drho_ds']:.6f} dz/ds={last_turn['dz_ds']:.6f} dφ/ds={last_turn['dphi_ds']:.6f}")
+                            outgoing_phi_start = turnaround_points[-1]['phi']
+                        else:
+                            outgoing_phi_start = turnaround_phi_start
                         
-                        # Add turnaround points to path with tangent vector information
-                        turnaround_start_idx = len(path_rho_m)
-                        for turn_point in turnaround_points:
-                            path_rho_m.append(turn_point['rho'])
-                            path_z_m.append(turn_point['z'])
-                            path_alpha_rad.append(turn_point['alpha'])
-                            path_phi_rad_cumulative.append(turn_point['phi'])
-                            path_x_m.append(turn_point['x'])
-                            path_y_m.append(turn_point['y'])
-                            current_phi_rad = turn_point['phi']
+                        # Calculate target outgoing angle (reverse direction for next pass)
+                        outgoing_target_alpha = last_helical_alpha  # Same magnitude, different direction
+                        outgoing_target_rho = c_for_winding + transition_length
                         
-                        print(f"DEBUG: Integrated turnaround points into main path. Total path points now: {len(path_rho_m)}")
-                        print(f"Turnaround points occupy indices {turnaround_start_idx} to {len(path_rho_m)-1}")
-                        print(f"Angular span of turnaround: {math.degrees(turnaround_points[-1]['phi'] - turnaround_points[0]['phi']):.2f}°")
+                        print(f"Generating outgoing transition: ρ {c_for_winding:.6f} → {outgoing_target_rho:.6f}")
+                        print(f"α transition: 90.0° → {math.degrees(outgoing_target_alpha):.1f}°")
+                        
+                        outgoing_transition = self._generate_smooth_transition_zone(
+                            c_for_winding, outgoing_target_rho,
+                            math.pi/2, outgoing_target_alpha,
+                            outgoing_phi_start, num_points=6
+                        )
+                        
+                        # Step 4: Integrate all segments with debugging
+                        total_new_points = 0
+                        
+                        # Add incoming transition (skip first point to avoid duplication)
+                        if incoming_transition and len(incoming_transition) > 1:
+                            for i, point in enumerate(incoming_transition[1:], 1):
+                                path_rho_m.append(point['rho'])
+                                path_z_m.append(point['z'])
+                                path_alpha_rad.append(point['alpha'])
+                                path_phi_rad_cumulative.append(point['phi'])
+                                path_x_m.append(point['x'])
+                                path_y_m.append(point['y'])
+                                current_phi_rad = point['phi']
+                                total_new_points += 1
+                            print(f"Added {len(incoming_transition)-1} incoming transition points")
+                        
+                        # Add circumferential turnaround
+                        if turnaround_points:
+                            for point in turnaround_points:
+                                path_rho_m.append(point['rho'])
+                                path_z_m.append(point['z'])
+                                path_alpha_rad.append(point['alpha'])
+                                path_phi_rad_cumulative.append(point['phi'])
+                                path_x_m.append(point['x'])
+                                path_y_m.append(point['y'])
+                                current_phi_rad = point['phi']
+                                total_new_points += 1
+                            print(f"Added {len(turnaround_points)} circumferential turnaround points")
+                        
+                        # Add outgoing transition
+                        if outgoing_transition:
+                            for point in outgoing_transition:
+                                path_rho_m.append(point['rho'])
+                                path_z_m.append(point['z'])
+                                path_alpha_rad.append(point['alpha'])
+                                path_phi_rad_cumulative.append(point['phi'])
+                                path_x_m.append(point['x'])
+                                path_y_m.append(point['y'])
+                                current_phi_rad = point['phi']
+                                total_new_points += 1
+                            print(f"Added {len(outgoing_transition)} outgoing transition points")
+                        
+                        print(f"=== SMOOTH TURNAROUND COMPLETE ===")
+                        print(f"Total new points added: {total_new_points}")
+                        print(f"Path now has {len(path_rho_m)} total points")
+                        if turnaround_points:
+                            total_angular_span = turnaround_points[-1]['phi'] - incoming_transition[0]['phi'] if incoming_transition else 0
+                            print(f"Total angular span of complete turnaround: {math.degrees(total_angular_span):.2f}°")
                         
                         continue  # Skip normal processing for this point
             else:

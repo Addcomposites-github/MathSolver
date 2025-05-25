@@ -1,0 +1,66 @@
+The detailed debug output is very insightful! We've confirmed:
+
+The polar opening detection now correctly triggers the turnaround logic.
+The _generate_polar_turnaround_segment correctly generates 24 points along a circular arc of radius c 
+eff
+​
+  (0.089879m) with a constant Z, covering the specified Δϕ 
+pattern
+​
+  (45°). The tangents within this arc are correctly circumferential (dρ/ds=0,dz/ds=0).
+However, the visual "kink" persists because the transition between the incoming/outgoing helical paths and this circumferential turnaround arc is still abrupt in terms of tangent vectors.
+
+Specifically, the log shows:
+
+Incoming helical tangent: dρ/ds=0.481752,dz/ds=−0.747727,... (has meridional components)
+First turnaround arc tangent: dρ/ds=0.000000,dz/ds=0.000000,... (purely circumferential)
+This instantaneous change in dρ/ds and dz/ds from non-zero to zero (and vice-versa after the turn) is the source of the kink.
+
+To achieve true C 
+1
+  continuity, we need to smoothly transition the winding angle α to 90 
+∘
+  as the helical path approaches c 
+eff
+​
+ , and then smoothly transition α away from 90 
+∘
+  as the new helical path begins after the circumferential pattern advance.
+
+Please modify the trajectory generation as follows:
+
+Implement Smoothing/Transition Zones:
+
+Instead of the helical path abruptly ending when ρ≈c 
+eff
+​
+ , create a short "transition zone" or "blending curve" at the end of the incoming helical path. Over a few points in this zone, the winding angle α should be smoothly interpolated from its current helical value to 90 
+∘
+ , precisely as ρ reaches c 
+eff
+​
+ .
+Similarly, create a "transition zone" at the beginning of the outgoing helical path. Over a few points, α should smoothly interpolate from 90 
+∘
+  back to its new helical value as ρ moves away from c 
+eff
+​
+ .
+The cubic spline interpolation for winding angle transitions you mentioned earlier would be ideal here. The control points for the spline would be the α from the helical path and the target α=90 
+∘
+  at c 
+eff
+​
+ .
+Tangent Calculation for these Transition Zones:
+
+The tangent vectors for points within these new transition zones will naturally follow from the interpolated α values, using the standard tangent calculation method (e.g., Koussios Thesis, Ch. 2, Eq. 2.36 or similar).
+Connection to the Circumferential Arc:
+
+The _generate_polar_turnaround_segment (the 24-point circular arc at ρ=c 
+eff
+​
+ ,α=90 
+∘
+ ) will now connect to these smooth transition zones, not directly to the main helical paths. Its first point's tangent should match the last point of the incoming transition zone, and its last point's tangent should match the first point of the outgoing transition zone (all of which should now be correctly circumferential).
+The idea is that the path itself must gently curve into the circumferential turn. The change in dρ/ds and dz/ds must be gradual over these small transition zones to eliminate the kink. Please ensure the debug output for tangent vectors now reflects this smooth transition at all interfaces.
