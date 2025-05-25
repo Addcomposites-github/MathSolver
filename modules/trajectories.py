@@ -1019,9 +1019,20 @@ class TrajectoryPlanner:
                     d_phi = abs(alpha_i_rad) * 0.01  # Small increment for visualization
                     current_phi_rad += d_phi
                     
+                    # UNIVERSAL DOME CONSISTENCY CHECK before adding to trajectory
+                    z_to_add = z_i_m
+                    if len(path_z_m) > 0:  # Check against previous point
+                        prev_z = path_z_m[-1]
+                        target_dome_sign = np.sign(prev_z)
+                        
+                        if np.sign(z_to_add) != target_dome_sign and abs(z_to_add) > 1e-6:
+                            z_corrected = -abs(z_to_add) if target_dome_sign < 0 else abs(z_to_add)
+                            print(f"    🔧 HELICAL DOME FIX: Point {len(path_z_m)+1} - Changed Z from {z_to_add:.6f}m to {z_corrected:.6f}m")
+                            z_to_add = z_corrected
+                    
                     # Add this helical point to trajectory arrays
                     path_rho_m.append(rho_i_m)
-                    path_z_m.append(z_i_m)
+                    path_z_m.append(z_to_add)
                     path_alpha_rad.append(alpha_i_rad)
                     path_phi_rad_cumulative.append(current_phi_rad)
                     path_x_m.append(rho_i_m * math.cos(current_phi_rad))
