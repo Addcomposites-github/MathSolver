@@ -188,7 +188,7 @@ def trajectory_planning_page():
         st.subheader("Winding Parameters")
         
         # Winding pattern type
-        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Helical", "Hoop", "Polar", "Transitional"])
+        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Multi-Circuit Pattern", "Helical", "Hoop", "Polar", "Transitional"])
         
         if pattern_type in ["Helical", "Transitional"]:
             winding_angle = st.slider("Winding Angle (degrees)", min_value=5.0, max_value=85.0, value=55.0, step=1.0)
@@ -236,6 +236,57 @@ def trajectory_planning_page():
             with col_cyl:
                 cylinder_points = st.slider("Cylinder Density", 5, 100, 20, 5,
                                           help="Lower density for cylinder where curvature is constant")
+        elif pattern_type == "Multi-Circuit Pattern":
+            st.markdown("### 🔄 Multi-Circuit Pattern Configuration")
+            st.info("🎯 **Systematic Coverage**: Generate multiple circuits with systematic pattern advancement for complete pole-to-pole coverage")
+            
+            # Pattern configuration
+            col_pattern1, col_pattern2 = st.columns(2)
+            with col_pattern1:
+                circuits_to_close = st.number_input("Target Circuits for Full Pattern", 
+                                                   min_value=4, max_value=20, value=10, step=1,
+                                                   help="Total circuits needed to close the pattern for complete coverage")
+                num_circuits_for_vis = st.number_input("Circuits to Generate", 
+                                                     min_value=1, max_value=10, value=3, step=1,
+                                                     help="Number of circuits to actually generate for visualization")
+            with col_pattern2:
+                pattern_skip_factor = st.selectbox("Pattern Type", 
+                                                 options=[1, 2, 3], 
+                                                 format_func=lambda x: {1: "Side-by-side", 2: "Skip 1 band", 3: "Skip 2 bands"}[x],
+                                                 help="Pattern advancement strategy")
+            
+            # Roving parameters
+            st.markdown("### 🧵 Roving Properties")
+            col_rov1, col_rov2 = st.columns(2)
+            with col_rov1:
+                roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
+                roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
+            with col_rov2:
+                polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+            
+            # Target angle configuration
+            st.markdown("### 🎯 Target Winding Angle")
+            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
+                                         help="Define desired winding angle instead of using geometric limit")
+            
+            target_angle = None
+            if use_target_angle:
+                target_angle = st.slider("Target Cylinder Angle (degrees)", 
+                                        min_value=10.0, max_value=80.0, value=45.0, step=1.0,
+                                        help="Desired winding angle on cylinder section")
+                st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
+            else:
+                st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
+                
+            # Point distribution
+            st.markdown("### 🎯 Point Distribution")
+            col_dome2, col_cyl2 = st.columns(2)
+            with col_dome2:
+                dome_points = st.slider("Dome Density", 25, 150, 50, 5,
+                                      help="Points per dome segment (optimized for multi-circuit)")
+            with col_cyl2:
+                cylinder_points = st.slider("Cylinder Density", 5, 50, 10, 5,
+                                          help="Points per cylinder segment")
         elif pattern_type == "Helical":
             st.markdown("### Pattern Parameters")
             circuits_to_close = st.number_input("Circuits to Close Pattern", min_value=1, value=8, step=1)
@@ -277,6 +328,48 @@ def trajectory_planning_page():
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                         st.session_state.trajectory_data = trajectory_data
                         st.success(f"🎯 Single circuit trajectory calculated successfully! Generated {len(trajectory_data['path_points'])} points")
+                elif pattern_type == "Multi-Circuit Pattern":
+                    planner = TrajectoryPlanner(
+                        st.session_state.vessel_geometry,
+                        dry_roving_width_m=roving_width/1000,
+                        dry_roving_thickness_m=roving_thickness/1000,
+                        roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                        target_cylinder_angle_deg=target_angle
+                    )
+                    
+                    # Show validation results
+                    validation = planner.get_validation_results()
+                    if validation and not validation.get('is_valid', True):
+                        if validation['error_type'] == 'too_shallow':
+                            st.error(f"❌ **Target angle {target_angle}° is too shallow!**")
+                            st.info(f"🔧 **Minimum achievable**: {validation['min_achievable_angle']:.1f}°")
+                        elif validation['error_type'] == 'too_steep':
+                            st.error(f"❌ **Target angle {target_angle}° is too steep!**")
+                            st.info(f"🔧 **Maximum practical**: {validation['max_practical_angle']}°")
+                        else:
+                            st.error(f"❌ **Invalid target angle**: {validation['message']}")
+                        return
+                    elif validation and validation.get('is_valid'):
+                        st.success(f"✅ **Target angle {target_angle}° is achievable!**")
+                        st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
+                        st.info(f"🛡️ **Safety margin**: {validation['validation_details']['safety_margin_mm']:.1f}mm")
+                    
+                    # Generate multi-circuit pattern with systematic advancement
+                    trajectory_data = planner.generate_multi_circuit_trajectory(
+                        num_target_circuits_for_pattern=circuits_to_close,
+                        num_circuits_to_generate_for_vis=num_circuits_for_vis,
+                        num_points_dome=dome_points,
+                        num_points_cylinder=cylinder_points,
+                        pattern_skip_factor=pattern_skip_factor
+                    )
+                    
+                    # Ensure trajectory data is properly stored
+                    if trajectory_data and trajectory_data.get('total_points', 0) > 0:
+                        st.session_state.trajectory_data = trajectory_data
+                        st.success(f"🎯 Multi-circuit pattern calculated successfully!")
+                        st.info(f"Generated {trajectory_data['num_circuits_generated']} circuits with {trajectory_data['total_points']} total points")
+                        st.info(f"Pattern advancement: {trajectory_data['advancement_angle_per_circuit_deg']:.1f}° per circuit")
+                        st.info(f"Coverage efficiency: {trajectory_data['coverage_efficiency']:.1%}")
                         st.rerun()
                     else:
                         st.error("❌ No trajectory points were generated. Check the debug logs for details.")
@@ -366,15 +459,15 @@ def trajectory_planning_page():
         else:
             st.info("Generate a trajectory first to view visualizations.")
     
-        # Add tabbed interface for detailed analysis
-        if st.session_state.trajectory_data is not None:
-            tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
-        
-        with tab1:
-            st.header("3D Trajectory Analysis")
-            st.info("3D trajectory analysis will be displayed here.")
-        
-        with tab2:
+            # Add tabbed interface for detailed analysis
+            if st.session_state.trajectory_data is not None:
+                tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
+            
+                with tab1:
+                    st.header("3D Trajectory Analysis")
+                    st.info("3D trajectory analysis will be displayed here.")
+            
+                with tab2:
             st.header("2D Trajectory Analysis")
             
             if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:

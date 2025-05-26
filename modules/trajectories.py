@@ -1805,82 +1805,214 @@ class TrajectoryPlanner:
             'alpha_equator_deg': self.alpha_eq_deg
         }
 
-    def generate_multi_circuit_trajectory(self, num_circuits: int = 4, 
-                                         num_points_dome: int = 150, 
-                                         num_points_cylinder: int = 20) -> Dict:
+    def generate_multi_circuit_trajectory(self, 
+                                         num_target_circuits_for_pattern: int = 10, 
+                                         num_circuits_to_generate_for_vis: int = 5, 
+                                         num_points_dome: int = 50, 
+                                         num_points_cylinder: int = 10,
+                                         pattern_skip_factor: int = 1) -> Dict:
         """
-        Generate complete multi-circuit winding trajectory for full vessel coverage.
+        Generate multiple full circuits based on systematic pattern advancement for full coverage.
+        Based on Koussios pattern theory for achieving complete pole-to-pole winding coverage.
         
         Parameters:
         -----------
-        num_circuits : int
-            Number of circuits around the vessel circumference
+        num_target_circuits_for_pattern : int
+            Total number of circuits needed to close the pattern for complete coverage
+        num_circuits_to_generate_for_vis : int
+            Number of full circuits to actually generate points for (for visualization)
         num_points_dome : int
-            Points per dome segment
+            Points per dome segment (fewer for faster multi-circuit generation)
         num_points_cylinder : int
             Points per cylinder segment
+        pattern_skip_factor : int
+            Pattern skip factor (1=side-by-side, 2=skip one band, etc.)
             
         Returns:
         --------
-        Dict : Complete multi-circuit trajectory data
+        Dict : Complete multi-circuit trajectory data with systematic pattern advancement
         """
-        # Generate base single circuit
-        base_circuit = self.generate_geodesic_trajectory(num_points_dome, num_points_cylinder)
-        
-        if base_circuit is None:
+        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+            print("Error: Vessel profile not generated.")
             return None
+        if self.clairauts_constant_for_path_m is None:
+            print("Error: Clairaut's constant for path not set. Validate target angle or use c_eff.")
+            # Default to c_eff if not set, with a warning
+            self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+            print(f"WARN: Using c_eff = {self.clairauts_constant_for_path_m*1000:.2f}mm for multi-circuit.")
         
-        # Extract single circuit data
-        base_x = base_circuit['x_points']
-        base_y = base_circuit['y_points'] 
-        base_z = base_circuit['z_coords']
-        base_phi = base_circuit['phi_rad']
+        c_for_winding = self.clairauts_constant_for_path_m
+
+        # === PATTERN THEORY IMPLEMENTATION ===
+        # Based on Koussios Eq. 8.17 for systematic pattern advancement
+        # advancement_angle_per_full_circuit = net phi shift for START of next circuit relative to current one
+        advancement_angle_per_full_circuit_rad = (2 * math.pi / num_target_circuits_for_pattern) * pattern_skip_factor
         
-        # Initialize multi-circuit arrays
-        all_x, all_y, all_z = [], [], []
-        all_phi_continuous = []
+        # Each turnaround contributes to pattern advancement
+        # Distribute advancement over two polar turnarounds per circuit
+        phi_span_for_each_turnaround_rad = advancement_angle_per_full_circuit_rad / 2.0
+
+        print(f"=== MULTI-CIRCUIT PATTERN GENERATION ===")
+        print(f"Target circuits for full pattern: {num_target_circuits_for_pattern}")
+        print(f"Circuits to generate for visualization: {num_circuits_to_generate_for_vis}")
+        print(f"Pattern advancement per circuit: {math.degrees(advancement_angle_per_full_circuit_rad):.2f}°")
+        print(f"Turnaround advancement per pole: {math.degrees(phi_span_for_each_turnaround_rad):.2f}°")
+        print(f"Clairaut's constant: {c_for_winding*1000:.2f}mm")
+
+        # --- REGENERATE RESAMPLED PROFILE ---
+        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        adaptive_r_segments, adaptive_z_segments = [], []
         
-        # Phase shift between circuits for even distribution
-        phi_shift_per_circuit = 2 * math.pi / num_circuits
-        
-        print(f"DEBUG: Generating {num_circuits} circuits with {phi_shift_per_circuit:.3f} rad shift per circuit")
-        
-        for circuit in range(num_circuits):
-            # Calculate phase shift for this circuit
-            phi_offset = circuit * phi_shift_per_circuit
+        if segments['has_cylinder']:
+            fwd_dome_r, fwd_dome_z = self._resample_segment_adaptive(
+                profile_r_m_orig[0:segments['fwd_dome_end']+1], 
+                profile_z_m_orig[0:segments['fwd_dome_end']+1], 
+                num_points_dome)
+            cyl_r, cyl_z = self._resample_segment_adaptive(
+                profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1], 
+                profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1], 
+                num_points_cylinder)
+            aft_dome_r, aft_dome_z = self._resample_segment_adaptive(
+                profile_r_m_orig[segments['aft_dome_start']:], 
+                profile_z_m_orig[segments['aft_dome_start']:], 
+                num_points_dome)
             
-            # Apply phase shift to get new positions
-            circuit_phi = base_phi + phi_offset
-            circuit_x = base_x * np.cos(phi_offset) - base_y * np.sin(phi_offset)
-            circuit_y = base_x * np.sin(phi_offset) + base_y * np.cos(phi_offset)
-            circuit_z = base_z.copy()
-            
-            # Accumulate trajectory points
-            all_x.extend(circuit_x)
-            all_y.extend(circuit_y)
-            all_z.extend(circuit_z)
-            all_phi_continuous.extend(circuit_phi)
-            
-            print(f"Circuit {circuit+1}: {len(circuit_x)} points, phi range: {circuit_phi[0]:.3f} to {circuit_phi[-1]:.3f} rad")
+            if len(fwd_dome_r)>0: 
+                adaptive_r_segments.append(fwd_dome_r)
+                adaptive_z_segments.append(fwd_dome_z)
+            if len(cyl_r)>1: 
+                adaptive_r_segments.append(cyl_r[1:])
+                adaptive_z_segments.append(cyl_z[1:])
+            if len(aft_dome_r)>1: 
+                adaptive_r_segments.append(aft_dome_r[1:])
+                adaptive_z_segments.append(aft_dome_z[1:])
+        else:
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(
+                profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            if len(dome_r_resampled)>0: 
+                adaptive_r_segments.append(dome_r_resampled)
+                adaptive_z_segments.append(dome_z_resampled)
         
-        # Calculate total statistics
-        total_points = len(all_x)
-        total_fiber_length = base_circuit.get('fiber_length_m', 0) * num_circuits
+        if not adaptive_r_segments:
+            print("Error: Could not create resampled profile for multi-circuit.")
+            return None
+            
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        if len(profile_r_m_calc) < 2: 
+            return None
+
+        # === MULTI-CIRCUIT GENERATION ===
+        all_circuits_data = []  # Store data for each circuit
+        all_x_points, all_y_points, all_z_points = [], [], []
+        all_phi_points = []
         
+        current_global_phi_rad = 0.0  # Starting phi for the very first leg of the first circuit
+
+        for circuit_idx in range(num_circuits_to_generate_for_vis):
+            print(f"\n--- GENERATING CIRCUIT {circuit_idx + 1} ---")
+            circuit_start_phi = current_global_phi_rad  # Phi at the start of the first leg of this circuit
+
+            # === LEG 1: Forward on profile (Front Pole to Aft Pole) ===
+            leg1_data = self._generate_geodesic_leg(
+                profile_r_m_calc, profile_z_m_calc, c_for_winding,
+                circuit_start_phi, is_forward_on_profile=True,
+                leg_number=f"Circuit {circuit_idx+1} Leg 1"
+            )
+            
+            if leg1_data is None or len(leg1_data['path_points']) == 0:
+                print(f"ERROR: Circuit {circuit_idx+1} Leg 1 failed")
+                break
+
+            # === TURNAROUND 1: At Aft Pole ===
+            leg1_end_phi = leg1_data['path_points'][-1]['phi']
+            turnaround1_data = self._generate_polar_turnaround_segment_fixed_phi_advance(
+                c_for_winding, leg1_data['path_points'][-1]['z'], 
+                leg1_end_phi, phi_span_for_each_turnaround_rad
+            )
+
+            # === LEG 2: Reverse on profile (Aft Pole to Front Pole) ===
+            leg2_start_phi = leg1_end_phi + phi_span_for_each_turnaround_rad
+            leg2_data = self._generate_geodesic_leg(
+                profile_r_m_calc, profile_z_m_calc, c_for_winding,
+                leg2_start_phi, is_forward_on_profile=False,
+                leg_number=f"Circuit {circuit_idx+1} Leg 2"
+            )
+
+            if leg2_data is None or len(leg2_data['path_points']) == 0:
+                print(f"ERROR: Circuit {circuit_idx+1} Leg 2 failed")
+                break
+
+            # === TURNAROUND 2: At Front Pole ===
+            leg2_end_phi = leg2_data['path_points'][-1]['phi']
+            turnaround2_data = self._generate_polar_turnaround_segment_fixed_phi_advance(
+                c_for_winding, leg2_data['path_points'][-1]['z'], 
+                leg2_end_phi, phi_span_for_each_turnaround_rad
+            )
+
+            # === COMBINE CIRCUIT DATA ===
+            circuit_points = []
+            circuit_points.extend(leg1_data['path_points'])
+            if turnaround1_data: circuit_points.extend(turnaround1_data)
+            circuit_points.extend(leg2_data['path_points'])
+            if turnaround2_data: circuit_points.extend(turnaround2_data)
+
+            # Extract coordinates for this circuit
+            circuit_x = [p['x'] for p in circuit_points]
+            circuit_y = [p['y'] for p in circuit_points]
+            circuit_z = [p['z'] for p in circuit_points]
+            circuit_phi = [p['phi'] for p in circuit_points]
+
+            # Store circuit data
+            all_circuits_data.append({
+                'circuit_index': circuit_idx,
+                'points': circuit_points,
+                'start_phi': circuit_start_phi,
+                'end_phi': leg2_end_phi + phi_span_for_each_turnaround_rad,
+                'advancement': advancement_angle_per_full_circuit_rad
+            })
+
+            # Accumulate all points
+            all_x_points.extend(circuit_x)
+            all_y_points.extend(circuit_y)
+            all_z_points.extend(circuit_z)
+            all_phi_points.extend(circuit_phi)
+
+            # Update global phi for next circuit
+            current_global_phi_rad = leg2_end_phi + phi_span_for_each_turnaround_rad
+
+            print(f"Circuit {circuit_idx+1} complete: {len(circuit_points)} points")
+            print(f"Phi progression: {math.degrees(circuit_start_phi):.1f}° → {math.degrees(current_global_phi_rad):.1f}°")
+
+        # === CALCULATE COVERAGE METRICS ===
+        total_points = len(all_x_points)
+        phi_span_total = current_global_phi_rad if all_circuits_data else 0
+        coverage_efficiency = min(1.0, num_circuits_to_generate_for_vis / num_target_circuits_for_pattern)
+
+        print(f"\n=== MULTI-CIRCUIT PATTERN COMPLETE ===")
+        print(f"Generated {len(all_circuits_data)} circuits with {total_points} total points")
+        print(f"Total phi span: {math.degrees(phi_span_total):.1f}°")
+        print(f"Coverage efficiency: {coverage_efficiency:.1%}")
+
         return {
-            'pattern_type': 'Multi-Circuit Geodesic',
-            'num_circuits': num_circuits,
+            'pattern_type': 'Multi-Circuit Pattern',
+            'num_circuits_generated': len(all_circuits_data),
+            'num_target_circuits_for_pattern': num_target_circuits_for_pattern,
             'total_points': total_points,
-            'points_per_circuit': len(base_x),
-            'x_points': np.array(all_x),
-            'y_points': np.array(all_y),
-            'z_coords': np.array(all_z),
-            'phi_rad_continuous': np.array(all_phi_continuous),
-            'total_fiber_length_m': total_fiber_length,
-            'target_cylinder_angle_deg': math.degrees(math.asin(self.clairauts_constant_for_path_m / 0.1)),
-            'c_eff_m': base_circuit.get('c_eff_m', self.effective_polar_opening_radius_m),
-            'coverage_efficiency': 0.95 * num_circuits / 4.0,  # Assumes 4 circuits for full coverage
-            'base_circuit_data': base_circuit
+            'x_points_m': np.array(all_x_points),
+            'y_points_m': np.array(all_y_points),
+            'z_points_m': np.array(all_z_points),
+            'phi_rad_continuous': np.array(all_phi_points),
+            'advancement_angle_per_circuit_deg': math.degrees(advancement_angle_per_full_circuit_rad),
+            'turnaround_advancement_deg': math.degrees(phi_span_for_each_turnaround_rad),
+            'coverage_efficiency': coverage_efficiency,
+            'total_phi_span_deg': math.degrees(phi_span_total),
+            'c_for_winding_mm': c_for_winding * 1000,
+            'target_cylinder_angle_deg': self.target_cylinder_angle_deg,
+            'all_circuits_data': all_circuits_data,
+            'pattern_skip_factor': pattern_skip_factor
         }
 
     def calculate_trajectory(self, params: Dict) -> Dict:
