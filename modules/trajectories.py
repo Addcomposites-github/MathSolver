@@ -84,12 +84,31 @@ class TrajectoryPlanner:
         
         # Validate target angle and set Clairaut's constant for path generation
         if self.target_cylinder_angle_deg is not None:
-            validation_success = self._validate_and_set_clairauts_constant_from_target_angle(self.target_cylinder_angle_deg)
-            if not validation_success:
-                print(f"WARNING: Target cylinder angle {self.target_cylinder_angle_deg}° not achievable. Using geometric limit instead.")
-                self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+            # In non-geodesic mode (μ > 0), bypass validation and allow extreme angles
+            if self.mu_friction_coefficient > 0:
+                print(f"NON-GEODESIC MODE: Bypassing validation for extreme angle {self.target_cylinder_angle_deg}° with μ = {self.mu_friction_coefficient:.3f}")
+                # Calculate implied Clairaut's constant without validation
+                R_cyl_m = self.vessel.inner_radius * 1e-3
+                alpha_cyl_target_rad = math.radians(self.target_cylinder_angle_deg)
+                self.clairauts_constant_for_path_m = R_cyl_m * math.sin(alpha_cyl_target_rad)
+                
+                self.validation_results = {
+                    'is_valid': True,
+                    'bypass_mode': 'non_geodesic',
+                    'target_angle': self.target_cylinder_angle_deg,
+                    'clairaut_constant_mm': self.clairauts_constant_for_path_m * 1000,
+                    'friction_coefficient': self.mu_friction_coefficient,
+                    'message': f"Non-geodesic mode: extreme angle {self.target_cylinder_angle_deg}° enabled by friction"
+                }
+                print(f"NON-GEODESIC SUCCESS: Target {self.target_cylinder_angle_deg}° enabled with friction physics")
             else:
-                print(f"SUCCESS: Target cylinder angle {self.target_cylinder_angle_deg}° validated and set.")
+                # Standard geodesic validation
+                validation_success = self._validate_and_set_clairauts_constant_from_target_angle(self.target_cylinder_angle_deg)
+                if not validation_success:
+                    print(f"WARNING: Target cylinder angle {self.target_cylinder_angle_deg}° not achievable. Using geometric limit instead.")
+                    self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+                else:
+                    print(f"SUCCESS: Target cylinder angle {self.target_cylinder_angle_deg}° validated and set.")
         else:
             # No target angle specified, use the physical minimum turning radius
             self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m

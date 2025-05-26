@@ -188,7 +188,7 @@ def trajectory_planning_page():
         st.subheader("Winding Parameters")
         
         # Winding pattern type
-        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Multi-Circuit Pattern", "Helical", "Hoop", "Polar", "Transitional"])
+        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "Helical", "Hoop", "Polar", "Transitional"])
         
         if pattern_type in ["Helical", "Transitional"]:
             winding_angle = st.slider("Winding Angle (degrees)", min_value=5.0, max_value=85.0, value=55.0, step=1.0)
@@ -209,6 +209,67 @@ def trajectory_planning_page():
             roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
             roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
             polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+            
+            st.markdown("### 🎯 Target Winding Angle")
+            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
+                                         help="Define desired winding angle instead of using geometric limit")
+            
+            target_angle = None
+            if use_target_angle:
+                target_angle = st.slider("Target Cylinder Angle (degrees)", 
+                                        min_value=10.0, max_value=80.0, value=62.0, step=1.0,
+                                        help="Desired winding angle on cylinder section")
+                st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
+            else:
+                st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
+            
+            st.markdown("### ⚙️ Advanced Physics")
+            friction_coefficient = st.slider("Friction Coefficient (μ)", min_value=0.0, max_value=1.0, value=0.0, step=0.05,
+                                            help="Coefficient of friction between fiber and mandrel. 0.0 = Pure geodesic paths, >0.0 = Non-geodesic with realistic physics")
+            if friction_coefficient > 0:
+                st.info(f"🔬 **Non-Geodesic Mode**: μ = {friction_coefficient:.2f} - Fibers can deviate from pure geodesic paths")
+            else:
+                st.info("🎯 **Pure Geodesic Mode**: Fibers follow shortest paths on surface")
+            
+            st.markdown("### 🔄 Continuous Winding Configuration")
+            st.info("🔧 **Continuous Winding Mode**: Single continuous filament path with multiple passes for complete coverage")
+            num_circuits = 1  # Always single circuit with multiple passes
+            
+            # Calculation parameters
+            dome_points = st.number_input("Points per Dome Segment", min_value=20, max_value=300, value=150, step=10)
+            cylinder_points = st.number_input("Points per Cylinder Segment", min_value=5, max_value=100, value=20, step=5)
+            
+        elif pattern_type == "Non-Geodesic":
+            st.markdown("### 🔬 Non-Geodesic Parameters")
+            st.info("🚀 **Advanced Mode**: No geometric limitations - explore extreme angles with friction physics!")
+            
+            roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
+            roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
+            polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+            
+            st.markdown("### 🎯 Extreme Winding Angles")
+            st.warning("⚠️ **No Limits Mode**: Can specify any angle - friction physics will handle feasibility")
+            target_angle = st.slider("Target Cylinder Angle (degrees)", 
+                                    min_value=5.0, max_value=89.0, value=18.0, step=1.0,
+                                    help="Any angle allowed! Friction coefficient will determine path feasibility")
+            st.info(f"🎯 **Extreme Target**: {target_angle}° - Testing physics limits!")
+            
+            st.markdown("### ⚙️ Friction Physics Engine")
+            friction_coefficient = st.slider("Friction Coefficient (μ)", min_value=0.05, max_value=2.0, value=0.3, step=0.05,
+                                            help="Higher friction enables more extreme angles and non-geodesic paths")
+            st.success(f"🔬 **Friction Physics**: μ = {friction_coefficient:.2f} - Solving Koussios Eq. 5.62")
+            
+            if friction_coefficient < 0.1:
+                st.warning("⚠️ Low friction - may struggle with extreme angles")
+            elif friction_coefficient > 1.0:
+                st.info("🚀 High friction - enables very aggressive winding patterns")
+            
+            st.markdown("### 🔄 Advanced Configuration")
+            st.info("🔧 **Non-Geodesic Mode**: Advanced differential equation solving with surface curvature")
+            
+            # Calculation parameters  
+            dome_points = st.number_input("Points per Dome Segment", min_value=20, max_value=300, value=150, step=10)
+            cylinder_points = st.number_input("Points per Cylinder Segment", min_value=5, max_value=100, value=20, step=5)
             
             st.markdown("### 🎯 Target Winding Angle")
             use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
@@ -446,6 +507,38 @@ def trajectory_planning_page():
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                         st.session_state.trajectory_data = trajectory_data
                         st.success(f"🎯 Single circuit trajectory calculated successfully! Generated {len(trajectory_data['path_points'])} points")
+                
+                elif pattern_type == "Non-Geodesic":
+                    st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
+                    
+                    # Create planner with NO validation - allows any angle
+                    planner = TrajectoryPlanner(
+                        st.session_state.vessel_geometry,
+                        dry_roving_width_m=roving_width/1000,
+                        dry_roving_thickness_m=roving_thickness/1000,
+                        roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                        target_cylinder_angle_deg=target_angle,  # ANY angle allowed!
+                        mu_friction_coefficient=friction_coefficient
+                    )
+                    
+                    # Skip geodesic validation completely for non-geodesic mode
+                    st.success(f"🔬 **Non-Geodesic Physics**: Target {target_angle}° with friction μ = {friction_coefficient:.2f}")
+                    st.info("✨ **No geometric limits** - Using advanced differential equation solving")
+                    
+                    # Generate trajectory using non-geodesic differential equations
+                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                    
+                    if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                        st.session_state.trajectory_data = trajectory_data
+                        st.success(f"🎯 **Non-geodesic trajectory generated!** {len(trajectory_data['path_points'])} points with advanced physics")
+                        
+                        # Show friction physics insights
+                        st.markdown("### 🔬 Non-Geodesic Physics Analysis")
+                        st.info(f"**Koussios Eq. 5.62 solved** with surface curvatures and friction effects")
+                        st.info(f"**Friction coefficient**: μ = {friction_coefficient:.2f} enabled extreme {target_angle}° winding")
+                    else:
+                        st.error("❌ Non-geodesic trajectory generation failed - try adjusting friction coefficient")
+
                 elif pattern_type == "Multi-Circuit Pattern":
                     # Check if target angle is physically possible with current band width
                     effective_roving_width = band_width / 1000  # Convert to meters
