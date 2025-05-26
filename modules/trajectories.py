@@ -851,6 +851,8 @@ class TrajectoryPlanner:
             Number of points to use for each dome segment (default: 150)
         num_points_cylinder : int
             Number of points to use for cylinder segment (default: 20)
+        number_of_passes : int
+            Number of full pole-to-pole-to-pole circuits to generate.
         """
         if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
             print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
@@ -861,22 +863,283 @@ class TrajectoryPlanner:
                 print("Error: Effective polar opening could not be calculated.")
                 return None
         
-        c_for_winding = self.clairauts_constant_for_path_m
-        print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): Using Clairaut's constant c = {c_for_winding:.6f} m")
+        # Use the Clairaut's constant determined by target angle or physical limit
+        if self.clairauts_constant_for_path_m is not None:
+            c_for_winding = self.clairauts_constant_for_path_m
+            print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): Using Clairaut's constant c = {c_for_winding:.6f} m (Target Angle: {self.target_cylinder_angle_deg}°)")
+        else: # Fallback if not set by validation (should be set in init)
+             c_for_winding = self.effective_polar_opening_radius_m
+             print(f"\nDEBUG generate_geodesic_trajectory (ADAPTIVE): FALLBACK - Using Clairaut's constant c_eff = {c_for_winding:.6f} m")
+
         print(f"DEBUG: Physical minimum c_eff = {self.effective_polar_opening_radius_m:.6f} m")
         print(f"DEBUG: Adaptive sampling - Dome points: {num_points_dome}, Cylinder points: {num_points_cylinder}")
         print(f"DEBUG: Roving parameters - width: {self.dry_roving_width_m*1000:.1f}mm, thickness: {self.dry_roving_thickness_m*1000:.1f}mm")
 
-        # Get complete vessel profile in meters
         profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
         profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
 
-        print(f"DEBUG: Original profile length: {len(profile_r_m_orig)} points")
-        print(f"DEBUG: Original profile Z range: {np.min(profile_z_m_orig):.4f}m to {np.max(profile_z_m_orig):.4f}m")
-        print(f"DEBUG: Original profile R range: {np.min(profile_r_m_orig):.4f}m to {np.max(profile_r_m_orig):.4f}m")
-
-        # Identify vessel segments for adaptive sampling
         segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        
+        adaptive_r_segments = []
+        adaptive_z_segments = []
+        
+        if segments['has_cylinder']:
+            fwd_dome_r = profile_r_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_dome_z = profile_z_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_r_resampled, fwd_z_resampled = self._resample_segment_adaptive(fwd_dome_r, fwd_dome_z, num_points_dome)
+            adaptive_r_segments.append(fwd_r_resampled)
+            adaptive_z_segments.append(fwd_z_resampled)
+            
+            cyl_r = profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_z = profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_r_resampled, cyl_z_resampled = self._resample_segment_adaptive(cyl_r, cyl_z, num_points_cylinder)
+            if len(cyl_r_resampled) > 1 : # Ensure cylinder segment is not empty
+                adaptive_r_segments.append(cyl_r_resampled[1:]) # Skip first point to avoid duplication
+                adaptive_z_segments.append(cyl_z_resampled[1:])
+            
+            aft_dome_r = profile_r_m_orig[segments['aft_dome_start']:]
+            aft_dome_z = profile_z_m_orig[segments['aft_dome_start']:]
+            aft_r_resampled, aft_z_resampled = self._resample_segment_adaptive(aft_dome_r, aft_dome_z, num_points_dome)
+            if len(aft_r_resampled) > 1: # Ensure aft dome segment is not empty
+                adaptive_r_segments.append(aft_r_resampled[1:]) # Skip first point
+                adaptive_z_segments.append(aft_z_resampled[1:])
+        else:
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            adaptive_r_segments.append(dome_r_resampled)
+            adaptive_z_segments.append(dome_z_resampled)
+        
+        if not adaptive_r_segments: # Check if adaptive_r_segments is empty
+            print("Error: No profile segments generated after adaptive sampling.")
+            return None
+
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        
+        if len(profile_r_m_calc) < 2:
+            print("Error: Not enough profile points for trajectory calculation after adaptive sampling.")
+            return None
+
+        path_rho_m, path_z_m, path_alpha_rad, path_phi_rad_cumulative = [], [], [], []
+        path_x_m, path_y_m = [], []
+        
+        # Initialize phi. For multi-pass, this will be end_phi of previous turnaround.
+        current_phi_rad = 0.0 
+        # Initial phase for the first pass or if not continuing from a previous pass
+        initial_phi_for_first_pass_segment = 0.0 
+
+        print(f"\n=== MULTI-PASS GEODESIC TRAJECTORY GENERATION ({number_of_passes} passes)===")
+
+        for pass_idx in range(number_of_passes * 2): # Each pass is pole-pole (one leg)
+            leg_number = pass_idx + 1
+            # True for 0, 2, 4... (poleA -> poleB); False for 1, 3, 5... (poleB -> poleA)
+            is_forward_leg_on_profile = (pass_idx % 2 == 0) 
+            
+            print(f"\n--- LEG {leg_number} (Direction: {'Forward on profile' if is_forward_leg_on_profile else 'Reverse on profile'}) ---")
+
+            # Determine the profile points for this leg
+            # The profile_r_m_calc and profile_z_m_calc represent one direction (e.g., front pole to aft pole)
+            # For the return leg, we iterate over these points in reverse.
+            
+            # Determine actual start and end points on the profile for *this leg*
+            # based on c_for_winding
+            leg_profile_indices = []
+            temp_profile_iter = range(len(profile_r_m_calc)) if is_forward_leg_on_profile else range(len(profile_r_m_calc) - 1, -1, -1)
+
+            for k_idx in temp_profile_iter:
+                if profile_r_m_calc[k_idx] >= c_for_winding - 1e-7:
+                    leg_profile_indices.append(k_idx)
+            
+            if not is_forward_leg_on_profile: # If reverse, the list is already in winding order
+                pass
+            else: # If forward, it was collected in profile order, ensure it's still in winding order
+                # (this might be redundant if temp_profile_iter handles it, but good for clarity)
+                # For forward pass, leg_profile_indices should already be sorted if collected from a sorted range
+                pass
+
+
+            if not leg_profile_indices:
+                print(f"ERROR Leg {leg_number}: No points on profile satisfy rho >= c_for_winding ({c_for_winding:.6f}m). Max rho: {np.max(profile_r_m_calc):.6f}m. Skipping leg.")
+                continue
+
+            # Ensure the order of leg_profile_indices matches the winding direction for this leg
+            # If forward leg, indices should be ascending. If reverse leg, indices should be descending.
+            # The current `leg_profile_indices` is built in the iteration order.
+
+            print(f"DEBUG Leg {leg_number}: Processing {len(leg_profile_indices)} points for this leg.")
+            
+            first_point_of_this_leg = True
+
+            for point_counter_in_leg, profile_idx in enumerate(leg_profile_indices):
+                rho_current_profile_m = profile_r_m_calc[profile_idx]
+                z_current_profile_m = profile_z_m_calc[profile_idx]
+                
+                # Calculate winding angle for the current profile point
+                # This is alpha with respect to the meridian
+                if abs(rho_current_profile_m) < 1e-9: # Avoid division by zero at exact pole
+                    alpha_current_rad = math.pi / 2.0
+                elif rho_current_profile_m < c_for_winding: # Should not happen if leg_profile_indices is correct
+                    alpha_current_rad = math.pi / 2.0
+                else:
+                    sin_alpha_arg = c_for_winding / rho_current_profile_m
+                    if sin_alpha_arg > 1.0: alpha_current_rad = math.pi / 2.0
+                    elif sin_alpha_arg < -1.0: alpha_current_rad = -math.pi / 2.0 # Should not happen with positive rho, c
+                    else: alpha_current_rad = math.asin(sin_alpha_arg)
+
+                if first_point_of_this_leg:
+                    # For the very first point of the very first leg, phi is initial_phi_for_first_pass_segment
+                    # For subsequent legs, phi continues from the end of the last turnaround.
+                    # current_phi_rad is already set (either 0 or from previous turnaround)
+                    delta_phi = 0.0 
+                    first_point_of_this_leg = False
+                    print(f"  Leg {leg_number} START: ρ={rho_current_profile_m:.4f}, z={z_current_profile_m:.4f}, α={math.degrees(alpha_current_rad):.2f}°, φ_cum={math.degrees(current_phi_rad):.2f}°")
+                else:
+                    # Get the PREVIOUS point *from the profile indices for this leg* to calculate ds
+                    prev_profile_idx = leg_profile_indices[point_counter_in_leg - 1]
+                    rho_prev_profile_m = profile_r_m_calc[prev_profile_idx]
+                    z_prev_profile_m = profile_z_m_calc[prev_profile_idx]
+                    
+                    # Winding angle at the previous profile point
+                    if abs(rho_prev_profile_m) < 1e-9: alpha_prev_rad = math.pi / 2.0
+                    elif rho_prev_profile_m < c_for_winding : alpha_prev_rad = math.pi/2.0
+                    else:
+                        sin_alpha_prev_arg = c_for_winding / rho_prev_profile_m
+                        if sin_alpha_prev_arg > 1.0: alpha_prev_rad = math.pi/2.0
+                        elif sin_alpha_prev_arg < -1.0: alpha_prev_rad = -math.pi/2.0
+                        else: alpha_prev_rad = math.asin(sin_alpha_prev_arg)
+
+                    d_rho_profile = rho_current_profile_m - rho_prev_profile_m
+                    d_z_profile = z_current_profile_m - z_prev_profile_m
+                    ds_segment_m = math.sqrt(d_rho_profile**2 + d_z_profile**2)
+                    
+                    delta_phi = 0.0
+                    if ds_segment_m > 1e-9: # Avoid division by zero if points are identical
+                        rho_avg_segment_m = (rho_current_profile_m + rho_prev_profile_m) / 2.0
+                        alpha_avg_segment_rad = (alpha_current_rad + alpha_prev_rad) / 2.0 # Average angle for segment
+                        
+                        if abs(rho_avg_segment_m) > 1e-8:
+                            if abs(math.cos(alpha_avg_segment_rad)) < 1e-9: # alpha_avg is 90 deg
+                                delta_phi = 0.0
+                            else:
+                                tan_alpha_avg = math.tan(alpha_avg_segment_rad)
+                                delta_phi = (ds_segment_m / rho_avg_segment_m) * tan_alpha_avg
+                        else: # rho_avg is at the axis of rotation (should not happen for ρ > c_eff)
+                            delta_phi = 0 
+                            
+                    current_phi_rad += delta_phi
+                
+                path_rho_m.append(rho_current_profile_m)
+                path_z_m.append(z_current_profile_m)
+                path_alpha_rad.append(alpha_current_rad)
+                path_phi_rad_cumulative.append(current_phi_rad)
+                path_x_m.append(rho_current_profile_m * math.cos(current_phi_rad))
+                path_y_m.append(rho_current_profile_m * math.sin(current_phi_rad))
+
+            # --- END OF HELICAL LEG ---
+            print(f"  Leg {leg_number} END: Processed {len(leg_profile_indices)} profile points.")
+            if not path_rho_m:
+                print(f"ERROR Leg {leg_number}: No points added to trajectory for this leg. Skipping turnaround.")
+                continue
+
+            # --- POLAR TURNAROUND ---
+            print(f"  Leg {leg_number} TURNAROUND START: current_phi={math.degrees(current_phi_rad):.2f}°")
+            z_pole_for_turnaround = path_z_m[-1] 
+            
+            # Placeholder for pattern advancement
+            advancement_angle_rad = (2 * math.pi / (number_of_passes*2)) * 1.05 # Conceptual advancement
+            
+            print(f"  Leg {leg_number} Turnaround: z_pole_for_turnaround = {z_pole_for_turnaround:.4f} m")
+            turnaround_segment_points = self._generate_polar_turnaround_segment_fixed_phi_advance(
+                c_eff=c_for_winding,
+                z_pole=z_pole_for_turnaround,
+                phi_start=current_phi_rad,
+                fixed_phi_advance_rad=advancement_angle_rad, # Turnaround angular span
+                num_turn_points=max(10, num_points_dome // 10) # Fewer points for turnaround
+            )
+
+            if turnaround_segment_points:
+                # Append turnaround points, skipping first if it's identical to last helical
+                for pt_idx, pt in enumerate(turnaround_segment_points):
+                    if pt_idx == 0 and abs(pt['rho'] - path_rho_m[-1]) < 1e-6 and abs(pt['z'] - path_z_m[-1]) < 1e-6 and abs(pt['phi'] - path_phi_rad_cumulative[-1]) < 1e-6:
+                        continue
+                    path_rho_m.append(pt['rho'])
+                    path_z_m.append(pt['z'])
+                    path_alpha_rad.append(pt['alpha']) # Should be pi/2
+                    path_phi_rad_cumulative.append(pt['phi'])
+                    path_x_m.append(pt['x'])
+                    path_y_m.append(pt['y'])
+                current_phi_rad = path_phi_rad_cumulative[-1] # Update current_phi_rad
+                print(f"  Leg {leg_number} TURNAROUND END: Added {len(turnaround_segment_points)} points. New current_phi={math.degrees(current_phi_rad):.2f}°")
+            else:
+                print(f"  Leg {leg_number} WARN: Turnaround segment generation failed or returned empty.")
+
+        if not path_rho_m:
+            print(f"Error: No valid trajectory points generated after all passes.")
+            return None
+        
+        print(f"\nSUCCESS: Generated {len(path_rho_m)} total trajectory points over {number_of_passes} passes.")
+        
+        self.alpha_profile_deg = np.array([math.degrees(a) for a in path_alpha_rad])
+        self.phi_profile_rad = np.array(path_phi_rad_cumulative)
+        self.turn_around_angle_rad = path_phi_rad_cumulative[-1] if path_phi_rad_cumulative else 0
+        self.alpha_eq_deg = self.alpha_profile_deg[np.argmin(np.abs(np.array(path_rho_m) - self.vessel.inner_radius * 1e-3))] if path_rho_m else 0
+
+        # Construct path_points list of dictionaries for output
+        output_path_points = []
+        for i in range(len(path_rho_m)):
+            output_path_points.append({
+                'r': path_rho_m[i],       # Radial coordinate on mandrel
+                'z': path_z_m[i],       # Axial coordinate on mandrel
+                'theta': path_phi_rad_cumulative[i], # Azimuthal angle on mandrel
+                'alpha_deg': math.degrees(path_alpha_rad[i]), # Winding angle (with meridian)
+                'x_cart': path_x_m[i],    # Cartesian X
+                'y_cart': path_y_m[i],    # Cartesian Y
+            })
+
+        return {
+            'path_points': output_path_points, # This should be list of dicts
+            'pattern_type': 'Geodesic_MultiPass',
+            'total_circuits_legs': number_of_passes * 2, # Number of pole-to-pole legs
+            'total_points': len(path_rho_m),
+            'rho_points_m': np.array(path_rho_m),
+            'z_points_m': np.array(path_z_m),
+            'x_points_m': np.array(path_x_m),
+            'y_points_m': np.array(path_y_m),
+            'alpha_deg_profile': self.alpha_profile_deg,
+            'phi_rad_profile': self.phi_profile_rad,
+            'c_eff_m': self.effective_polar_opening_radius_m,
+            'clairauts_constant_used_m': c_for_winding,
+            'final_turn_around_angle_deg': math.degrees(self.turn_around_angle_rad),
+            'alpha_equator_deg': self.alpha_eq_deg
+        }
+
+    def _generate_polar_turnaround_segment_fixed_phi_advance(self, c_eff: float, z_pole: float,
+                                         phi_start: float, fixed_phi_advance_rad: float,
+                                         num_turn_points: int = 20) -> List[Dict]:
+        """
+        Generates a circumferential path segment at the pole (rho = c_eff, z = z_pole)
+        advancing phi by a fixed_phi_advance_rad.
+        """
+        turnaround_points = []
+        
+        for i in range(num_turn_points + 1): # num_turn_points segments, so num_turn_points+1 points
+            t_param = i / num_turn_points # Parameter from 0 to 1
+            
+            rho_turn = c_eff
+            z_turn = z_pole # Assuming z is constant during pure circumferential turnaround at pole
+            phi_turn = phi_start + (fixed_phi_advance_rad * t_param)
+            alpha_turn = math.pi / 2.0 # Purely circumferential
+
+            # Tangent vector for circumferential path
+            drho_ds = 0.0
+            dz_ds = 0.0
+            dphi_ds = 1.0 / c_eff if c_eff > 1e-9 else 0 # ds = rho * dphi => dphi/ds = 1/rho
+
+            turnaround_points.append({
+                'rho': rho_turn, 'z': z_turn, 'alpha': alpha_turn, 'phi': phi_turn,
+                'x': rho_turn * math.cos(phi_turn), 'y': rho_turn * math.sin(phi_turn),
+                'drho_ds': drho_ds, 'dz_ds': dz_ds, 'dphi_ds': dphi_ds
+            })
+        return turnaround_points
         print(f"DEBUG: Vessel segments identified - Has cylinder: {segments['has_cylinder']}")
 
         # Build adaptive profile with different point densities
