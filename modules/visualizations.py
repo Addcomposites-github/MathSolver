@@ -492,12 +492,17 @@ class VesselVisualizer:
         ax.set_zlabel("Z (axial) (m)")
         ax.set_title(title, fontsize=14, fontweight='bold')
         
+        # Convert to numpy arrays if needed for calculations
+        x_path_np = np.array(x_path) if not isinstance(x_path, np.ndarray) else x_path
+        y_path_np = np.array(y_path) if not isinstance(y_path, np.ndarray) else y_path
+        z_path_np = np.array(z_path) if not isinstance(z_path, np.ndarray) else z_path
+        
         # Set limits to ensure aspect ratio is somewhat representative
-        max_range = np.array([x_path.max()-x_path.min(), y_path.max()-y_path.min(), 
-                             z_path.max()-z_path.min()]).max() / 2.0
-        mid_x = (x_path.max()+x_path.min()) * 0.5
-        mid_y = (y_path.max()+y_path.min()) * 0.5
-        mid_z = (z_path.max()+z_path.min()) * 0.5
+        max_range = np.array([x_path_np.max()-x_path_np.min(), y_path_np.max()-y_path_np.min(), 
+                             z_path_np.max()-z_path_np.min()]).max() / 2.0
+        mid_x = (x_path_np.max()+x_path_np.min()) * 0.5
+        mid_y = (y_path_np.max()+y_path_np.min()) * 0.5
+        mid_z = (z_path_np.max()+z_path_np.min()) * 0.5
         ax.set_xlim(mid_x - max_range, mid_x + max_range)
         ax.set_ylim(mid_y - max_range, mid_y + max_range)
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
