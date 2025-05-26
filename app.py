@@ -815,16 +815,11 @@ def trajectory_planning_page():
                         # Display trajectory statistics with kink warnings
                         if is_multi_circuit:
                             st.write("**Multi-Circuit Non-Geodesic Pattern Statistics:**")
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("Total Points", len(x_data))
-                            with col2:
-                                st.metric("Number of Circuits", st.session_state.trajectory_data.get('number_of_circuits', 1))
-                            with col3:
-                                st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
-                            with col4:
-                                target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
-                                st.metric("Target Angle", f"{target_angle}°")
+                            st.write(f"**Total Points:** {len(x_data)}")
+                            st.write(f"**Number of Circuits:** {st.session_state.trajectory_data.get('number_of_circuits', 1)}")
+                            st.write(f"**Friction Coefficient:** μ = {friction_coeff:.2f}")
+                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
+                            st.write(f"**Target Angle:** {target_angle}°")
                             
                             # Show kink summary for multi-circuit
                             total_kinks = st.session_state.trajectory_data.get('total_kinks', 0)
@@ -834,14 +829,10 @@ def trajectory_planning_page():
                                 st.success("✅ **No kinks detected** - Pattern is physically realizable")
                         else:
                             st.write("**Non-Geodesic Trajectory Statistics:**")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Total Points", len(x_data))
-                            with col2:
-                                st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
-                            with col3:
-                                target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
-                                st.metric("Target Angle", f"{target_angle}°")
+                            st.write(f"**Total Points:** {len(x_data)}")
+                            st.write(f"**Friction Coefficient:** μ = {friction_coeff:.2f}")
+                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
+                            st.write(f"**Target Angle:** {target_angle}°")
                             
                     except Exception as e:
                         st.error(f"Error creating 3D visualization: {str(e)}")
