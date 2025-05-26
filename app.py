@@ -508,20 +508,10 @@ def trajectory_planning_page():
                 elif pattern_type == "Non-Geodesic":
                     st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
                     
-                    # Add option for multi-circuit pattern
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        pattern_mode = st.radio(
-                            "Pattern Mode:",
-                            ["Single Circuit", "Multi-Circuit Pattern"],
-                            help="Single circuit for testing, multi-circuit for full coverage"
-                        )
-                    with col2:
-                        if pattern_mode == "Multi-Circuit Pattern":
-                            num_circuits = st.slider("Number of Circuits", 6, 24, 12, 
-                                                    help="Number of circuits for full coverage pattern")
-                        else:
-                            num_circuits = 1
+                    # Use the pattern mode from the earlier section
+                    if 'pattern_mode' not in locals():
+                        pattern_mode = "Single Circuit"
+                        num_circuits = 1
                     
                     # Create planner with NO validation - allows any angle
                     planner = TrajectoryPlanner(
