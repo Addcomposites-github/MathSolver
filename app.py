@@ -438,30 +438,36 @@ def trajectory_planning_page():
                         st.session_state.trajectory_data = trajectory_data
                         st.success(f"🎯 Single circuit trajectory calculated successfully! Generated {len(trajectory_data['path_points'])} points")
                 elif pattern_type == "Multi-Circuit Pattern":
+                    # Check if target angle is physically possible with current band width
+                    effective_roving_width = band_width / 1000  # Convert to meters
+                    
                     planner = TrajectoryPlanner(
                         st.session_state.vessel_geometry,
-                        dry_roving_width_m=roving_width/1000,
-                        dry_roving_thickness_m=roving_thickness/1000,
+                        dry_roving_width_m=effective_roving_width,
+                        dry_roving_thickness_m=roving_thickness/1e6,  # Convert μm to m
                         roving_eccentricity_at_pole_m=polar_eccentricity/1000,
                         target_cylinder_angle_deg=target_angle
                     )
                     
-                    # Show validation results
+                    # Smart validation - automatically fall back to geometric limit if target is impossible
                     validation = planner.get_validation_results()
                     if validation and not validation.get('is_valid', True):
+                        st.warning(f"⚠️ **Target angle {target_angle}° is impossible with {band_width:.1f}mm band width**")
                         if validation['error_type'] == 'too_shallow':
-                            st.error(f"❌ **Target angle {target_angle}° is too shallow!**")
-                            st.info(f"🔧 **Minimum achievable**: {validation['min_achievable_angle']:.1f}°")
-                        elif validation['error_type'] == 'too_steep':
-                            st.error(f"❌ **Target angle {target_angle}° is too steep!**")
-                            st.info(f"🔧 **Maximum practical**: {validation['max_practical_angle']}°")
+                            st.info(f"🔧 **Auto-fallback**: Using geometric limit ({validation['min_achievable_angle']:.1f}°) instead")
+                            # Create new planner without target angle to use geometric limit
+                            planner = TrajectoryPlanner(
+                                st.session_state.vessel_geometry,
+                                dry_roving_width_m=effective_roving_width,
+                                dry_roving_thickness_m=roving_thickness/1e6,
+                                roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                                target_cylinder_angle_deg=None  # Use geometric limit
+                            )
                         else:
-                            st.error(f"❌ **Invalid target angle**: {validation['message']}")
-                        return
+                            st.info(f"🔧 **Try**: Reduce band width or increase target angle")
                     elif validation and validation.get('is_valid'):
-                        st.success(f"✅ **Target angle {target_angle}° is achievable!**")
+                        st.success(f"✅ **Target angle {target_angle}° is achievable with {band_width:.1f}mm bands!**")
                         st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
-                        st.info(f"🛡️ **Safety margin**: {validation['validation_details']['safety_margin_mm']:.1f}mm")
                     
                     # Generate multi-circuit pattern with systematic advancement
                     trajectory_data = planner.generate_multi_circuit_trajectory(
