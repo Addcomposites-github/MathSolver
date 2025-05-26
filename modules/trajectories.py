@@ -986,12 +986,14 @@ class TrajectoryPlanner:
                     else: alpha_current_rad = math.asin(sin_alpha_arg)
 
                 if first_point_of_this_leg:
-                    # For the very first point of the very first leg, phi is initial_phi_for_first_pass_segment
-                    # For subsequent legs, phi continues from the end of the last turnaround.
-                    # current_phi_rad is already set (either 0 or from previous turnaround)
+                    # For the very first point of this leg, delta_phi is 0
+                    # current_phi_rad should have been set by the end of the previous turnaround
+                    # or initialized for the very first leg of the first pass
+                    if pass_idx == 0 and point_counter_in_leg == 0: # Very first point of entire trajectory
+                        current_phi_rad = initial_phi_for_first_pass_segment # (e.g. 0.0)
+                    
                     delta_phi = 0.0 
                     first_point_of_this_leg = False
-                    print(f"  Leg {leg_number} START: ρ={rho_current_profile_m:.4f}, z={z_current_profile_m:.4f}, α={math.degrees(alpha_current_rad):.2f}°, φ_cum={math.degrees(current_phi_rad):.2f}°")
                 else:
                     # Get the PREVIOUS point *from the profile indices for this leg* to calculate ds
                     prev_profile_idx = leg_profile_indices[point_counter_in_leg - 1]
@@ -999,16 +1001,18 @@ class TrajectoryPlanner:
                     z_prev_profile_m = profile_z_m_calc[prev_profile_idx]
                     
                     # Winding angle at the previous profile point
-                    if abs(rho_prev_profile_m) < 1e-9: alpha_prev_rad = math.pi / 2.0
-                    elif rho_prev_profile_m < c_for_winding : alpha_prev_rad = math.pi/2.0
+                    if abs(rho_prev_profile_m) < 1e-9: 
+                        alpha_prev_rad = math.pi / 2.0
+                    elif rho_prev_profile_m < c_for_winding - 1e-7: # At turnaround
+                        alpha_prev_rad = math.pi / 2.0
                     else:
                         sin_alpha_prev_arg = c_for_winding / rho_prev_profile_m
-                        if sin_alpha_prev_arg > 1.0: alpha_prev_rad = math.pi/2.0
-                        elif sin_alpha_prev_arg < -1.0: alpha_prev_rad = -math.pi/2.0
+                        if sin_alpha_prev_arg > 1.0: alpha_prev_rad = math.pi / 2.0
+                        elif sin_alpha_prev_arg < -1.0: alpha_prev_rad = -math.pi / 2.0
                         else: alpha_prev_rad = math.asin(sin_alpha_prev_arg)
 
                     d_rho_profile = rho_current_profile_m - rho_prev_profile_m
-                    d_z_profile = z_current_profile_m - z_prev_profile_m
+                    d_z_profile = z_current_profile_m - z_prev_profile_m # dz is signed
                     ds_segment_m = math.sqrt(d_rho_profile**2 + d_z_profile**2)
                     
                     delta_phi = 0.0
@@ -1016,16 +1020,16 @@ class TrajectoryPlanner:
                         rho_avg_segment_m = (rho_current_profile_m + rho_prev_profile_m) / 2.0
                         alpha_avg_segment_rad = (alpha_current_rad + alpha_prev_rad) / 2.0 # Average angle for segment
                         
-                        if abs(rho_avg_segment_m) > 1e-8:
-                            if abs(math.cos(alpha_avg_segment_rad)) < 1e-9: # alpha_avg is 90 deg
+                        if abs(rho_avg_segment_m) > 1e-8: # Avoid division by zero at pole
+                            if abs(math.cos(alpha_avg_segment_rad)) < 1e-9: # alpha_avg is 90 deg (circumferential)
+                                # For a meridional step (ds_segment_m), if alpha is 90, dphi should be 0
+                                # This case signifies the fiber is at its turning radius
                                 delta_phi = 0.0
                             else:
                                 tan_alpha_avg = math.tan(alpha_avg_segment_rad)
                                 delta_phi = (ds_segment_m / rho_avg_segment_m) * tan_alpha_avg
-                        else: # rho_avg is at the axis of rotation (should not happen for ρ > c_eff)
-                            delta_phi = 0 
                             
-                    current_phi_rad += delta_phi
+                    current_phi_rad += delta_phi # Accumulate phi
                 
                 path_rho_m.append(rho_current_profile_m)
                 path_z_m.append(z_current_profile_m)
