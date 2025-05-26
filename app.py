@@ -261,7 +261,8 @@ def trajectory_planning_page():
                 default_total = 10
                 default_generate = 6
             
-            # Roving parameters first
+            # Roving & Band Properties (mathematically connected)
+            st.markdown("### 🧵 Roving & Band Properties")
             col_roving1, col_roving2 = st.columns(2)
             with col_roving1:
                 roving_width = st.number_input("Roving Width (mm)", min_value=1.0, max_value=20.0, value=3.0, step=0.1,
@@ -269,29 +270,32 @@ def trajectory_planning_page():
                 roving_thickness = st.number_input("Roving Thickness (μm)", min_value=50, max_value=1000, value=200, step=10,
                                                  help="Dry roving thickness in micrometers")
             with col_roving2:
+                num_rovings = st.number_input("Rovings per Band", min_value=1, max_value=10, value=1, step=1,
+                                            help="Number of rovings laid side by side in each band")
+                band_width = roving_width * num_rovings
+                st.metric("Calculated Band Width", f"{band_width:.1f}mm", 
+                         help="Band width = Roving width × Number of rovings")
                 polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, max_value=10.0, value=0.0, step=0.1,
                                                     help="Polar opening eccentricity for asymmetric domes")
-                target_angle = st.selectbox("Target Winding Angle", 
-                                           options=["Auto (Geometric Limit)", "20°", "25°", "30°", "35°", "40°", "45°"],
-                                           help="Target winding angle at equator")
 
             # Pattern configuration
             col_pattern1, col_pattern2 = st.columns(2)
             with col_pattern1:
-                # Get real Koussios calculations to set proper limits (updates with roving width changes)
+                # Get real Koussios calculations using the effective band width
                 if st.session_state.vessel_geometry is not None:
                     try:
-                        # Create planner with current roving parameters
+                        # Create planner with current roving parameters (using effective band width)
                         planner = TrajectoryPlanner(st.session_state.vessel_geometry, 
-                                                  dry_roving_width_m=roving_width*1e-3,
-                                                  dry_roving_thickness_m=roving_thickness*1e-3)
+                                                  dry_roving_width_m=band_width*1e-3,  # Use calculated band width
+                                                  dry_roving_thickness_m=roving_thickness*1e-6)  # Convert μm to m
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         max_theoretical = max(100, int(pattern_info['n_bands_target'] * 2))  # Allow 2x theoretical for flexibility
                         recommended_circuits = pattern_info['recommended_solution']['p_circuits']
                         
                         # Show real-time update message
-                        st.info(f"🔄 **Live Calculation**: With {roving_width}mm roving → {pattern_info['n_bands_target']} optimal bands → {recommended_circuits} circuits needed")
-                    except:
+                        st.info(f"🔄 **Live Calculation**: {band_width:.1f}mm band → {pattern_info['n_bands_target']} optimal bands → {recommended_circuits} circuits needed")
+                    except Exception as e:
+                        st.warning(f"Calculation error: {str(e)}")
                         max_theoretical = 100
                         recommended_circuits = default_total
                 else:
@@ -318,10 +322,10 @@ def trajectory_planning_page():
                 # Show Koussios pattern insights when vessel geometry is available
                 if st.session_state.vessel_geometry is not None:
                     try:
-                        # Use current roving parameters for live calculations
+                        # Use current band parameters for live calculations
                         planner = TrajectoryPlanner(st.session_state.vessel_geometry,
-                                                  dry_roving_width_m=roving_width*1e-3,
-                                                  dry_roving_thickness_m=roving_thickness*1e-3)
+                                                  dry_roving_width_m=band_width*1e-3,  # Use calculated band width
+                                                  dry_roving_thickness_m=roving_thickness*1e-6)  # Convert μm to m
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         
                         with st.expander("📊 Koussios Pattern Analysis", expanded=False):
@@ -331,7 +335,8 @@ def trajectory_planning_page():
                             with col_theory1:
                                 st.metric("Equatorial Radius", f"{pattern_info['equatorial_radius_m']*1000:.0f}mm")
                                 st.metric("Winding Angle α", f"{pattern_info['alpha_equator_deg']:.1f}°")
-                                st.metric("Roving Width (dry)", "3.0mm")
+                                st.metric("Roving Width", f"{roving_width:.1f}mm")
+                                st.metric("Rovings per Band", f"{num_rovings}")
                             
                             with col_theory2:
                                 st.metric("Effective Band Width", f"{pattern_info['B_eff_equator_m']:.2f}mm")
