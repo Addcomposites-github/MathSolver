@@ -230,10 +230,14 @@ class VesselVisualizer:
         
         # Color by circuit if available
         if any('circuit' in p for p in path_points):
-            circuits = [p.get('circuit', 0) for p in path_points]
-            scatter = ax.scatter(theta_deg, z_traj, c=circuits, cmap='viridis', 
-                               s=20, alpha=0.7, label='Winding path')
-            plt.colorbar(scatter, ax=ax, label='Circuit Number')
+            circuits = [p.get('circuit', 0) for p in path_points if 'z' in p]  # Ensure same filtering
+            if len(circuits) == len(theta_deg) == len(z_traj):
+                scatter = ax.scatter(theta_deg, z_traj, c=circuits, cmap='viridis', 
+                                   s=20, alpha=0.7, label='Winding path')
+                plt.colorbar(scatter, ax=ax, label='Circuit Number')
+            else:
+                ax.plot(theta_deg, z_traj, 'o-', color=self.colors['trajectory'], 
+                       markersize=3, linewidth=1, alpha=0.7, label='Winding path')
         else:
             ax.plot(theta_deg, z_traj, 'o-', color=self.colors['trajectory'], 
                    markersize=3, linewidth=1, alpha=0.7, label='Winding path')
