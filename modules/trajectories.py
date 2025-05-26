@@ -262,69 +262,75 @@ class TrajectoryPlanner:
         
         return 0.0
 
+    def _compute_smooth_derivatives(self, profile_r_m: np.ndarray, profile_z_m: np.ndarray):
+        """
+        Compute smooth derivatives using spline fitting to eliminate kinks near dome openings.
+        This is the key fix for non-geodesic mathematical stability.
+        """
+        try:
+            from scipy.interpolate import CubicSpline
+            # Create cubic spline for ρ(z) - ensures smooth derivatives
+            spline = CubicSpline(profile_z_m, profile_r_m, bc_type='natural')
+            # Get smooth derivatives at all points
+            d_rho_dz_smooth = spline(profile_z_m, 1)  # First derivative
+            d2_rho_dz2_smooth = spline(profile_z_m, 2)  # Second derivative
+            return d_rho_dz_smooth, d2_rho_dz2_smooth
+        except:
+            # Fallback to improved gradient if spline fails
+            d_rho_dz_smooth = np.gradient(profile_r_m, profile_z_m, edge_order=2)
+            d2_rho_dz2_smooth = np.gradient(d_rho_dz_smooth, profile_z_m, edge_order=2)
+            return d_rho_dz_smooth, d2_rho_dz2_smooth
+
     def _get_surface_properties_at_profile_index(self, profile_idx: int,
                                                  profile_r_m: np.ndarray,
                                                  profile_z_m: np.ndarray) -> Dict[str, float]:
         """
         Calculates local surface properties (E, G, E_prime, k_m, k_p) at a given profile index.
-        Assumes profile is parameterized by z (axial coordinate).
+        Uses smooth spline-based derivatives to prevent kinks near dome openings.
         
         For surface of revolution: E = ρ², G = 1 + (dρ/dz)²
         Meridional curvature: k_m = -d²ρ/dz² / (1 + (dρ/dz)²)^(3/2)
         Parallel curvature: k_p = 1 / (ρ * √(1 + (dρ/dz)²))
         """
+        # Cache smooth derivatives for efficiency
+        if not hasattr(self, '_smooth_derivatives_cache') or len(self._smooth_derivatives_cache[0]) != len(profile_r_m):
+            self._smooth_derivatives_cache = self._compute_smooth_derivatives(profile_r_m, profile_z_m)
+        
+        d_rho_dz_smooth, d2_rho_dz2_smooth = self._smooth_derivatives_cache
+        
         rho_i = profile_r_m[profile_idx]
         z_i = profile_z_m[profile_idx]
+        d_rho_dz = d_rho_dz_smooth[profile_idx]
+        d2_rho_dz2 = d2_rho_dz2_smooth[profile_idx]
 
-        # Calculate derivatives dρ/dz and d²ρ/dz² numerically
-        if profile_idx == 0:  # Forward difference
-            if len(profile_r_m) > 1:
-                dz = profile_z_m[1] - z_i
-                d_rho_dz = (profile_r_m[1] - rho_i) / dz if abs(dz) > 1e-9 else 0
-                # Second derivative approximation
-                if len(profile_r_m) > 2:
-                    dz2 = profile_z_m[2] - profile_z_m[1]
-                    d2_rho_dz2 = (profile_r_m[2] - 2*profile_r_m[1] + rho_i) / (dz**2) if abs(dz) > 1e-9 else 0
-                else:
-                    d2_rho_dz2 = 0
-            else:
-                d_rho_dz = 0
-                d2_rho_dz2 = 0
-                
-        elif profile_idx == len(profile_r_m) - 1:  # Backward difference
-            dz = z_i - profile_z_m[profile_idx-1]
-            d_rho_dz = (rho_i - profile_r_m[profile_idx-1]) / dz if abs(dz) > 1e-9 else 0
-            # Second derivative approximation
-            if profile_idx > 1:
-                d2_rho_dz2 = (rho_i - 2*profile_r_m[profile_idx-1] + profile_r_m[profile_idx-2]) / (dz**2) if abs(dz) > 1e-9 else 0
-            else:
-                d2_rho_dz2 = 0
-                
-        else:  # Central difference
-            dz_total = profile_z_m[profile_idx+1] - profile_z_m[profile_idx-1]
-            d_rho_dz = (profile_r_m[profile_idx+1] - profile_r_m[profile_idx-1]) / dz_total if abs(dz_total) > 1e-9 else 0
+        # Apply stability checks near poles and extreme regions
+        if rho_i < 1e-6:  # Very close to axis
+            d_rho_dz = 0.0  # Force vertical at axis
+            d2_rho_dz2 = max(-1e4, min(1e4, d2_rho_dz2))  # Limit extreme curvatures
             
-            # Second derivative using central difference
-            dz_fwd = profile_z_m[profile_idx+1] - z_i
-            dz_bwd = z_i - profile_z_m[profile_idx-1]
-            if abs(dz_fwd) > 1e-9 and abs(dz_bwd) > 1e-9:
-                d2_rho_dz2 = (profile_r_m[profile_idx+1] - 2*rho_i + profile_r_m[profile_idx-1]) / ((dz_fwd + dz_bwd) / 2)**2
-            else:
-                d2_rho_dz2 = 0
+        # Handle NaN/Inf values
+        if not np.isfinite(d_rho_dz):
+            d_rho_dz = 0.0
+        if not np.isfinite(d2_rho_dz2):
+            d2_rho_dz2 = 0.0
 
-        # Calculate surface properties
-        if np.isinf(d_rho_dz) or abs(d_rho_dz) > 1e6:  # Handle vertical tangent
+        # Calculate surface properties with stability
+        if abs(d_rho_dz) > 1e6:  # Handle vertical tangent
             k_m = 0  # Meridional curvature for vertical segment
-            k_p = np.inf if rho_i == 0 else 1.0 / rho_i  # Parallel curvature
-            G_val = np.inf
+            k_p = 1.0 / max(1e-6, rho_i)  # Parallel curvature with floor
+            G_val = 1e6  # Large but finite
         else:
-            denominator = (1 + d_rho_dz**2)
-            k_m = -d2_rho_dz2 / (denominator**1.5) if denominator > 1e-9 else 0
-            k_p = 1.0 / (rho_i * math.sqrt(denominator)) if rho_i > 1e-9 and denominator > 1e-9 else 0
+            denominator = max(1e-12, 1 + d_rho_dz**2)
+            k_m = -d2_rho_dz2 / (denominator**1.5)
+            k_p = 1.0 / (max(1e-6, rho_i) * math.sqrt(denominator))
             G_val = denominator
+            
+            # Clamp extreme curvatures to prevent integration instability
+            k_m = max(-1e4, min(1e4, k_m))
+            k_p = max(-1e4, min(1e4, k_p))
 
-        E_val = rho_i**2
-        E_prime_val = 2 * rho_i * d_rho_dz if not np.isinf(d_rho_dz) else 0
+        E_val = max(1e-12, rho_i**2)  # Prevent zero
+        E_prime_val = 2 * rho_i * d_rho_dz
 
         return {
             "E": E_val, 
