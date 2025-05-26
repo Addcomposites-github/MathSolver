@@ -264,11 +264,25 @@ def trajectory_planning_page():
             # Pattern configuration
             col_pattern1, col_pattern2 = st.columns(2)
             with col_pattern1:
+                # Get real Koussios calculations to set proper limits
+                if st.session_state.vessel_geometry is not None:
+                    try:
+                        planner = TrajectoryPlanner(st.session_state.vessel_geometry)
+                        pattern_info = planner.calculate_koussios_pattern_parameters()
+                        max_theoretical = max(100, int(pattern_info['n_bands_target'] * 2))  # Allow 2x theoretical for flexibility
+                        recommended_circuits = pattern_info['recommended_solution']['p_circuits']
+                    except:
+                        max_theoretical = 100
+                        recommended_circuits = default_total
+                else:
+                    max_theoretical = 100
+                    recommended_circuits = default_total
+                
                 circuits_to_close = st.number_input("Target Circuits for Full Pattern", 
-                                                   min_value=4, max_value=30, value=default_total, step=1,
-                                                   help="Total circuits needed for complete coverage pattern closure")
+                                                   min_value=4, max_value=max_theoretical, value=min(recommended_circuits, max_theoretical), step=1,
+                                                   help=f"Total circuits needed for complete coverage (Theoretical optimal: {recommended_circuits})")
                 num_circuits_for_vis = st.number_input("Circuits to Generate for Visualization", 
-                                                     min_value=1, max_value=20, value=default_generate, step=1,
+                                                     min_value=1, max_value=min(50, circuits_to_close), value=min(default_generate, circuits_to_close), step=1,
                                                      help="Number of circuits to actually calculate and display")
             with col_pattern2:
                 pattern_skip_factor = st.selectbox("Pattern Advancement", 
@@ -288,21 +302,44 @@ def trajectory_planning_page():
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         
                         with st.expander("📊 Koussios Pattern Analysis", expanded=False):
-                            col_theory1, col_theory2 = st.columns(2)
+                            st.markdown("**Mathematical Analysis Based on Vessel Geometry & Roving Properties**")
+                            
+                            col_theory1, col_theory2, col_theory3 = st.columns(3)
                             with col_theory1:
-                                st.metric("Theoretical Bands", f"{pattern_info['n_bands_theoretical']:.1f}")
-                                st.metric("Target Bands", f"{pattern_info['n_bands_target']}")
-                                st.metric("Equatorial α", f"{pattern_info['alpha_equator_deg']:.1f}°")
+                                st.metric("Equatorial Radius", f"{pattern_info['equatorial_radius_m']*1000:.0f}mm")
+                                st.metric("Winding Angle α", f"{pattern_info['alpha_equator_deg']:.1f}°")
+                                st.metric("Roving Width (dry)", "3.0mm")
+                            
                             with col_theory2:
                                 st.metric("Effective Band Width", f"{pattern_info['B_eff_equator_m']:.2f}mm")
-                                st.metric("Band Angle", f"{pattern_info['delta_phi_band_deg']:.2f}°")
+                                st.metric("Band Subtended Angle", f"{pattern_info['delta_phi_band_deg']:.2f}°")
+                                st.metric("Theoretical Bands Needed", f"{pattern_info['n_bands_theoretical']:.1f}")
+                            
+                            with col_theory3:
+                                st.metric("Optimal Target Bands", f"{pattern_info['n_bands_target']}")
+                                circumference = 2 * 3.14159 * pattern_info['equatorial_radius_m'] * 1000
+                                st.metric("Equatorial Circumference", f"{circumference:.0f}mm")
+                                coverage_per_band = (pattern_info['B_eff_equator_m'] / circumference) * 100
+                                st.metric("Coverage per Band", f"{coverage_per_band:.1f}%")
                                 
-                            # Show pattern solutions
-                            st.subheader("Available Pattern Solutions")
-                            for i, solution in enumerate(pattern_info['pattern_solutions']):
-                                st.write(f"**{solution['type']}**: {solution['p_circuits']} circuits, "
-                                        f"{solution['delta_phi_deg']:.1f}° advancement, "
-                                        f"{solution['coverage_efficiency']:.0%} efficiency")
+                            st.markdown("**Pattern Solutions (Mathematical)**")
+                            
+                            # Create a more detailed pattern solutions table
+                            pattern_data = []
+                            for solution in pattern_info['pattern_solutions']:
+                                pattern_data.append({
+                                    "Pattern Type": solution['type'],
+                                    "Required Circuits": solution['p_circuits'],
+                                    "Advancement per Circuit": f"{solution['delta_phi_deg']:.1f}°",
+                                    "Coverage Efficiency": f"{solution['coverage_efficiency']:.0%}",
+                                    "Skip Factor": solution['pattern_skip_factor']
+                                })
+                            
+                            pattern_df = pd.DataFrame(pattern_data)
+                            st.dataframe(pattern_df, use_container_width=True, hide_index=True)
+                            
+                            st.info(f"🎯 **Recommended**: {pattern_info['recommended_solution']['type']} pattern with "
+                                   f"{pattern_info['recommended_solution']['p_circuits']} circuits for optimal coverage")
                     except:
                         pass  # Don't show if planner can't be created yet
             
