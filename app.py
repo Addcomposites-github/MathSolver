@@ -366,9 +366,9 @@ def trajectory_planning_page():
         else:
             st.info("Generate a trajectory first to view visualizations.")
     
-    # Add tabbed interface for detailed analysis
-    if st.session_state.trajectory_data is not None:
-        tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
+        # Add tabbed interface for detailed analysis
+        if st.session_state.trajectory_data is not None:
+            tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
         
         with tab1:
             st.header("3D Trajectory Analysis")
