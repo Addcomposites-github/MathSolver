@@ -441,7 +441,7 @@ def trajectory_planning_page():
             st.pyplot(fig)
             
             # Add 3D visualization for all trajectory types
-            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass']:
+            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern']:
                 st.subheader("3D Trajectory Visualization")
                 
                 # Check if we have the required 3D coordinate data
