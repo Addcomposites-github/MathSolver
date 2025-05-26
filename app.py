@@ -271,40 +271,7 @@ def trajectory_planning_page():
             dome_points = st.number_input("Points per Dome Segment", min_value=20, max_value=300, value=150, step=10)
             cylinder_points = st.number_input("Points per Cylinder Segment", min_value=5, max_value=100, value=20, step=5)
             
-            st.markdown("### 🎯 Target Winding Angle")
-            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
-                                         help="Define desired winding angle instead of using geometric limit")
-            
-            target_angle = None
-            if use_target_angle:
-                target_angle = st.slider("Target Cylinder Angle (degrees)", 
-                                        min_value=10.0, max_value=80.0, value=62.0, step=1.0,
-                                        help="Desired winding angle on cylinder section")
-                st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
-            else:
-                st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
-            
-            st.markdown("### ⚙️ Advanced Physics")
-            friction_coefficient = st.slider("Friction Coefficient (μ)", min_value=0.0, max_value=1.0, value=0.0, step=0.05,
-                                            help="Coefficient of friction between fiber and mandrel. 0.0 = Pure geodesic paths, >0.0 = Non-geodesic with realistic physics")
-            if friction_coefficient > 0:
-                st.info(f"🔬 **Non-Geodesic Mode**: μ = {friction_coefficient:.2f} - Fibers can deviate from pure geodesic paths")
-            else:
-                st.info("🎯 **Pure Geodesic Mode**: Fibers follow shortest paths on surface")
-            
-            st.markdown("### 🔄 Continuous Winding Configuration")
-            st.info("🔧 **Continuous Winding Mode**: Single continuous filament path with multiple passes for complete coverage")
-            num_circuits = 1  # Always single circuit with multiple passes
 
-            st.markdown("### 🚀 Adaptive Point Distribution")
-            st.info("**Smart Optimization**: Use more points in dome regions (high curvature) and fewer in cylinder (constant curvature)")
-            col_dome, col_cyl = st.columns(2)
-            with col_dome:
-                dome_points = st.slider("Dome Density", 50, 300, 150, 10,
-                                      help="Higher density for dome regions where curvature changes rapidly")
-            with col_cyl:
-                cylinder_points = st.slider("Cylinder Density", 5, 100, 20, 5,
-                                          help="Lower density for cylinder where curvature is constant")
         elif pattern_type == "Multi-Circuit Pattern":
             st.markdown("### 🔄 Multi-Circuit Pattern Configuration")
             st.info("🎯 **Full Coverage System**: Generate systematic winding patterns for complete pole-to-pole vessel coverage")
