@@ -284,6 +284,7 @@ def trajectory_planning_page():
                 # Show Koussios pattern insights when vessel geometry is available
                 if st.session_state.vessel_geometry is not None:
                     try:
+                        from modules.trajectories import TrajectoryPlanner
                         planner = TrajectoryPlanner(st.session_state.vessel_geometry)
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         

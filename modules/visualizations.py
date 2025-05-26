@@ -191,14 +191,18 @@ class VesselVisualizer:
         # Plot trajectory points
         if path_points:
             z_traj = [p['z'] for p in path_points if 'z' in p]
-            r_traj = [p['r'] for p in path_points if 'r' in p]
+            r_traj = [p.get('r', p.get('rho', 0)) for p in path_points if 'z' in p]  # Handle both 'r' and 'rho'
             
             # Color by circuit number if available
             if any('circuit' in p for p in path_points):
-                circuits = [p.get('circuit', 0) for p in path_points]
-                scatter = ax.scatter(z_traj, r_traj, c=circuits, cmap='viridis', 
-                                   s=20, alpha=0.7, label='Winding path')
-                plt.colorbar(scatter, ax=ax, label='Circuit Number')
+                circuits = [p.get('circuit', 0) for p in path_points if 'z' in p]  # Ensure same filtering
+                if len(circuits) == len(z_traj) == len(r_traj):
+                    scatter = ax.scatter(z_traj, r_traj, c=circuits, cmap='viridis', 
+                                       s=20, alpha=0.7, label='Winding path')
+                    plt.colorbar(scatter, ax=ax, label='Circuit Number')
+                else:
+                    ax.plot(z_traj, r_traj, 'o-', color=self.colors['trajectory'], 
+                           markersize=3, linewidth=1, alpha=0.7, label='Winding path')
             else:
                 ax.plot(z_traj, r_traj, 'o-', color=self.colors['trajectory'], 
                        markersize=3, linewidth=1, alpha=0.7, label='Winding path')
