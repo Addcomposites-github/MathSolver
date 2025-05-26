@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 from typing import Dict, List, Optional
 from modules.geometry import VesselGeometry
@@ -419,6 +420,81 @@ class VesselVisualizer:
         ax4.set_xticklabels(material_names, rotation=45, ha='right')
         ax4.grid(True, alpha=0.3)
         
+        plt.tight_layout()
+        return fig
+    
+    def plot_3d_trajectory(self, trajectory_data: dict, vessel_profile_data: Optional[dict] = None, 
+                          title: str = "COPV Fiber Trajectory") -> plt.Figure:
+        """
+        Plots the generated 3D fiber trajectory and optionally the vessel profile.
+
+        Parameters:
+        -----------
+        trajectory_data : dict
+            The dictionary returned by generate_geodesic_trajectory, expected to contain
+            'x_points_m', 'y_points_m', 'z_points_m'.
+        vessel_profile_data : Optional[dict]
+            Optional: Dictionary containing the vessel's meridional profile points,
+            e.g., {'r_m': array_of_radii, 'z_m': array_of_axial_coords}.
+            This will be plotted by revolving it around the Z-axis.
+        title : str
+            The title for the plot.
+            
+        Returns:
+        --------
+        plt.Figure : Matplotlib figure object
+        """
+        if not trajectory_data or \
+           'x_points_m' not in trajectory_data or \
+           'y_points_m' not in trajectory_data or \
+           'z_points_m' not in trajectory_data:
+            print("Error: Trajectory data is missing required 'x_points_m', 'y_points_m', or 'z_points_m'.")
+            return None
+
+        x_path = trajectory_data['x_points_m']
+        y_path = trajectory_data['y_points_m']
+        z_path = trajectory_data['z_points_m']
+
+        fig = plt.figure(figsize=(12, 10))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot the fiber path
+        ax.plot(x_path, y_path, z_path, label='Fiber Path', color=self.colors['trajectory'], 
+                marker='o', markersize=1.5, linestyle='-', linewidth=2)
+
+        # Optionally, plot the vessel profile if provided
+        if vessel_profile_data and 'r_m' in vessel_profile_data and 'z_m' in vessel_profile_data:
+            profile_r = vessel_profile_data['r_m']
+            profile_z = vessel_profile_data['z_m']
+            
+            # Create a mesh for the revolved surface
+            phi_surf = np.linspace(0, 2 * np.pi, 30)  # Azimuthal angle for surface
+            Z_surf, PHI_surf = np.meshgrid(profile_z, phi_surf)
+            R_surf, _ = np.meshgrid(profile_r, phi_surf) # R needs to match Z's dimension for meshgrid
+            
+            X_surf = R_surf * np.cos(PHI_surf)
+            Y_surf = R_surf * np.sin(PHI_surf)
+            
+            # Plot the vessel surface
+            ax.plot_surface(X_surf, Y_surf, Z_surf, alpha=0.2, color='lightgray', 
+                          rstride=5, cstride=5)
+
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_zlabel("Z (axial) (m)")
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        
+        # Set limits to ensure aspect ratio is somewhat representative
+        max_range = np.array([x_path.max()-x_path.min(), y_path.max()-y_path.min(), 
+                             z_path.max()-z_path.min()]).max() / 2.0
+        mid_x = (x_path.max()+x_path.min()) * 0.5
+        mid_y = (y_path.max()+y_path.min()) * 0.5
+        mid_z = (z_path.max()+z_path.min()) * 0.5
+        ax.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax.set_zlim(mid_z - max_range, mid_z + max_range)
+
+        ax.legend()
         plt.tight_layout()
         return fig
 

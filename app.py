@@ -321,23 +321,42 @@ def trajectory_planning_page():
             )
             st.pyplot(fig)
             
-            # Add 3D visualization for geodesic trajectories (both single and multi-circuit)
-            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic']:
+            # Add 3D visualization for all trajectory types
+            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass']:
                 st.subheader("3D Trajectory Visualization")
                 
-                # Check if we have 3D coordinate data
-                if 'x_points' in st.session_state.trajectory_data and 'y_points' in st.session_state.trajectory_data:
-                    import matplotlib.pyplot as plt
-                    from mpl_toolkits.mplot3d import Axes3D
+                # Check if we have the required 3D coordinate data
+                has_3d_data = ('x_points_m' in st.session_state.trajectory_data and 
+                              'y_points_m' in st.session_state.trajectory_data and 
+                              'z_points_m' in st.session_state.trajectory_data)
+                
+                if has_3d_data:
+                    # Prepare vessel profile data for 3D visualization
+                    vessel_profile_for_plot = {
+                        'r_m': st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3, # Convert to meters
+                        'z_m': st.session_state.vessel_geometry.profile_points['z'] * 1e-3    # Convert to meters
+                    }
                     
-                    # Create 3D plot
-                    fig_3d = plt.figure(figsize=(12, 10))
-                    ax = fig_3d.add_subplot(111, projection='3d')
+                    # Create 3D trajectory plot using the enhanced visualization function
+                    fig_3d = visualizer.plot_3d_trajectory(
+                        trajectory_data=st.session_state.trajectory_data,
+                        vessel_profile_data=vessel_profile_for_plot,
+                        title=f"3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory"
+                    )
                     
-                    # Get trajectory data
-                    x_points = st.session_state.trajectory_data['x_points']
-                    y_points = st.session_state.trajectory_data['y_points'] 
-                    z_points = st.session_state.trajectory_data['z_coords']
+                    if fig_3d:
+                        st.pyplot(fig_3d)
+                        
+                        # Add trajectory statistics
+                        st.write("**Trajectory Statistics:**")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Points", st.session_state.trajectory_data.get('total_points', 'N/A'))
+                        with col2:
+                            st.metric("Total Circuits", st.session_state.trajectory_data.get('total_circuits_legs', 'N/A'))
+                        with col3:
+                            final_angle = st.session_state.trajectory_data.get('final_turn_around_angle_deg', 0)
+                            st.metric("Final Turn Angle", f"{final_angle:.1f}°" if final_angle else 'N/A')
                     
                     # Create interactive 3D visualization with Plotly
                     import plotly.graph_objects as go
