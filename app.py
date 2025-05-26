@@ -223,6 +223,14 @@ def trajectory_planning_page():
             else:
                 st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
             
+            st.markdown("### ⚙️ Advanced Physics")
+            friction_coefficient = st.slider("Friction Coefficient (μ)", min_value=0.0, max_value=1.0, value=0.0, step=0.05,
+                                            help="Coefficient of friction between fiber and mandrel. 0.0 = Pure geodesic paths, >0.0 = Non-geodesic with realistic physics")
+            if friction_coefficient > 0:
+                st.info(f"🔬 **Non-Geodesic Mode**: μ = {friction_coefficient:.2f} - Fibers can deviate from pure geodesic paths")
+            else:
+                st.info("🎯 **Pure Geodesic Mode**: Fibers follow shortest paths on surface")
+            
             st.markdown("### 🔄 Continuous Winding Configuration")
             st.info("🔧 **Continuous Winding Mode**: Single continuous filament path with multiple passes for complete coverage")
             num_circuits = 1  # Always single circuit with multiple passes

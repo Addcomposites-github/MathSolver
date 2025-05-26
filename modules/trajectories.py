@@ -13,7 +13,8 @@ class TrajectoryPlanner:
                  dry_roving_width_m: float = 0.003,
                  dry_roving_thickness_m: float = 0.0002,
                  roving_eccentricity_at_pole_m: float = 0.0,
-                 target_cylinder_angle_deg: Optional[float] = None):
+                 target_cylinder_angle_deg: Optional[float] = None,
+                 mu_friction_coefficient: float = 0.0):
         """
         Initialize trajectory planner with vessel geometry and optional target angle.
         
@@ -29,12 +30,16 @@ class TrajectoryPlanner:
             Offset of the roving centerline from geometric polar opening
         target_cylinder_angle_deg : Optional[float]
             Desired winding angle on cylinder section (None = use geometric limit)
+        mu_friction_coefficient : float
+            Coefficient of static friction between roving and mandrel surface.
+            Default is 0.0 (pure geodesic paths only). Non-zero enables non-geodesic winding.
         """
         self.vessel = vessel_geometry
         self.dry_roving_width_m = dry_roving_width_m
         self.dry_roving_thickness_m = dry_roving_thickness_m
         self.roving_eccentricity_at_pole_m = roving_eccentricity_at_pole_m
         self.target_cylinder_angle_deg = target_cylinder_angle_deg
+        self.mu_friction_coefficient = mu_friction_coefficient  # NEW: Store friction coefficient
         self.trajectory_data = None
         
         # Geodesic calculation properties
@@ -237,6 +242,168 @@ class TrajectoryPlanner:
                 return (z_profile_m[idx + 1] - z_profile_m[idx - 1]) / drho
         
         return 0.0
+
+    def _get_surface_properties_at_profile_index(self, profile_idx: int,
+                                                 profile_r_m: np.ndarray,
+                                                 profile_z_m: np.ndarray) -> Dict[str, float]:
+        """
+        Calculates local surface properties (E, G, E_prime, k_m, k_p) at a given profile index.
+        Assumes profile is parameterized by z (axial coordinate).
+        
+        For surface of revolution: E = ρ², G = 1 + (dρ/dz)²
+        Meridional curvature: k_m = -d²ρ/dz² / (1 + (dρ/dz)²)^(3/2)
+        Parallel curvature: k_p = 1 / (ρ * √(1 + (dρ/dz)²))
+        """
+        rho_i = profile_r_m[profile_idx]
+        z_i = profile_z_m[profile_idx]
+
+        # Calculate derivatives dρ/dz and d²ρ/dz² numerically
+        if profile_idx == 0:  # Forward difference
+            if len(profile_r_m) > 1:
+                dz = profile_z_m[1] - z_i
+                d_rho_dz = (profile_r_m[1] - rho_i) / dz if abs(dz) > 1e-9 else 0
+                # Second derivative approximation
+                if len(profile_r_m) > 2:
+                    dz2 = profile_z_m[2] - profile_z_m[1]
+                    d2_rho_dz2 = (profile_r_m[2] - 2*profile_r_m[1] + rho_i) / (dz**2) if abs(dz) > 1e-9 else 0
+                else:
+                    d2_rho_dz2 = 0
+            else:
+                d_rho_dz = 0
+                d2_rho_dz2 = 0
+                
+        elif profile_idx == len(profile_r_m) - 1:  # Backward difference
+            dz = z_i - profile_z_m[profile_idx-1]
+            d_rho_dz = (rho_i - profile_r_m[profile_idx-1]) / dz if abs(dz) > 1e-9 else 0
+            # Second derivative approximation
+            if profile_idx > 1:
+                d2_rho_dz2 = (rho_i - 2*profile_r_m[profile_idx-1] + profile_r_m[profile_idx-2]) / (dz**2) if abs(dz) > 1e-9 else 0
+            else:
+                d2_rho_dz2 = 0
+                
+        else:  # Central difference
+            dz_total = profile_z_m[profile_idx+1] - profile_z_m[profile_idx-1]
+            d_rho_dz = (profile_r_m[profile_idx+1] - profile_r_m[profile_idx-1]) / dz_total if abs(dz_total) > 1e-9 else 0
+            
+            # Second derivative using central difference
+            dz_fwd = profile_z_m[profile_idx+1] - z_i
+            dz_bwd = z_i - profile_z_m[profile_idx-1]
+            if abs(dz_fwd) > 1e-9 and abs(dz_bwd) > 1e-9:
+                d2_rho_dz2 = (profile_r_m[profile_idx+1] - 2*rho_i + profile_r_m[profile_idx-1]) / ((dz_fwd + dz_bwd) / 2)**2
+            else:
+                d2_rho_dz2 = 0
+
+        # Calculate surface properties
+        if np.isinf(d_rho_dz) or abs(d_rho_dz) > 1e6:  # Handle vertical tangent
+            k_m = 0  # Meridional curvature for vertical segment
+            k_p = np.inf if rho_i == 0 else 1.0 / rho_i  # Parallel curvature
+            G_val = np.inf
+        else:
+            denominator = (1 + d_rho_dz**2)
+            k_m = -d2_rho_dz2 / (denominator**1.5) if denominator > 1e-9 else 0
+            k_p = 1.0 / (rho_i * math.sqrt(denominator)) if rho_i > 1e-9 and denominator > 1e-9 else 0
+            G_val = denominator
+
+        E_val = rho_i**2
+        E_prime_val = 2 * rho_i * d_rho_dz if not np.isinf(d_rho_dz) else 0
+
+        return {
+            "E": E_val, 
+            "G": G_val, 
+            "E_prime_dz": E_prime_val,
+            "k_m": k_m, 
+            "k_p": k_p, 
+            "rho": rho_i, 
+            "z": z_i,
+            "d_rho_dz": d_rho_dz
+        }
+
+    def _solve_non_geodesic_sin_alpha_profile(self,
+                                            profile_r_m: np.ndarray,
+                                            profile_z_m: np.ndarray,
+                                            initial_sin_alpha: float,
+                                            is_forward_on_profile: bool = True) -> Optional[np.ndarray]:
+        """
+        Solves for the sin(alpha) profile along the mandrel using Koussios Eq. 5.62.
+        This implements the non-geodesic winding angle differential equation.
+        
+        Koussios Eq. 5.62: (sin α)' = A * sin²α + B * sin α + C
+        where:
+        A = μ * √G * (k_p - k_m)
+        B = -(1/2) * (E'/E)  
+        C = μ * √G * k_m
+        """
+        if self.mu_friction_coefficient == 0:
+            # Pure geodesic case - use Clairaut's law
+            if self.clairauts_constant_for_path_m is None:
+                return None
+            sin_alpha_profile = []
+            for rho_val in profile_r_m:
+                if rho_val < self.clairauts_constant_for_path_m - 1e-7:
+                    sin_alpha_profile.append(1.0)  # At turnaround
+                else:
+                    sin_alpha_val = np.clip(self.clairauts_constant_for_path_m / rho_val if rho_val > 1e-9 else 1.0, 0.0, 1.0)
+                    sin_alpha_profile.append(sin_alpha_val)
+            return np.array(sin_alpha_profile)
+
+        # Non-geodesic case - solve differential equation
+        num_points = len(profile_r_m)
+        sin_alpha_values = np.zeros(num_points)
+        
+        # Set initial condition
+        start_idx = 0 if is_forward_on_profile else num_points - 1
+        sin_alpha_values[start_idx] = np.clip(initial_sin_alpha, 0.0, 1.0)
+        
+        # Integration direction
+        direction = 1 if is_forward_on_profile else -1
+        
+        # Simple Euler integration along profile points
+        for i in range(1, num_points):
+            current_idx = start_idx + direction * i
+            prev_idx = start_idx + direction * (i - 1)
+            
+            if current_idx < 0 or current_idx >= num_points:
+                break
+                
+            # Get surface properties at previous point
+            try:
+                props = self._get_surface_properties_at_profile_index(prev_idx, profile_r_m, profile_z_m)
+            except:
+                # If properties calculation fails, use geodesic fallback
+                if self.clairauts_constant_for_path_m:
+                    sin_alpha_values[current_idx] = np.clip(
+                        self.clairauts_constant_for_path_m / profile_r_m[current_idx] if profile_r_m[current_idx] > 1e-9 else 1.0,
+                        0.0, 1.0
+                    )
+                else:
+                    sin_alpha_values[current_idx] = sin_alpha_values[prev_idx]
+                continue
+            
+            # Calculate step size (arc length approximation)
+            dz = profile_z_m[current_idx] - profile_z_m[prev_idx]
+            if abs(dz) < 1e-9:
+                sin_alpha_values[current_idx] = sin_alpha_values[prev_idx]
+                continue
+                
+            # Koussios Eq. 5.62 coefficients
+            sqrt_G = math.sqrt(props["G"]) if props["G"] > 0 else 1.0
+            A = self.mu_friction_coefficient * sqrt_G * (props["k_p"] - props["k_m"])
+            B = -0.5 * (props["E_prime_dz"] / props["E"]) if props["E"] > 1e-9 else 0
+            C = self.mu_friction_coefficient * sqrt_G * props["k_m"]
+            
+            # Current sin(alpha) value
+            sin_alpha_prev = sin_alpha_values[prev_idx]
+            
+            # Differential equation: d(sin_alpha)/dz = A * sin_alpha² + B * sin_alpha + C
+            derivative = A * sin_alpha_prev**2 + B * sin_alpha_prev + C
+            
+            # Euler step
+            sin_alpha_new = sin_alpha_prev + direction * derivative * dz
+            
+            # Clamp to valid range and apply physical constraints
+            sin_alpha_values[current_idx] = np.clip(sin_alpha_new, 0.0, 1.0)
+        
+        return sin_alpha_values
 
     def _calculate_effective_polar_opening(self):
         """
