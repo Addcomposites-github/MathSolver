@@ -455,7 +455,121 @@ class TrajectoryPlanner:
             # Clamp to valid range and apply physical constraints
             sin_alpha_values[current_idx] = np.clip(sin_alpha_new, 0.0, 1.0)
         
+        # Final report on kink detection
+        if hasattr(self, '_kink_warnings') and self._kink_warnings:
+            dome_kinks = [w for w in self._kink_warnings if w['location'] == 'dome_opening']
+            if dome_kinks:
+                print(f"🔬 NON-GEODESIC ANALYSIS: {len(dome_kinks)} kinks detected in trajectory generation")
+        
         return sin_alpha_values
+
+    def generate_non_geodesic_trajectory(self, num_points_dome: int = 150, num_points_cylinder: int = 20) -> Dict:
+        """
+        Generate trajectory using true non-geodesic physics solver with friction.
+        This is the actual non-geodesic method that uses the differential equation solver.
+        """
+        print(f"🔬 STARTING NON-GEODESIC TRAJECTORY GENERATION")
+        print(f"   Friction coefficient μ = {self.mu_friction_coefficient:.3f}")
+        print(f"   Target angle = {self.target_cylinder_angle_deg}°")
+        print(f"   Dome points = {num_points_dome}, Cylinder points = {num_points_cylinder}")
+        
+        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+            print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
+            return None
+            
+        # Get vessel profile
+        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        
+        # Create adaptive profile (similar to geodesic but for non-geodesic physics)
+        segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        
+        adaptive_r_segments = []
+        adaptive_z_segments = []
+        
+        if segments['has_cylinder']:
+            fwd_dome_r = profile_r_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_dome_z = profile_z_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_r_resampled, fwd_z_resampled = self._resample_segment_adaptive(fwd_dome_r, fwd_dome_z, num_points_dome)
+            adaptive_r_segments.append(fwd_r_resampled)
+            adaptive_z_segments.append(fwd_z_resampled)
+            
+            cyl_r = profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_z = profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_r_resampled, cyl_z_resampled = self._resample_segment_adaptive(cyl_r, cyl_z, num_points_cylinder)
+            if len(cyl_r_resampled) > 1:
+                adaptive_r_segments.append(cyl_r_resampled[1:])
+                adaptive_z_segments.append(cyl_z_resampled[1:])
+            
+            aft_dome_r = profile_r_m_orig[segments['aft_dome_start']:]
+            aft_dome_z = profile_z_m_orig[segments['aft_dome_start']:]
+            aft_r_resampled, aft_z_resampled = self._resample_segment_adaptive(aft_dome_r, aft_dome_z, num_points_dome)
+            if len(aft_r_resampled) > 1:
+                adaptive_r_segments.append(aft_r_resampled[1:])
+                adaptive_z_segments.append(aft_z_resampled[1:])
+        else:
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            adaptive_r_segments.append(dome_r_resampled)
+            adaptive_z_segments.append(dome_z_resampled)
+        
+        if not adaptive_r_segments:
+            print("Error: No profile segments generated for non-geodesic calculation.")
+            return None
+
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        
+        print(f"🔬 NON-GEODESIC: Profile prepared with {len(profile_r_m_calc)} points")
+        
+        # Solve for sin(alpha) using non-geodesic differential equation
+        initial_sin_alpha = 0.5  # Starting condition
+        sin_alpha_profile = self._solve_non_geodesic_sin_alpha_profile(
+            profile_r_m_calc, profile_z_m_calc, initial_sin_alpha, is_forward_on_profile=True
+        )
+        
+        if sin_alpha_profile is None:
+            print("Error: Non-geodesic sin(alpha) solution failed.")
+            return None
+        
+        print(f"🔬 NON-GEODESIC: Solved winding angles for {len(sin_alpha_profile)} points")
+        
+        # Convert to trajectory points
+        path_points = []
+        current_phi = 0.0
+        
+        for i in range(len(profile_r_m_calc)):
+            rho = profile_r_m_calc[i]
+            z = profile_z_m_calc[i]
+            sin_alpha = sin_alpha_profile[i]
+            alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
+            
+            # Calculate phi increment (simplified for now)
+            if i > 0:
+                ds = math.sqrt((rho - profile_r_m_calc[i-1])**2 + (z - profile_z_m_calc[i-1])**2)
+                if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
+                    dphi = ds * math.tan(alpha) / rho
+                    current_phi += dphi
+            
+            x = rho * math.cos(current_phi)
+            y = rho * math.sin(current_phi)
+            
+            path_points.append({
+                'x': x, 'y': y, 'z': z,
+                'rho': rho, 'alpha': alpha, 'phi': current_phi
+            })
+        
+        print(f"🔬 NON-GEODESIC COMPLETE: Generated {len(path_points)} trajectory points")
+        
+        return {
+            'path_points': path_points,
+            'total_points': len(path_points),
+            'pattern_type': 'Non-Geodesic',
+            'friction_coefficient': self.mu_friction_coefficient,
+            'target_angle_deg': self.target_cylinder_angle_deg,
+            'x_points_m': [p['x'] for p in path_points],
+            'y_points_m': [p['y'] for p in path_points],
+            'z_points_m': [p['z'] for p in path_points]
+        }
 
     def _calculate_effective_polar_opening(self):
         """

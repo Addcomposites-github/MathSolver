@@ -506,8 +506,8 @@ def trajectory_planning_page():
                     st.success(f"🔬 **Non-Geodesic Physics**: Target {target_angle}° with friction μ = {friction_coefficient:.2f}")
                     st.info("✨ **No geometric limits** - Using advanced differential equation solving")
                     
-                    # Generate trajectory using non-geodesic differential equations
-                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+                    # Generate trajectory using TRUE non-geodesic differential equations
+                    trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
                     
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                         st.session_state.trajectory_data = trajectory_data
