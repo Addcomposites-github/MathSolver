@@ -276,10 +276,35 @@ def trajectory_planning_page():
                                                  format_func=lambda x: {1: "Side-by-side (Dense)", 2: "Skip 1 band (Medium)", 3: "Skip 2 bands (Sparse)"}[x],
                                                  help="Controls spacing between adjacent circuits")
                 
-                # Show estimated coverage
+                # Show estimated coverage and pattern insights
                 estimated_coverage = min(100, (num_circuits_for_vis / circuits_to_close) * 100)
                 st.metric("Estimated Coverage", f"{estimated_coverage:.0f}%", 
                          help="Percentage of vessel surface covered by generated circuits")
+                
+                # Show Koussios pattern insights when vessel geometry is available
+                if st.session_state.vessel_geometry is not None:
+                    try:
+                        planner = TrajectoryPlanner(st.session_state.vessel_geometry)
+                        pattern_info = planner.calculate_koussios_pattern_parameters()
+                        
+                        with st.expander("📊 Koussios Pattern Analysis", expanded=False):
+                            col_theory1, col_theory2 = st.columns(2)
+                            with col_theory1:
+                                st.metric("Theoretical Bands", f"{pattern_info['n_bands_theoretical']:.1f}")
+                                st.metric("Target Bands", f"{pattern_info['n_bands_target']}")
+                                st.metric("Equatorial α", f"{pattern_info['alpha_equator_deg']:.1f}°")
+                            with col_theory2:
+                                st.metric("Effective Band Width", f"{pattern_info['B_eff_equator_m']:.2f}mm")
+                                st.metric("Band Angle", f"{pattern_info['delta_phi_band_deg']:.2f}°")
+                                
+                            # Show pattern solutions
+                            st.subheader("Available Pattern Solutions")
+                            for i, solution in enumerate(pattern_info['pattern_solutions']):
+                                st.write(f"**{solution['type']}**: {solution['p_circuits']} circuits, "
+                                        f"{solution['delta_phi_deg']:.1f}° advancement, "
+                                        f"{solution['coverage_efficiency']:.0%} efficiency")
+                    except:
+                        pass  # Don't show if planner can't be created yet
             
             # Roving parameters
             st.markdown("### 🧵 Roving Properties")

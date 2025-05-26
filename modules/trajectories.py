@@ -2225,7 +2225,17 @@ class TrajectoryPlanner:
             'c_for_winding_mm': c_for_winding * 1000,
             'target_cylinder_angle_deg': self.target_cylinder_angle_deg,
             'all_circuits_data': all_circuits_data,
-            'pattern_skip_factor': pattern_skip_factor
+            'pattern_skip_factor': pattern_skip_factor,
+            # === ENHANCED KOUSSIOS PATTERN DATA ===
+            'circuit_indices': circuit_indices,  # For visualization control
+            'koussios_parameters': pattern_params,  # Full pattern theory calculations
+            'selected_pattern_type': pattern_type,
+            'optimal_circuits_calculated': optimal_circuits,
+            'calculated_coverage_efficiency': coverage_efficiency,
+            # Backward compatibility with existing visualization
+            'path_points': [{'x': x, 'y': y, 'z': z, 'phi': phi, 'circuit': circuit} 
+                           for x, y, z, phi, circuit in zip(all_x_points, all_y_points, 
+                                                           all_z_points, all_phi_points, circuit_indices)]
         }
 
     def calculate_trajectory(self, params: Dict) -> Dict:
