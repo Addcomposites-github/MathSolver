@@ -654,8 +654,92 @@ def trajectory_planning_page():
                 else:
                     st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
                     
+            elif st.session_state.trajectory_data.get('pattern_type') == 'Non-Geodesic':
+                # 3D visualization for Non-Geodesic trajectories
+                st.subheader("🔬 Non-Geodesic 3D Trajectory")
+                
+                if all(key in st.session_state.trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
+                    try:
+                        import plotly.graph_objects as go
+                        
+                        x_data = st.session_state.trajectory_data['x_points_m']
+                        y_data = st.session_state.trajectory_data['y_points_m'] 
+                        z_data = st.session_state.trajectory_data['z_points_m']
+                        
+                        # Create 3D trajectory plot
+                        fig = go.Figure()
+                        
+                        # Add trajectory line
+                        fig.add_trace(go.Scatter3d(
+                            x=x_data,
+                            y=y_data,
+                            z=z_data,
+                            mode='lines+markers',
+                            line=dict(color='red', width=6),
+                            marker=dict(size=3, color='darkred'),
+                            name='Non-Geodesic Path'
+                        ))
+                        
+                        # Add vessel geometry outline
+                        vessel_r = st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3
+                        vessel_z = st.session_state.vessel_geometry.profile_points['z'] * 1e-3
+                        
+                        # Create vessel surface outline
+                        theta_outline = np.linspace(0, 2*np.pi, 36)
+                        vessel_x_outline = []
+                        vessel_y_outline = []
+                        vessel_z_outline = []
+                        
+                        for r, z in zip(vessel_r, vessel_z):
+                            for th in theta_outline:
+                                vessel_x_outline.append(r * np.cos(th))
+                                vessel_y_outline.append(r * np.sin(th))
+                                vessel_z_outline.append(z)
+                        
+                        fig.add_trace(go.Scatter3d(
+                            x=vessel_x_outline,
+                            y=vessel_y_outline,
+                            z=vessel_z_outline,
+                            mode='markers',
+                            marker=dict(size=1, color='lightblue', opacity=0.3),
+                            name='Vessel Surface',
+                            showlegend=False
+                        ))
+                        
+                        # Update layout
+                        fig.update_layout(
+                            title=f"🔬 Non-Geodesic Trajectory (μ={st.session_state.trajectory_data.get('friction_coefficient', 0):.2f})",
+                            scene=dict(
+                                xaxis_title="X (m)",
+                                yaxis_title="Y (m)", 
+                                zaxis_title="Z (m)",
+                                aspectmode='data'
+                            ),
+                            width=800,
+                            height=600
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Display trajectory statistics with kink warnings
+                        st.write("**Non-Geodesic Trajectory Statistics:**")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Points", len(x_data))
+                        with col2:
+                            friction_coeff = st.session_state.trajectory_data.get('friction_coefficient', 0)
+                            st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
+                        with col3:
+                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
+                            st.metric("Target Angle", f"{target_angle}°")
+                            
+                    except Exception as e:
+                        st.error(f"Error creating 3D visualization: {str(e)}")
+                        st.info("Non-geodesic trajectory data available but visualization failed.")
+                else:
+                    st.info("Non-geodesic trajectory generated but missing 3D coordinate data.")
             else:
-                st.info("Select 'Geodesic' trajectory pattern to enable 3D visualization.")
+                st.info("Select 'Geodesic' or 'Non-Geodesic' pattern to enable 3D visualization.")
         else:
             st.info("Generate a trajectory first to view visualizations.")
     
