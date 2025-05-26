@@ -537,10 +537,15 @@ def trajectory_planning_page():
                     st.success(f"🔬 **Non-Geodesic Physics**: Target {target_angle}° with friction μ = {friction_coefficient:.2f}")
                     st.info("✨ **No geometric limits** - Using advanced differential equation solving")
                     
+                    # Debug: Check pattern mode
+                    st.write(f"🔍 DEBUG: Pattern mode = '{pattern_mode}', Number of circuits = {num_circuits}")
+                    
                     # Generate trajectory using TRUE non-geodesic differential equations
                     if pattern_mode == "Multi-Circuit Pattern":
+                        st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
                         trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
                     else:
+                        st.info(f"🔥 Calling SINGLE-CIRCUIT function")
                         trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
                     
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
