@@ -370,6 +370,12 @@ class TrajectoryPlanner:
                     sin_alpha_val = np.clip(self.clairauts_constant_for_path_m / rho_val if rho_val > 1e-9 else 1.0, 0.0, 1.0)
                     sin_alpha_profile.append(sin_alpha_val)
             return np.array(sin_alpha_profile)
+        
+        # Initialize kink warnings for this calculation
+        if not hasattr(self, '_kink_warnings'):
+            self._kink_warnings = []
+        
+        print(f"🔬 NON-GEODESIC SOLVER: Starting with μ={self.mu_friction_coefficient:.3f}, {len(profile_r_m)} points")
 
         # Non-geodesic case - solve differential equation
         num_points = len(profile_r_m)
@@ -434,14 +440,17 @@ class TrajectoryPlanner:
                 if not hasattr(self, '_kink_warnings'):
                     self._kink_warnings = []
                 
-                self._kink_warnings.append({
+                kink_warning = {
                     'location': 'dome_opening',
                     'rho_mm': rho_current * 1000,
                     'z_mm': profile_z_m[current_idx] * 1000,
                     'delta_sin_alpha': delta_sin_alpha,
                     'friction_coeff': self.mu_friction_coefficient,
                     'message': f"Potential kink detected: Δsin(α)={delta_sin_alpha:.3f} at ρ={rho_current*1000:.1f}mm"
-                })
+                }
+                
+                self._kink_warnings.append(kink_warning)
+                print(f"⚠️ KINK WARNING: {kink_warning['message']}")
             
             # Clamp to valid range and apply physical constraints
             sin_alpha_values[current_idx] = np.clip(sin_alpha_new, 0.0, 1.0)
