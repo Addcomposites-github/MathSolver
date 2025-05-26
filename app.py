@@ -693,18 +693,19 @@ def trajectory_planning_page():
                 else:
                     st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
                     
-            elif st.session_state.trajectory_data.get('pattern_type') in ['Non-Geodesic', 'Multi-Circuit Non-Geodesic']:
-                # 3D visualization for Non-Geodesic trajectories (single and multi-circuit)
-                pattern_type = st.session_state.trajectory_data.get('pattern_type')
-                is_multi_circuit = pattern_type == 'Multi-Circuit Non-Geodesic'
-                
-                if is_multi_circuit:
-                    st.subheader("🔬 Multi-Circuit Non-Geodesic 3D Pattern")
-                else:
-                    st.subheader("🔬 Non-Geodesic 3D Trajectory")
-                
-                if all(key in st.session_state.trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
-                    try:
+    # Move non-geodesic visualization outside of column layout for full width
+    if st.session_state.trajectory_data is not None and st.session_state.trajectory_data.get('pattern_type') in ['Non-Geodesic', 'Multi-Circuit Non-Geodesic']:
+        # 3D visualization for Non-Geodesic trajectories (single and multi-circuit) - FULL WIDTH
+        pattern_type = st.session_state.trajectory_data.get('pattern_type')
+        is_multi_circuit = pattern_type == 'Multi-Circuit Non-Geodesic'
+        
+        if is_multi_circuit:
+            st.subheader("🔬 Multi-Circuit Non-Geodesic 3D Pattern")
+        else:
+            st.subheader("🔬 Non-Geodesic 3D Trajectory")
+        
+        if all(key in st.session_state.trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
+            try:
                         import plotly.graph_objects as go
                         
                         x_data = st.session_state.trajectory_data['x_points_m']
@@ -834,15 +835,11 @@ def trajectory_planning_page():
                             target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
                             st.write(f"**Target Angle:** {target_angle}°")
                             
-                    except Exception as e:
-                        st.error(f"Error creating 3D visualization: {str(e)}")
-                        st.info("Non-geodesic trajectory data available but visualization failed.")
-                else:
-                    st.info("Non-geodesic trajectory generated but missing 3D coordinate data.")
-            else:
-                st.info("Select 'Geodesic' or 'Non-Geodesic' pattern to enable 3D visualization.")
+            except Exception as e:
+                st.error(f"Error creating 3D visualization: {str(e)}")
+                st.info("Non-geodesic trajectory data available but visualization failed.")
         else:
-            st.info("Generate a trajectory first to view visualizations.")
+            st.info("Non-geodesic trajectory generated but missing 3D coordinate data.")
     
     # Add tabbed interface for detailed analysis
     if st.session_state.trajectory_data is not None:
