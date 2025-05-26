@@ -267,6 +267,21 @@ def trajectory_planning_page():
             st.markdown("### 🔄 Advanced Configuration")
             st.info("🔧 **Non-Geodesic Mode**: Advanced differential equation solving with surface curvature")
             
+            # Add pattern mode selection for multi-circuit capability
+            col1, col2 = st.columns(2)
+            with col1:
+                pattern_mode = st.radio(
+                    "Pattern Mode:",
+                    ["Single Circuit", "Multi-Circuit Pattern"],
+                    help="Single circuit for testing, multi-circuit for full coverage"
+                )
+            with col2:
+                if pattern_mode == "Multi-Circuit Pattern":
+                    num_circuits = st.slider("Number of Circuits", 6, 24, 12, 
+                                            help="Number of circuits for full coverage pattern")
+                else:
+                    num_circuits = 1
+            
             # Calculation parameters  
             dome_points = st.number_input("Points per Dome Segment", min_value=20, max_value=300, value=150, step=10)
             cylinder_points = st.number_input("Points per Cylinder Segment", min_value=5, max_value=100, value=20, step=5)
