@@ -359,43 +359,88 @@ def trajectory_planning_page():
                             st.metric("Final Turn Angle", f"{final_angle:.1f}°" if final_angle else 'N/A')
                     
                     # Create interactive 3D visualization with Plotly
-                    import plotly.graph_objects as go
+                    st.subheader("Interactive 3D Trajectory")
                     
-                    # Points are already in meters from trajectory calculation
-                    x_m = x_points
-                    y_m = y_points  
-                    z_m = z_points
+                    import plotly.graph_objects as go
+                    import plotly.express as px
+                    
+                    # Get trajectory data
+                    x_m = st.session_state.trajectory_data['x_points_m']
+                    y_m = st.session_state.trajectory_data['y_points_m'] 
+                    z_m = st.session_state.trajectory_data['z_points_m']
                     
                     # Create interactive plot
                     fig_plotly = go.Figure()
                     
-                    # Generate continuous trajectory path (realistic winding simulation)
-                    import math
+                    # Add fiber trajectory with color gradient
+                    fig_plotly.add_trace(go.Scatter3d(
+                        x=x_m, y=y_m, z=z_m,
+                        mode='lines+markers',
+                        marker=dict(
+                            size=3,
+                            color=range(len(x_m)),  # Color by point sequence
+                            colorscale='Viridis',
+                            showscale=True,
+                            colorbar=dict(title="Path Progress")
+                        ),
+                        line=dict(width=4, color='orange'),
+                        name='Fiber Path',
+                        text=[f'Point {i}<br>X: {x:.3f}m<br>Y: {y:.3f}m<br>Z: {z:.3f}m' 
+                              for i, (x, y, z) in enumerate(zip(x_m, y_m, z_m))],
+                        hovertemplate='%{text}<extra></extra>'
+                    ))
                     
-                    # Get base trajectory data for one pass
-                    base_rho_m = st.session_state.trajectory_data.get('rho_points', [])
-                    base_z_m = st.session_state.trajectory_data.get('z_coords', [])
-                    base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
+                    # Add vessel surface
+                    profile_r = vessel_profile_for_plot['r_m']
+                    profile_z = vessel_profile_for_plot['z_m']
                     
-                    # Number of passes to simulate (back-and-forth motion)
-                    st.subheader("Continuous Winding Parameters")
-                    num_passes = st.slider("Number of Passes", min_value=1, max_value=8, value=4, 
-                                         help="Number of pole-to-pole passes to simulate")
+                    # Create surface mesh
+                    import numpy as np
+                    phi_surf = np.linspace(0, 2 * np.pi, 50)
+                    R_mesh, PHI_mesh = np.meshgrid(profile_r, phi_surf)
+                    Z_mesh, _ = np.meshgrid(profile_z, phi_surf)
+                    X_mesh = R_mesh * np.cos(PHI_mesh)
+                    Y_mesh = R_mesh * np.sin(PHI_mesh)
                     
-                    if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
-                        # Enhanced continuous winding with seamless joining points
-                        
-                        # Calculate phi range for one complete pass
-                        delta_phi_one_pass = base_phi_rad[-1] - base_phi_rad[0]
-                        
-                        # Initialize continuous arrays
-                        all_x_coords, all_y_coords, all_z_coords = [], [], []
-                        all_phi_continuous = []
-                        
-                        # Track cumulative phi for perfect continuity
-                        cumulative_phi = 0.0
-                        
-                        for i_pass in range(num_passes):
+                    fig_plotly.add_trace(go.Surface(
+                        x=X_mesh, y=Y_mesh, z=Z_mesh,
+                        opacity=0.3,
+                        colorscale='Greys',
+                        showscale=False,
+                        name='Vessel Surface'
+                    ))
+                    
+                    # Configure interactive plot layout
+                    fig_plotly.update_layout(
+                        title=f"Interactive 3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory",
+                        scene=dict(
+                            xaxis_title="X (m)",
+                            yaxis_title="Y (m)", 
+                            zaxis_title="Z (m)",
+                            aspectmode='data',
+                            camera=dict(
+                                eye=dict(x=1.5, y=1.5, z=1.2)
+                            )
+                        ),
+                        width=800,
+                        height=600,
+                        margin=dict(r=0, b=0, l=0, t=40)
+                    )
+                    
+                    # Display interactive plot
+                    st.plotly_chart(fig_plotly, use_container_width=True)
+                    
+                    # Add viewing controls
+                    st.write("**Interactive Controls:**")
+                    st.write("🔄 **Rotate:** Click and drag")
+                    st.write("🔍 **Zoom:** Mouse wheel or pinch")
+                    st.write("📍 **Pan:** Shift + click and drag")
+                    st.write("🎯 **Reset view:** Double-click")
+                    
+                else:
+                    st.info("3D coordinates not available for this trajectory type.")
+        else:
+            st.info("No trajectory data available. Please generate a trajectory first.")
                             # Enhanced pass generation with smooth turnaround transitions
                             if (i_pass % 2) == 0:  # Forward pass (south to north)
                                 pass_rho = np.array(base_rho_m)
