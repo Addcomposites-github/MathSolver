@@ -417,7 +417,8 @@ def trajectory_planning_page():
                         dry_roving_width_m=roving_width/1000,
                         dry_roving_thickness_m=roving_thickness/1000,
                         roving_eccentricity_at_pole_m=polar_eccentricity/1000,
-                        target_cylinder_angle_deg=target_angle
+                        target_cylinder_angle_deg=target_angle,
+                        mu_friction_coefficient=friction_coefficient
                     )
                     
                     # Show validation results
@@ -454,7 +455,8 @@ def trajectory_planning_page():
                         dry_roving_width_m=effective_roving_width,
                         dry_roving_thickness_m=roving_thickness/1e6,  # Convert μm to m
                         roving_eccentricity_at_pole_m=polar_eccentricity/1000,
-                        target_cylinder_angle_deg=target_angle
+                        target_cylinder_angle_deg=target_angle,
+                        mu_friction_coefficient=friction_coefficient
                     )
                     
                     # Smart validation - automatically fall back to geometric limit if target is impossible
@@ -469,7 +471,8 @@ def trajectory_planning_page():
                                 dry_roving_width_m=effective_roving_width,
                                 dry_roving_thickness_m=roving_thickness/1e6,
                                 roving_eccentricity_at_pole_m=polar_eccentricity/1000,
-                                target_cylinder_angle_deg=None  # Use geometric limit
+                                target_cylinder_angle_deg=None,  # Use geometric limit
+                                mu_friction_coefficient=friction_coefficient
                             )
                         else:
                             st.info(f"🔧 **Try**: Reduce band width or increase target angle")
