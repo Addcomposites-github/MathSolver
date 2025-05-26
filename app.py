@@ -238,22 +238,48 @@ def trajectory_planning_page():
                                           help="Lower density for cylinder where curvature is constant")
         elif pattern_type == "Multi-Circuit Pattern":
             st.markdown("### 🔄 Multi-Circuit Pattern Configuration")
-            st.info("🎯 **Systematic Coverage**: Generate multiple circuits with systematic pattern advancement for complete pole-to-pole coverage")
+            st.info("🎯 **Full Coverage System**: Generate systematic winding patterns for complete pole-to-pole vessel coverage")
+            
+            # Coverage level selection
+            coverage_level = st.selectbox(
+                "Coverage Level",
+                ["Quick Preview (3-5 circuits)", "Moderate Coverage (8-12 circuits)", "Full Coverage (15-20 circuits)", "Custom"],
+                help="Choose predefined coverage levels or customize your own"
+            )
+            
+            # Set default values based on coverage level
+            if coverage_level == "Quick Preview (3-5 circuits)":
+                default_total = 8
+                default_generate = 4
+            elif coverage_level == "Moderate Coverage (8-12 circuits)":
+                default_total = 12
+                default_generate = 8
+            elif coverage_level == "Full Coverage (15-20 circuits)":
+                default_total = 18
+                default_generate = 12
+            else:  # Custom
+                default_total = 10
+                default_generate = 6
             
             # Pattern configuration
             col_pattern1, col_pattern2 = st.columns(2)
             with col_pattern1:
                 circuits_to_close = st.number_input("Target Circuits for Full Pattern", 
-                                                   min_value=4, max_value=20, value=10, step=1,
-                                                   help="Total circuits needed to close the pattern for complete coverage")
-                num_circuits_for_vis = st.number_input("Circuits to Generate", 
-                                                     min_value=1, max_value=10, value=3, step=1,
-                                                     help="Number of circuits to actually generate for visualization")
+                                                   min_value=4, max_value=30, value=default_total, step=1,
+                                                   help="Total circuits needed for complete coverage pattern closure")
+                num_circuits_for_vis = st.number_input("Circuits to Generate for Visualization", 
+                                                     min_value=1, max_value=20, value=default_generate, step=1,
+                                                     help="Number of circuits to actually calculate and display")
             with col_pattern2:
-                pattern_skip_factor = st.selectbox("Pattern Type", 
+                pattern_skip_factor = st.selectbox("Pattern Advancement", 
                                                  options=[1, 2, 3], 
-                                                 format_func=lambda x: {1: "Side-by-side", 2: "Skip 1 band", 3: "Skip 2 bands"}[x],
-                                                 help="Pattern advancement strategy")
+                                                 format_func=lambda x: {1: "Side-by-side (Dense)", 2: "Skip 1 band (Medium)", 3: "Skip 2 bands (Sparse)"}[x],
+                                                 help="Controls spacing between adjacent circuits")
+                
+                # Show estimated coverage
+                estimated_coverage = min(100, (num_circuits_for_vis / circuits_to_close) * 100)
+                st.metric("Estimated Coverage", f"{estimated_coverage:.0f}%", 
+                         help="Percentage of vessel surface covered by generated circuits")
             
             # Roving parameters
             st.markdown("### 🧵 Roving Properties")
