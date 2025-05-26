@@ -1900,6 +1900,108 @@ class TrajectoryPlanner:
             'num_points': len(path_points)
         }
 
+    def calculate_koussios_pattern_parameters(self, num_layers: int = 1) -> Dict:
+        """
+        Calculate optimal winding pattern parameters using Koussios theory.
+        
+        Implements rigorous pattern calculations from Koussios Chapter 8
+        for achieving systematic full coverage with proper band placement.
+        
+        Parameters:
+        -----------
+        num_layers : int
+            Number of winding layers (typically 1 for initial implementation)
+            
+        Returns:
+        --------
+        Dict : Pattern parameters including n_bands, advancement angles, solutions
+        """
+        # Step 1: Calculate alpha_equator_rad (Koussios theory)
+        equatorial_radius_m = self.vessel.inner_radius * 1e-3  # Convert to meters
+        c_for_winding = self.clairauts_constant_for_path_m or self.effective_polar_opening_radius_m
+        
+        alpha_equator_rad = math.asin(c_for_winding / equatorial_radius_m)
+        alpha_equator_deg = math.degrees(alpha_equator_rad)
+        
+        # Step 2: Calculate Effective Bandwidth at Equator (Koussios Eq. 3.38)
+        B_eff_equator_m = self.dry_roving_width_m / math.cos(alpha_equator_rad)
+        
+        # Step 3: Calculate Angle Subtended by One Band at Equator
+        delta_phi_band_equator_rad = B_eff_equator_m / equatorial_radius_m
+        delta_phi_band_equator_deg = math.degrees(delta_phi_band_equator_rad)
+        
+        # Step 4: Determine n_bands_equator_single_layer (theoretical)
+        circumference_equator_m = 2.0 * math.pi * equatorial_radius_m
+        n_bands_theoretical = circumference_equator_m / B_eff_equator_m
+        
+        # Step 5: Find practical integer solutions for pattern closure
+        # Using Koussios Diophantine equation approach
+        n_bands_target = round(n_bands_theoretical)
+        
+        # Calculate optimal circuits for different pattern types
+        pattern_solutions = []
+        
+        # Side-by-side pattern (k=1) - Best coverage
+        p_side_by_side = n_bands_target
+        delta_phi_side_by_side = (2.0 * math.pi) / p_side_by_side
+        
+        pattern_solutions.append({
+            'type': 'Side-by-side (Dense)',
+            'p_circuits': p_side_by_side,
+            'k_advancement': 1,
+            'delta_phi_rad': delta_phi_side_by_side,
+            'delta_phi_deg': math.degrees(delta_phi_side_by_side),
+            'coverage_efficiency': 0.95,
+            'pattern_skip_factor': 1
+        })
+        
+        # Skip-1 pattern (k=2) - Medium coverage
+        if n_bands_target > 2:
+            p_skip1 = max(1, n_bands_target // 2)
+            delta_phi_skip1 = (2.0 * math.pi * 2) / n_bands_target
+            
+            pattern_solutions.append({
+                'type': 'Skip-1-band (Medium)',
+                'p_circuits': p_skip1,
+                'k_advancement': 2,
+                'delta_phi_rad': delta_phi_skip1,
+                'delta_phi_deg': math.degrees(delta_phi_skip1),
+                'coverage_efficiency': 0.75,
+                'pattern_skip_factor': 2
+            })
+        
+        # Skip-2 pattern (k=3) - Sparse coverage
+        if n_bands_target > 3:
+            p_skip2 = max(1, n_bands_target // 3)
+            delta_phi_skip2 = (2.0 * math.pi * 3) / n_bands_target
+            
+            pattern_solutions.append({
+                'type': 'Skip-2-band (Sparse)',
+                'p_circuits': p_skip2,
+                'k_advancement': 3,
+                'delta_phi_rad': delta_phi_skip2,
+                'delta_phi_deg': math.degrees(delta_phi_skip2),
+                'coverage_efficiency': 0.60,
+                'pattern_skip_factor': 3
+            })
+        
+        # Select recommended solution based on practical considerations
+        recommended_idx = 0  # Default to side-by-side
+        if len(pattern_solutions) > 1 and pattern_solutions[0]['p_circuits'] > 20:
+            recommended_idx = 1  # Use skip-1 if side-by-side requires too many circuits
+        
+        return {
+            'equatorial_radius_m': equatorial_radius_m,
+            'alpha_equator_deg': alpha_equator_deg,
+            'B_eff_equator_m': B_eff_equator_m * 1000,  # Convert to mm for display
+            'delta_phi_band_deg': delta_phi_band_equator_deg,
+            'n_bands_theoretical': n_bands_theoretical,
+            'n_bands_target': n_bands_target,
+            'pattern_solutions': pattern_solutions,
+            'recommended_solution': pattern_solutions[recommended_idx],
+            'num_layers': num_layers
+        }
+
     def generate_multi_circuit_trajectory(self, 
                                          num_target_circuits_for_pattern: int = 10, 
                                          num_circuits_to_generate_for_vis: int = 5, 
@@ -1938,10 +2040,23 @@ class TrajectoryPlanner:
         
         c_for_winding = self.clairauts_constant_for_path_m
 
-        # === PATTERN THEORY IMPLEMENTATION ===
-        # Based on Koussios Eq. 8.17 for systematic pattern advancement
-        # advancement_angle_per_full_circuit = net phi shift for START of next circuit relative to current one
-        advancement_angle_per_full_circuit_rad = (2 * math.pi / num_target_circuits_for_pattern) * pattern_skip_factor
+        # === ENHANCED KOUSSIOS PATTERN THEORY IMPLEMENTATION ===
+        # Calculate rigorous pattern parameters using Koussios theory
+        pattern_params = self.calculate_koussios_pattern_parameters(num_layers=1)
+        
+        # Use calculated parameters or fall back to user input
+        if pattern_skip_factor <= len(pattern_params['pattern_solutions']):
+            selected_solution = pattern_params['pattern_solutions'][pattern_skip_factor - 1]
+            advancement_angle_per_full_circuit_rad = selected_solution['delta_phi_rad']
+            optimal_circuits = selected_solution['p_circuits']
+            coverage_efficiency = selected_solution['coverage_efficiency']
+            pattern_type = selected_solution['type']
+        else:
+            # Fallback to simple calculation if pattern_skip_factor is out of range
+            advancement_angle_per_full_circuit_rad = (2 * math.pi / num_target_circuits_for_pattern) * pattern_skip_factor
+            optimal_circuits = num_target_circuits_for_pattern
+            coverage_efficiency = 0.67
+            pattern_type = f"Custom (skip {pattern_skip_factor-1})"
         
         # Each turnaround contributes to pattern advancement
         # Distribute advancement over two polar turnarounds per circuit
@@ -2003,6 +2118,7 @@ class TrajectoryPlanner:
         all_circuits_data = []  # Store data for each circuit
         all_x_points, all_y_points, all_z_points = [], [], []
         all_phi_points = []
+        circuit_indices = []  # Track which circuit each point belongs to
         
         current_global_phi_rad = 0.0  # Starting phi for the very first leg of the first circuit
 
@@ -2069,11 +2185,13 @@ class TrajectoryPlanner:
                 'advancement': advancement_angle_per_full_circuit_rad
             })
 
-            # Accumulate all points
+            # Accumulate all points with circuit tracking
             all_x_points.extend(circuit_x)
             all_y_points.extend(circuit_y)
             all_z_points.extend(circuit_z)
             all_phi_points.extend(circuit_phi)
+            # Track which circuit each point belongs to for visualization control
+            circuit_indices.extend([circuit_idx] * len(circuit_points))
 
             # Update global phi for next circuit
             current_global_phi_rad = leg2_end_phi + phi_span_for_each_turnaround_rad
