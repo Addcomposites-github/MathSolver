@@ -358,23 +358,11 @@ def trajectory_planning_page():
                             final_angle = st.session_state.trajectory_data.get('final_turn_around_angle_deg', 0)
                             st.metric("Final Turn Angle", f"{final_angle:.1f}°" if final_angle else 'N/A')
                     
-                    # Create interactive 3D visualization with Plotly
-                    import plotly.graph_objects as go
+                else:
+                    st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
                     
-                    # Points are already in meters from trajectory calculation
-                    x_m = x_points
-                    y_m = y_points  
-                    z_m = z_points
-                    
-                    # Create interactive plot
-                    fig_plotly = go.Figure()
-                    
-                    # Generate continuous trajectory path (realistic winding simulation)
-                    import math
-                    
-                    # Get base trajectory data for one pass
-                    base_rho_m = st.session_state.trajectory_data.get('rho_points', [])
-                    base_z_m = st.session_state.trajectory_data.get('z_coords', [])
+            else:
+                st.info("Select 'Geodesic' trajectory pattern to enable 3D visualization.")
                     base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
                     
                     # Number of passes to simulate (back-and-forth motion)

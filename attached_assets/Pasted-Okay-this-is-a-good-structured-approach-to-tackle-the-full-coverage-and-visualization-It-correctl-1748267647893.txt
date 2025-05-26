@@ -1,0 +1,308 @@
+Okay, this is a good, structured approach to tackle the full coverage and visualization. It correctly identifies that the core of "full coverage" lies in the pattern theory and the precise angular advancement during turnarounds.
+
+Let's proceed step-by-step as you've outlined.
+
+Step 1 & 2 (Combined): Refactor generate_geodesic_trajectory into _generate_geodesic_leg and make it accept initial_phi_rad.
+
+The current generate_geodesic_trajectory already processes one "leg" (pole-to-pole or vice-versa depending on is_forward_leg_on_profile) before attempting a turnaround. We can adapt this core logic.
+
+Here's the proposed refactoring. I'll create a new private method _generate_geodesic_leg which will contain the helical path generation logic. The public generate_geodesic_trajectory will then be simplified or repurposed later for single pass visualization, or it can call this leg generator. The generate_multi_circuit_trajectory will be the main orchestrator.
+
+Python
+
+# trajectories.py
+
+# ... (imports and existing __init__, _validate_and_set_clairauts_constant_from_target_angle,
+#      _get_slope_dz_drho_at_rho, _calculate_effective_polar_opening,
+#      calculate_geodesic_alpha_at_rho, _calculate_tangent_vector,
+#      _calculate_enhanced_tangent_vector, _estimate_path_curvature_radius,
+#      _generate_smooth_transition_zone, _interpolate_z_from_profile,
+#      _generate_polar_turnaround_segment_fixed_phi_advance,
+#      _resample_segment_adaptive, _identify_vessel_segments remain mostly as they are for now,
+#      though _generate_polar_turnaround_segment_fixed_phi_advance will be called by the multi-circuit planner)
+
+    def _generate_geodesic_leg(self,
+                               profile_r_m_calc: np.ndarray,
+                               profile_z_m_calc: np.ndarray,
+                               c_for_winding: float,
+                               initial_phi_rad: float,
+                               is_forward_on_profile: bool,
+                               leg_number_info: str = "Leg") -> Optional[Dict[str, List]]:
+        """
+        Generates a single pole-to-pole geodesic leg of the trajectory.
+
+        Parameters:
+        -----------
+        profile_r_m_calc : np.ndarray
+            Resampled radial coordinates of the full mandrel profile (m).
+        profile_z_m_calc : np.ndarray
+            Resampled axial coordinates of the full mandrel profile (m).
+        c_for_winding : float
+            Clairaut's constant for this path (m).
+        initial_phi_rad : float
+            The starting azimuthal angle for this leg (radians).
+        is_forward_on_profile : bool
+            True if this leg traverses the profile from start to end,
+            False if it traverses from end to start.
+        leg_number_info : str
+            Informational string for debug prints.
+
+        Returns:
+        --------
+        Optional[Dict[str, List]] :
+            Dictionary containing lists of path points for the leg:
+            {'rho_m': [], 'z_m': [], 'alpha_rad': [], 'phi_rad': [], 'x_m': [], 'y_m': []}
+            Returns None if generation fails.
+        """
+        path_leg_rho_m, path_leg_z_m, path_leg_alpha_rad, path_leg_phi_rad = [], [], [], []
+        path_leg_x_m, path_leg_y_m = [], []
+
+        current_phi_rad_for_leg = initial_phi_rad
+
+        # Determine the profile points for this leg based on c_for_winding and direction
+        leg_profile_indices = []
+        iterable_profile_indices = range(len(profile_r_m_calc)) if is_forward_on_profile else range(len(profile_r_m_calc) - 1, -1, -1)
+
+        for k_idx in iterable_profile_indices:
+            if profile_r_m_calc[k_idx] >= c_for_winding - 1e-7: # Points outside or at turnaround radius
+                leg_profile_indices.append(k_idx)
+        
+        if not is_forward_on_profile: # If reverse, the list is built reversed, so reverse it back for winding order
+            leg_profile_indices.reverse()
+
+
+        if not leg_profile_indices:
+            print(f"ERROR {leg_number_info}: No points on profile satisfy rho >= c_for_winding ({c_for_winding:.6f}m). Max profile rho: {np.max(profile_r_m_calc):.6f}m. Skipping leg.")
+            return None
+
+        print(f"DEBUG {leg_number_info}: Processing {len(leg_profile_indices)} profile points for this leg.")
+        
+        first_point_of_this_leg = True
+
+        for point_counter_in_leg, profile_idx in enumerate(leg_profile_indices):
+            rho_current_profile_m = profile_r_m_calc[profile_idx]
+            z_current_profile_m = profile_z_m_calc[profile_idx]
+            
+            # Calculate winding angle (alpha with meridian)
+            if abs(rho_current_profile_m) < 1e-9:
+                alpha_current_rad = math.pi / 2.0
+            elif rho_current_profile_m < c_for_winding: # Should ideally not happen if leg_profile_indices is correct
+                alpha_current_rad = math.pi / 2.0
+            else:
+                sin_alpha_arg = c_for_winding / rho_current_profile_m
+                alpha_current_rad = math.asin(np.clip(sin_alpha_arg, -1.0, 1.0))
+
+
+            if first_point_of_this_leg:
+                delta_phi = 0.0 
+                first_point_of_this_leg = False
+                # current_phi_rad_for_leg is already set by initial_phi_rad
+                # print(f"  {leg_number_info} START: ρ={rho_current_profile_m:.4f}, z={z_current_profile_m:.4f}, α={math.degrees(alpha_current_rad):.2f}°, φ_cum={math.degrees(current_phi_rad_for_leg):.2f}°")
+            else:
+                prev_profile_idx_in_leg = leg_profile_indices[point_counter_in_leg - 1]
+                rho_prev_profile_m = profile_r_m_calc[prev_profile_idx_in_leg]
+                z_prev_profile_m = profile_z_m_calc[prev_profile_idx_in_leg]
+                
+                if abs(rho_prev_profile_m) < 1e-9: alpha_prev_rad = math.pi / 2.0
+                elif rho_prev_profile_m < c_for_winding: alpha_prev_rad = math.pi/2.0
+                else:
+                    sin_alpha_prev_arg = c_for_winding / rho_prev_profile_m
+                    alpha_prev_rad = math.asin(np.clip(sin_alpha_prev_arg, -1.0, 1.0))
+
+                d_rho_profile = rho_current_profile_m - rho_prev_profile_m
+                d_z_profile = z_current_profile_m - z_prev_profile_m # dz is signed
+                ds_segment_m = math.sqrt(d_rho_profile**2 + d_z_profile**2)
+                
+                delta_phi = 0.0
+                if ds_segment_m > 1e-9:
+                    rho_avg_segment_m = (rho_current_profile_m + rho_prev_profile_m) / 2.0
+                    alpha_avg_segment_rad = (alpha_current_rad + alpha_prev_rad) / 2.0
+                    
+                    if abs(rho_avg_segment_m) > 1e-8:
+                        if abs(math.cos(alpha_avg_segment_rad)) < 1e-9: # alpha_avg is ~90 deg
+                            delta_phi = 0.0
+                        else:
+                            tan_alpha_avg = math.tan(alpha_avg_segment_rad)
+                            delta_phi = (ds_segment_m / rho_avg_segment_m) * tan_alpha_avg
+                current_phi_rad_for_leg += delta_phi
+            
+            path_leg_rho_m.append(rho_current_profile_m)
+            path_leg_z_m.append(z_current_profile_m)
+            path_leg_alpha_rad.append(alpha_current_rad)
+            path_leg_phi_rad.append(current_phi_rad_for_leg)
+            path_leg_x_m.append(rho_current_profile_m * math.cos(current_phi_rad_for_leg))
+            path_leg_y_m.append(rho_current_profile_m * math.sin(current_phi_rad_for_leg))
+
+        if not path_leg_rho_m:
+            return None
+
+        return {
+            'rho_m': path_leg_rho_m, 'z_m': path_leg_z_m, 
+            'alpha_rad': path_leg_alpha_rad, 'phi_rad': path_leg_phi_rad,
+            'x_m': path_leg_x_m, 'y_m': path_leg_y_m
+        }
+
+    def generate_geodesic_trajectory(self, num_points_dome: int = 150, num_points_cylinder: int = 20, number_of_passes: int = 1) -> Optional[Dict]:
+        """
+        Generates a SINGLE pole-to-pole-to-pole... geodesic path for a specified number of passes (legs).
+        This function is now primarily for visualizing a single continuous path with basic turnarounds.
+        For full coverage patterns, use generate_multi_circuit_trajectory.
+        """
+        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+            # ... (error handling) ...
+            return None
+        if self.clairauts_constant_for_path_m is None:
+            # ... (error handling or set default based on c_eff) ...
+            self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
+            print(f"WARN: clairauts_constant_for_path_m was None, set to c_eff = {self.clairauts_constant_for_path_m:.6f}m")
+            # return None
+
+
+        c_for_winding = self.clairauts_constant_for_path_m
+        print(f"\nDEBUG generate_geodesic_trajectory (SINGLE PASS FOCUS): Using Clairaut's constant c = {c_for_winding:.6f} m")
+        
+        # ... (profile_r_m_calc, profile_z_m_calc generation as before) ...
+        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        adaptive_r_segments, adaptive_z_segments = [], []
+        if segments['has_cylinder']:
+            fwd_dome_r, fwd_dome_z = self._resample_segment_adaptive(profile_r_m_orig[0:segments['fwd_dome_end']+1], profile_z_m_orig[0:segments['fwd_dome_end']+1], num_points_dome)
+            cyl_r, cyl_z = self._resample_segment_adaptive(profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1], profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1], num_points_cylinder)
+            aft_dome_r, aft_dome_z = self._resample_segment_adaptive(profile_r_m_orig[segments['aft_dome_start']:], profile_z_m_orig[segments['aft_dome_start']:], num_points_dome)
+            adaptive_r_segments.extend([fwd_r_resampled, cyl_r_resampled[1:], aft_r_resampled[1:]])
+            adaptive_z_segments.extend([fwd_z_resampled, cyl_z_resampled[1:], aft_z_resampled[1:]])
+        else:
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            adaptive_r_segments.append(dome_r_resampled)
+            adaptive_z_segments.append(dome_z_resampled)
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        if len(profile_r_m_calc) < 2: return None
+
+
+        # Initialize lists for the full trajectory
+        full_path_rho_m, full_path_z_m, full_path_alpha_rad, full_path_phi_rad_cumulative = [], [], [], []
+        full_path_x_m, full_path_y_m = [], []
+        
+        current_phi_rad = 0.0 # Starting phi for the first leg
+
+        for leg_idx in range(number_of_passes * 2): # number_of_passes implies pole-A -> B -> A sequences
+            is_forward_on_profile_this_leg = (leg_idx % 2 == 0)
+            leg_info_str = f"Leg {leg_idx + 1}"
+
+            leg_data = self._generate_geodesic_leg(
+                profile_r_m_calc, profile_z_m_calc,
+                c_for_winding, current_phi_rad,
+                is_forward_on_profile_this_leg,
+                leg_info_str
+            )
+
+            if not leg_data:
+                print(f"ERROR: Failed to generate {leg_info_str}")
+                # Decide how to handle: stop or try to continue? For now, stop.
+                return None 
+            
+            # Append leg data
+            full_path_rho_m.extend(leg_data['rho_m'])
+            full_path_z_m.extend(leg_data['z_m'])
+            full_path_alpha_rad.extend(leg_data['alpha_rad'])
+            full_path_phi_rad_cumulative.extend(leg_data['phi_rad'])
+            full_path_x_m.extend(leg_data['x_m'])
+            full_path_y_m.extend(leg_data['y_m'])
+
+            if not leg_data['phi_rad']: # Should not happen if leg_data is not None
+                print(f"ERROR: Empty phi_rad in {leg_info_str} data.")
+                return None
+            current_phi_rad = leg_data['phi_rad'][-1] # Update phi for next segment
+
+            # --- Add Turnaround (if not the very last leg) ---
+            if leg_idx < (number_of_passes * 2) -1 :
+                z_pole_for_turnaround = leg_data['z_m'][-1]
+                # Placeholder advancement for simple visualization of continuity
+                # True pattern advancement will be handled by generate_multi_circuit_trajectory
+                advancement_angle_rad_turnaround = math.pi / 16 # Small fixed turn for visualization
+
+                turnaround_segment_points = self._generate_polar_turnaround_segment_fixed_phi_advance(
+                    c_eff=c_for_winding,
+                    z_pole=z_pole_for_turnaround,
+                    phi_start=current_phi_rad,
+                    fixed_phi_advance_rad=advancement_angle_rad_turnaround,
+                    num_turn_points=max(5, num_points_dome // 20) 
+                )
+                if turnaround_segment_points:
+                    # Skip first point of turnaround if it's identical to last leg point
+                    start_idx_turn = 0
+                    if (abs(turnaround_segment_points[0]['rho'] - full_path_rho_m[-1]) < 1e-6 and
+                        abs(turnaround_segment_points[0]['z'] - full_path_z_m[-1]) < 1e-6 and
+                        abs(turnaround_segment_points[0]['phi'] - full_path_phi_rad_cumulative[-1]) < 1e-6):
+                        start_idx_turn = 1
+                    
+                    for pt in turnaround_segment_points[start_idx_turn:]:
+                        full_path_rho_m.append(pt['rho'])
+                        full_path_z_m.append(pt['z'])
+                        full_path_alpha_rad.append(pt['alpha'])
+                        full_path_phi_rad_cumulative.append(pt['phi'])
+                        full_path_x_m.append(pt['x'])
+                        full_path_y_m.append(pt['y'])
+                    current_phi_rad = full_path_phi_rad_cumulative[-1]
+                    # print(f"  {leg_info_str} TURNAROUND END: Added {len(turnaround_segment_points)-start_idx_turn} points. New current_phi={math.degrees(current_phi_rad):.2f}°")
+
+
+        if not full_path_rho_m:
+            print("Error: No trajectory points generated.")
+            return None
+        
+        self.alpha_profile_deg = np.array([math.degrees(a) for a in full_path_alpha_rad])
+        self.phi_profile_rad = np.array(full_path_phi_rad_cumulative)
+        self.turn_around_angle_rad = self.phi_profile_rad[-1] if len(self.phi_profile_rad) > 0 else 0
+        
+        idx_equator = np.argmin(np.abs(np.array(full_path_rho_m) - self.vessel.inner_radius * 1e-3)) if full_path_rho_m else 0
+        self.alpha_eq_deg = self.alpha_profile_deg[idx_equator] if len(self.alpha_profile_deg) > idx_equator else 0
+
+        output_path_points = []
+        for i in range(len(full_path_rho_m)):
+            output_path_points.append({
+                'r': full_path_rho_m[i], 'z': full_path_z_m[i], 
+                'theta': full_path_phi_rad_cumulative[i], 
+                'alpha_deg': math.degrees(full_path_alpha_rad[i]),
+                'x_cart': full_path_x_m[i], 'y_cart': full_path_y_m[i],
+                'circuit': (i // (len(full_path_rho_m) // (number_of_passes * 2))) if (number_of_passes * 2) > 0 else 0 # Approximate
+            })
+
+        return {
+            'path_points': output_path_points,
+            'pattern_type': 'Geodesic_SequentialLegs',
+            'total_circuits_legs': number_of_passes * 2,
+            'total_points': len(full_path_rho_m),
+            'rho_points_m': np.array(full_path_rho_m),
+            'z_points_m': np.array(full_path_z_m),
+            'x_points_m': np.array(full_path_x_m),
+            'y_points_m': np.array(full_path_y_m),
+            'alpha_deg_profile': self.alpha_profile_deg,
+            'phi_rad_profile': self.phi_profile_rad,
+            'c_eff_m': self.effective_polar_opening_radius_m,
+            'clairauts_constant_used_m': c_for_winding,
+            'final_turn_around_angle_deg': math.degrees(self.turn_around_angle_rad),
+            'alpha_equator_deg': self.alpha_eq_deg
+        }
+
+Explanation of _generate_geodesic_leg:
+
+Inputs: Takes the resampled vessel profile (profile_r_m_calc, profile_z_m_calc), the c_for_winding (Clairaut's constant), the initial_phi_rad for this leg, and a flag is_forward_on_profile to determine iteration direction.
+leg_profile_indices: It first filters profile_r_m_calc to find indices of points where rho >= c_for_winding. This defines the part of the profile this geodesic leg can actually cover. It then ensures these indices are in the correct winding order based on is_forward_on_profile.
+Iteration: It loops through these valid leg_profile_indices.
+alpha_current_rad Calculation: Uses Clairaut's theorem: alpha = asin(c_for_winding / rho_current_profile_m).
+delta_phi Calculation (Corrected):
+For the first point of the leg, delta_phi is 0.
+For subsequent points, it uses the current profile point and the previous profile point from leg_profile_indices to calculate ds_segment_m (meridional arc length of the segment), rho_avg_segment_m, and alpha_avg_segment_rad.
+Then, delta_phi = (ds_segment_m / rho_avg_segment_m) * tan(alpha_avg_segment_rad).
+Accumulation: current_phi_rad_for_leg is updated.
+Output: Returns a dictionary of lists containing the path points for this leg.
+Changes to generate_geodesic_trajectory:
+
+This public method now acts as an orchestrator for generating a sequence of legs and basic turnarounds, mainly for visualization of a continuous path rather than a full coverage pattern.
+It calls _generate_geodesic_leg for each leg (forward or reverse).
+After each leg (if not the very last one), it calls _generate_polar_turnaround_segment_fixed_phi_advance to simulate a turnaround. The fixed_phi_advance_rad here is a placeholder for visualization and not yet based on pattern theory for full coverage.
+It concatenates the points from legs and turnarounds.
+This refactoring separates the logic for generating a single helical leg, which is a core component. The next major step (Step 3 in your plan) will be to enhance generate_multi_circuit_trajectory to use this _generate_geodesic_leg and incorporate proper pattern theory for the advancement_angle_rad in turnarounds.
