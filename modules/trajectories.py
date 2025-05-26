@@ -571,6 +571,155 @@ class TrajectoryPlanner:
             'z_points_m': [p['z'] for p in path_points]
         }
 
+    def generate_multi_circuit_non_geodesic_pattern(self, num_points_dome: int = 150, 
+                                                   num_points_cylinder: int = 20, 
+                                                   number_of_circuits: int = 12) -> Dict:
+        """
+        Generate multiple non-geodesic circuits for full coverage pattern.
+        Each circuit uses true friction physics with systematic pattern advancement.
+        """
+        print(f"🔬 STARTING MULTI-CIRCUIT NON-GEODESIC PATTERN GENERATION")
+        print(f"   Friction coefficient μ = {self.mu_friction_coefficient:.3f}")
+        print(f"   Target angle = {self.target_cylinder_angle_deg}°")
+        print(f"   Number of circuits = {number_of_circuits}")
+        print(f"   Points per circuit: Dome={num_points_dome}, Cylinder={num_points_cylinder}")
+        
+        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+            print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
+            return None
+            
+        # Get vessel profile
+        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        
+        # Create adaptive profile 
+        segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
+        
+        adaptive_r_segments = []
+        adaptive_z_segments = []
+        
+        if segments['has_cylinder']:
+            fwd_dome_r = profile_r_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_dome_z = profile_z_m_orig[0:segments['fwd_dome_end']+1]
+            fwd_r_resampled, fwd_z_resampled = self._resample_segment_adaptive(fwd_dome_r, fwd_dome_z, num_points_dome)
+            adaptive_r_segments.append(fwd_r_resampled)
+            adaptive_z_segments.append(fwd_z_resampled)
+            
+            cyl_r = profile_r_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_z = profile_z_m_orig[segments['cylinder_start']:segments['cylinder_end']+1]
+            cyl_r_resampled, cyl_z_resampled = self._resample_segment_adaptive(cyl_r, cyl_z, num_points_cylinder)
+            if len(cyl_r_resampled) > 1:
+                adaptive_r_segments.append(cyl_r_resampled[1:])
+                adaptive_z_segments.append(cyl_z_resampled[1:])
+            
+            aft_dome_r = profile_r_m_orig[segments['aft_dome_start']:]
+            aft_dome_z = profile_z_m_orig[segments['aft_dome_start']:]
+            aft_r_resampled, aft_z_resampled = self._resample_segment_adaptive(aft_dome_r, aft_dome_z, num_points_dome)
+            if len(aft_r_resampled) > 1:
+                adaptive_r_segments.append(aft_r_resampled[1:])
+                adaptive_z_segments.append(aft_z_resampled[1:])
+        else:
+            dome_r_resampled, dome_z_resampled = self._resample_segment_adaptive(profile_r_m_orig, profile_z_m_orig, num_points_dome * 2)
+            adaptive_r_segments.append(dome_r_resampled)
+            adaptive_z_segments.append(dome_z_resampled)
+        
+        if not adaptive_r_segments:
+            print("Error: No profile segments generated for multi-circuit non-geodesic calculation.")
+            return None
+
+        profile_r_m_calc = np.concatenate(adaptive_r_segments)
+        profile_z_m_calc = np.concatenate(adaptive_z_segments)
+        
+        print(f"🔬 MULTI-CIRCUIT NON-GEODESIC: Profile prepared with {len(profile_r_m_calc)} points")
+        
+        # Storage for all circuits
+        all_circuit_points = []
+        all_x_points = []
+        all_y_points = []
+        all_z_points = []
+        cumulative_kink_count = 0
+        
+        # Pattern advancement calculation
+        pattern_advance_angle = 2 * math.pi / number_of_circuits
+        
+        for circuit_idx in range(number_of_circuits):
+            print(f"\n🔬 CIRCUIT {circuit_idx + 1}/{number_of_circuits}")
+            
+            # Calculate initial sin(alpha) - can vary per circuit for pattern diversity
+            initial_sin_alpha = 0.5 + 0.1 * math.sin(circuit_idx * pattern_advance_angle)
+            initial_sin_alpha = max(0.1, min(0.9, initial_sin_alpha))  # Keep reasonable bounds
+            
+            # Solve for sin(alpha) using non-geodesic differential equation
+            sin_alpha_profile = self._solve_non_geodesic_sin_alpha_profile(
+                profile_r_m_calc, profile_z_m_calc, initial_sin_alpha, is_forward_on_profile=True
+            )
+            
+            if sin_alpha_profile is None:
+                print(f"⚠️ Circuit {circuit_idx + 1}: Non-geodesic sin(alpha) solution failed, skipping")
+                continue
+            
+            # Convert to trajectory points with pattern advancement
+            circuit_points = []
+            current_phi = circuit_idx * pattern_advance_angle  # Start each circuit at different angular position
+            
+            for i in range(len(profile_r_m_calc)):
+                rho = profile_r_m_calc[i]
+                z = profile_z_m_calc[i]
+                sin_alpha = sin_alpha_profile[i]
+                alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
+                
+                # Calculate phi increment
+                if i > 0:
+                    ds = math.sqrt((rho - profile_r_m_calc[i-1])**2 + (z - profile_z_m_calc[i-1])**2)
+                    if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
+                        dphi = ds * math.tan(alpha) / rho
+                        current_phi += dphi
+                
+                x = rho * math.cos(current_phi)
+                y = rho * math.sin(current_phi)
+                
+                point = {
+                    'x': x, 'y': y, 'z': z,
+                    'rho': rho, 'alpha': alpha, 'phi': current_phi,
+                    'circuit': circuit_idx
+                }
+                circuit_points.append(point)
+                
+                # Add to global collections
+                all_x_points.append(x)
+                all_y_points.append(y)
+                all_z_points.append(z)
+            
+            all_circuit_points.extend(circuit_points)
+            
+            # Count kinks for this circuit (simplified detection)
+            circuit_kinks = 0
+            if hasattr(self, '_kink_warnings') and self._kink_warnings:
+                # Count kinks that occurred during this circuit generation
+                new_kinks = len([w for w in self._kink_warnings if w.get('circuit', -1) == circuit_idx])
+                circuit_kinks = new_kinks
+                cumulative_kink_count += circuit_kinks
+            
+            print(f"   Circuit {circuit_idx + 1}: {len(circuit_points)} points, {circuit_kinks} kinks detected")
+        
+        print(f"\n🔬 MULTI-CIRCUIT NON-GEODESIC COMPLETE:")
+        print(f"   Total circuits: {number_of_circuits}")
+        print(f"   Total points: {len(all_circuit_points)}")
+        print(f"   Total kinks detected: {cumulative_kink_count}")
+        
+        return {
+            'path_points': all_circuit_points,
+            'total_points': len(all_circuit_points),
+            'pattern_type': 'Multi-Circuit Non-Geodesic',
+            'friction_coefficient': self.mu_friction_coefficient,
+            'target_angle_deg': self.target_cylinder_angle_deg,
+            'number_of_circuits': number_of_circuits,
+            'total_kinks': cumulative_kink_count,
+            'x_points_m': all_x_points,
+            'y_points_m': all_y_points,
+            'z_points_m': all_z_points
+        }
+
     def _calculate_effective_polar_opening(self):
         """
         Calculates the effective polar opening radius (Clairaut's constant, c_eff)

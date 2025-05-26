@@ -492,6 +492,21 @@ def trajectory_planning_page():
                 elif pattern_type == "Non-Geodesic":
                     st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
                     
+                    # Add option for multi-circuit pattern
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        pattern_mode = st.radio(
+                            "Pattern Mode:",
+                            ["Single Circuit", "Multi-Circuit Pattern"],
+                            help="Single circuit for testing, multi-circuit for full coverage"
+                        )
+                    with col2:
+                        if pattern_mode == "Multi-Circuit Pattern":
+                            num_circuits = st.slider("Number of Circuits", 6, 24, 12, 
+                                                    help="Number of circuits for full coverage pattern")
+                        else:
+                            num_circuits = 1
+                    
                     # Create planner with NO validation - allows any angle
                     planner = TrajectoryPlanner(
                         st.session_state.vessel_geometry,
@@ -507,11 +522,19 @@ def trajectory_planning_page():
                     st.info("✨ **No geometric limits** - Using advanced differential equation solving")
                     
                     # Generate trajectory using TRUE non-geodesic differential equations
-                    trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
+                    if pattern_mode == "Multi-Circuit Pattern":
+                        trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
+                    else:
+                        trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
                     
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                         st.session_state.trajectory_data = trajectory_data
-                        st.success(f"🎯 **Non-geodesic trajectory generated!** {len(trajectory_data['path_points'])} points with advanced physics")
+                        if pattern_mode == "Multi-Circuit Pattern":
+                            st.success(f"🎯 **Multi-circuit non-geodesic pattern generated!** {num_circuits} circuits with {len(trajectory_data['path_points'])} total points")
+                            if trajectory_data.get('total_kinks', 0) > 0:
+                                st.warning(f"⚠️ **{trajectory_data['total_kinks']} kinks detected** across all circuits")
+                        else:
+                            st.success(f"🎯 **Non-geodesic trajectory generated!** {len(trajectory_data['path_points'])} points with advanced physics")
                         
                         # Show friction physics insights
                         st.markdown("### 🔬 Non-Geodesic Physics Analysis")
@@ -654,9 +677,15 @@ def trajectory_planning_page():
                 else:
                     st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
                     
-            elif st.session_state.trajectory_data.get('pattern_type') == 'Non-Geodesic':
-                # 3D visualization for Non-Geodesic trajectories
-                st.subheader("🔬 Non-Geodesic 3D Trajectory")
+            elif st.session_state.trajectory_data.get('pattern_type') in ['Non-Geodesic', 'Multi-Circuit Non-Geodesic']:
+                # 3D visualization for Non-Geodesic trajectories (single and multi-circuit)
+                pattern_type = st.session_state.trajectory_data.get('pattern_type')
+                is_multi_circuit = pattern_type == 'Multi-Circuit Non-Geodesic'
+                
+                if is_multi_circuit:
+                    st.subheader("🔬 Multi-Circuit Non-Geodesic 3D Pattern")
+                else:
+                    st.subheader("🔬 Non-Geodesic 3D Trajectory")
                 
                 if all(key in st.session_state.trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
                     try:
@@ -669,16 +698,55 @@ def trajectory_planning_page():
                         # Create 3D trajectory plot
                         fig = go.Figure()
                         
-                        # Add trajectory line
-                        fig.add_trace(go.Scatter3d(
-                            x=x_data,
-                            y=y_data,
-                            z=z_data,
-                            mode='lines+markers',
-                            line=dict(color='red', width=6),
-                            marker=dict(size=3, color='darkred'),
-                            name='Non-Geodesic Path'
-                        ))
+                        # Add trajectory line(s)
+                        if is_multi_circuit:
+                            # For multi-circuit, use different colors for each circuit
+                            num_circuits = st.session_state.trajectory_data.get('number_of_circuits', 1)
+                            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 'magenta', 'yellow']
+                            
+                            # Group points by circuit if available
+                            path_points = st.session_state.trajectory_data.get('path_points', [])
+                            if path_points and 'circuit' in path_points[0]:
+                                # Points have circuit information
+                                for circuit_idx in range(num_circuits):
+                                    circuit_points = [p for p in path_points if p.get('circuit') == circuit_idx]
+                                    if circuit_points:
+                                        circuit_x = [p['x'] for p in circuit_points]
+                                        circuit_y = [p['y'] for p in circuit_points]
+                                        circuit_z = [p['z'] for p in circuit_points]
+                                        
+                                        color = colors[circuit_idx % len(colors)]
+                                        fig.add_trace(go.Scatter3d(
+                                            x=circuit_x,
+                                            y=circuit_y,
+                                            z=circuit_z,
+                                            mode='lines+markers',
+                                            line=dict(color=color, width=4),
+                                            marker=dict(size=2, color=color),
+                                            name=f'Circuit {circuit_idx + 1}'
+                                        ))
+                            else:
+                                # Fallback: treat as single continuous path
+                                fig.add_trace(go.Scatter3d(
+                                    x=x_data,
+                                    y=y_data,
+                                    z=z_data,
+                                    mode='lines+markers',
+                                    line=dict(color='red', width=4),
+                                    marker=dict(size=2, color='darkred'),
+                                    name=f'Multi-Circuit Pattern ({num_circuits} circuits)'
+                                ))
+                        else:
+                            # Single circuit
+                            fig.add_trace(go.Scatter3d(
+                                x=x_data,
+                                y=y_data,
+                                z=z_data,
+                                mode='lines+markers',
+                                line=dict(color='red', width=6),
+                                marker=dict(size=3, color='darkred'),
+                                name='Non-Geodesic Path'
+                            ))
                         
                         # Add vessel geometry outline
                         vessel_r = st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3
@@ -707,8 +775,15 @@ def trajectory_planning_page():
                         ))
                         
                         # Update layout
+                        friction_coeff = st.session_state.trajectory_data.get('friction_coefficient', 0)
+                        if is_multi_circuit:
+                            num_circuits = st.session_state.trajectory_data.get('number_of_circuits', 1)
+                            title = f"🔬 Multi-Circuit Non-Geodesic Pattern ({num_circuits} circuits, μ={friction_coeff:.2f})"
+                        else:
+                            title = f"🔬 Non-Geodesic Trajectory (μ={friction_coeff:.2f})"
+                            
                         fig.update_layout(
-                            title=f"🔬 Non-Geodesic Trajectory (μ={st.session_state.trajectory_data.get('friction_coefficient', 0):.2f})",
+                            title=title,
                             scene=dict(
                                 xaxis_title="X (m)",
                                 yaxis_title="Y (m)", 
@@ -722,16 +797,35 @@ def trajectory_planning_page():
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Display trajectory statistics with kink warnings
-                        st.write("**Non-Geodesic Trajectory Statistics:**")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Points", len(x_data))
-                        with col2:
-                            friction_coeff = st.session_state.trajectory_data.get('friction_coefficient', 0)
-                            st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
-                        with col3:
-                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
-                            st.metric("Target Angle", f"{target_angle}°")
+                        if is_multi_circuit:
+                            st.write("**Multi-Circuit Non-Geodesic Pattern Statistics:**")
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Total Points", len(x_data))
+                            with col2:
+                                st.metric("Number of Circuits", st.session_state.trajectory_data.get('number_of_circuits', 1))
+                            with col3:
+                                st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
+                            with col4:
+                                target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
+                                st.metric("Target Angle", f"{target_angle}°")
+                            
+                            # Show kink summary for multi-circuit
+                            total_kinks = st.session_state.trajectory_data.get('total_kinks', 0)
+                            if total_kinks > 0:
+                                st.warning(f"⚠️ **Total kinks detected:** {total_kinks} across all circuits")
+                            else:
+                                st.success("✅ **No kinks detected** - Pattern is physically realizable")
+                        else:
+                            st.write("**Non-Geodesic Trajectory Statistics:**")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Points", len(x_data))
+                            with col2:
+                                st.metric("Friction Coefficient", f"μ = {friction_coeff:.2f}")
+                            with col3:
+                                target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
+                                st.metric("Target Angle", f"{target_angle}°")
                             
                     except Exception as e:
                         st.error(f"Error creating 3D visualization: {str(e)}")
