@@ -273,6 +273,7 @@ def trajectory_planning_page():
                 pattern_mode = st.radio(
                     "Pattern Mode:",
                     ["Single Circuit", "Multi-Circuit Pattern"],
+                    key="non_geodesic_pattern_mode",
                     help="Single circuit for testing, multi-circuit for full coverage"
                 )
             with col2:
