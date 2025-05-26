@@ -261,16 +261,36 @@ def trajectory_planning_page():
                 default_total = 10
                 default_generate = 6
             
+            # Roving parameters first
+            col_roving1, col_roving2 = st.columns(2)
+            with col_roving1:
+                roving_width = st.number_input("Roving Width (mm)", min_value=1.0, max_value=20.0, value=3.0, step=0.1,
+                                             help="Dry roving width in millimeters")
+                roving_thickness = st.number_input("Roving Thickness (μm)", min_value=50, max_value=1000, value=200, step=10,
+                                                 help="Dry roving thickness in micrometers")
+            with col_roving2:
+                polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, max_value=10.0, value=0.0, step=0.1,
+                                                    help="Polar opening eccentricity for asymmetric domes")
+                target_angle = st.selectbox("Target Winding Angle", 
+                                           options=["Auto (Geometric Limit)", "20°", "25°", "30°", "35°", "40°", "45°"],
+                                           help="Target winding angle at equator")
+
             # Pattern configuration
             col_pattern1, col_pattern2 = st.columns(2)
             with col_pattern1:
-                # Get real Koussios calculations to set proper limits
+                # Get real Koussios calculations to set proper limits (updates with roving width changes)
                 if st.session_state.vessel_geometry is not None:
                     try:
-                        planner = TrajectoryPlanner(st.session_state.vessel_geometry)
+                        # Create planner with current roving parameters
+                        planner = TrajectoryPlanner(st.session_state.vessel_geometry, 
+                                                  dry_roving_width_m=roving_width*1e-3,
+                                                  dry_roving_thickness_m=roving_thickness*1e-3)
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         max_theoretical = max(100, int(pattern_info['n_bands_target'] * 2))  # Allow 2x theoretical for flexibility
                         recommended_circuits = pattern_info['recommended_solution']['p_circuits']
+                        
+                        # Show real-time update message
+                        st.info(f"🔄 **Live Calculation**: With {roving_width}mm roving → {pattern_info['n_bands_target']} optimal bands → {recommended_circuits} circuits needed")
                     except:
                         max_theoretical = 100
                         recommended_circuits = default_total
@@ -298,7 +318,10 @@ def trajectory_planning_page():
                 # Show Koussios pattern insights when vessel geometry is available
                 if st.session_state.vessel_geometry is not None:
                     try:
-                        planner = TrajectoryPlanner(st.session_state.vessel_geometry)
+                        # Use current roving parameters for live calculations
+                        planner = TrajectoryPlanner(st.session_state.vessel_geometry,
+                                                  dry_roving_width_m=roving_width*1e-3,
+                                                  dry_roving_thickness_m=roving_thickness*1e-3)
                         pattern_info = planner.calculate_koussios_pattern_parameters()
                         
                         with st.expander("📊 Koussios Pattern Analysis", expanded=False):
@@ -343,14 +366,7 @@ def trajectory_planning_page():
                     except:
                         pass  # Don't show if planner can't be created yet
             
-            # Roving parameters
-            st.markdown("### 🧵 Roving Properties")
-            col_rov1, col_rov2 = st.columns(2)
-            with col_rov1:
-                roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
-                roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
-            with col_rov2:
-                polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+
             
             # Target angle configuration
             st.markdown("### 🎯 Target Winding Angle")
