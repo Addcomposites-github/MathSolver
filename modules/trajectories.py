@@ -425,6 +425,24 @@ class TrajectoryPlanner:
             # Euler step
             sin_alpha_new = sin_alpha_prev + direction * derivative * dz
             
+            # Detect and flag potential kinks
+            delta_sin_alpha = abs(sin_alpha_new - sin_alpha_prev)
+            rho_current = profile_r_m[current_idx]
+            
+            # Flag problematic changes near dome openings
+            if delta_sin_alpha > 0.15 and rho_current < 0.06:  # 60mm from axis
+                if not hasattr(self, '_kink_warnings'):
+                    self._kink_warnings = []
+                
+                self._kink_warnings.append({
+                    'location': 'dome_opening',
+                    'rho_mm': rho_current * 1000,
+                    'z_mm': profile_z_m[current_idx] * 1000,
+                    'delta_sin_alpha': delta_sin_alpha,
+                    'friction_coeff': self.mu_friction_coefficient,
+                    'message': f"Potential kink detected: Δsin(α)={delta_sin_alpha:.3f} at ρ={rho_current*1000:.1f}mm"
+                })
+            
             # Clamp to valid range and apply physical constraints
             sin_alpha_values[current_idx] = np.clip(sin_alpha_new, 0.0, 1.0)
         

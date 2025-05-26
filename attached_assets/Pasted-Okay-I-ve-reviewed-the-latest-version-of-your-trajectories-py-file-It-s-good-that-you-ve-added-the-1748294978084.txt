@@ -1,0 +1,532 @@
+Okay, I've reviewed the latest version of your trajectories.py file. It's good that you've added the mu_friction_coefficient to the __init__ and included stubs for the non-geodesic methods.
+
+You're observing "kinks" in the non-geodesic profiles near the dome openings even with high friction. This often happens when the calculated winding angle changes too abruptly for the fiber to physically follow, or if the underlying math for path deviation isn't being constrained correctly by the physical limits of friction and geometry.
+
+Here's a breakdown of potential causes and how to address them, along with a plan for flagging these "kinks":
+
+Potential Causes for "Kinks" in Non-Geodesic Paths Near Dome Openings:
+
+Numerical Instability in Surface Property Calculation:
+
+The calculation of curvatures (k 
+m
+​
+ , k 
+p
+​
+ ) and E 
+′
+  (which is d(ρ 
+2
+ )/dz) in _get_surface_properties_at_profile_index relies on numerical differentiation (np.gradient). If the input profile_z_m points are not sufficiently dense or are noisy in the dome region (where geometry changes rapidly), these derivatives can be inaccurate or oscillatory. This is especially true for the second derivative (d 
+2
+ ρ/dz 
+2
+ ) needed for k 
+m
+​
+ .
+Kink Symptom: Sudden, large changes in calculated curvatures can lead to the differential equation for sin(alpha) producing sharp, unrealistic turns in the winding angle.
+Numerical Integration of the Winding Angle ODE:
+
+The current Euler-like integration in _solve_non_geodesic_sin_alpha_profile (stepping along the given profile points, where dz_step can vary) might be too coarse or unstable where the coefficients of the ODE change rapidly (i.e., near poles or high curvature areas).
+Kink Symptom: The winding angle might "overshoot" or "undershoot" significantly between profile points, leading to a path that appears to jump or kink when interpolated.
+Physical Impossibility (Slippage Condition Violation):
+
+Even with a high mu_friction_coefficient, the geometry of the dome and the desired winding angle change might require a geodesic curvature (k 
+g
+​
+ ) that, when combined with the normal curvature (k 
+n
+​
+ ), violates the fundamental slippage condition: ∣k 
+g
+​
+ /k 
+n
+​
+ ∣≤μ.
+The differential equation for sin(alpha) (Koussios Eq. 5.62) implicitly tries to satisfy k 
+g
+​
+ =μ⋅k 
+n
+​
+ . However, if the terms involving k 
+m
+​
+ ,k 
+p
+​
+ ,E 
+′
+  become extreme or ill-defined, the solution can become unphysical.
+Kink Symptom: The calculated path might show an abrupt change in direction because the math is trying to force a turn that friction cannot support, even if mu is high. This could manifest as the winding angle solution hitting its bounds (sin(α)=±1) very sharply or trying to exceed them.
+Turnaround Logic for Non-Geodesics:
+
+For non-geodesic paths, the "turnaround" isn't necessarily at a fixed radius c_eff like in geodesics. The path turns when the calculated winding angle α naturally reaches 90 
+∘
+  (or is forced to by the physical end of the mandrel). If the integration forces α to 90 
+∘
+  very suddenly due to numerical issues, it will appear as a kink.
+Plan to Address Kinks and Implement Flagging:
+
+Step 1: Improve Robustness of _get_surface_properties_at_profile_index
+
+This is the most critical first step. Noisy or inaccurate derivatives will doom any downstream calculation.
+
+Resample Profile for Derivatives (Optional but Recommended): Before calculating derivatives, ensure your profile_z_m_calc and profile_r_m_calc are sorted by z and reasonably smooth. You might consider fitting a smoothing spline to rho(z) for each segment (dome, cylinder) before taking derivatives if the input profile from _resample_segment_adaptive is still not smooth enough for stable second derivatives.
+Derivative Calculation:
+For dρ/dz: d_rho_dz_all = np.gradient(profile_r_m_calc, profile_z_m_calc, edge_order=2) is a good start.
+For d 
+2
+ ρ/dz 
+2
+ : d2_rho_dz2_all = np.gradient(d_rho_dz_all, profile_z_m_calc, edge_order=2) is also standard.
+Crucial: Inspect these derivative arrays visually (plot them against profile_z_m_calc) to ensure they are smooth and physically sensible. If they are very noisy, especially d 
+2
+ ρ/dz 
+2
+ , the kinks are almost guaranteed.
+Alternative for Smoother Derivatives:
+scipy.interpolate.UnivariateSpline with a smoothing factor s can be fitted to profile_r_m_calc vs profile_z_m_calc. Then you can use its .derivative(n=1) and .derivative(n=2) methods.
+Python
+
+# Example using UnivariateSpline within _get_surface_properties_at_profile_index
+# This would ideally be done once for the whole profile, then queried.
+# from scipy.interpolate import UnivariateSpline
+# spline = UnivariateSpline(profile_z_m, profile_r_m, s=0.001) # s is smoothing factor
+# d_rho_dz = spline.derivative(n=1)(z_i)
+# d2_rho_dz2 = spline.derivative(n=2)(z_i)
+Handle Vertical Tangents in Curvature Calculations:
+When dρ/dz→∞ (vertical tangent, e.g., at the equator of a standard dome, or if profile_z_m has duplicate values), G becomes very large or infinite.
+At such points, k 
+m
+​
+  (which depends on ρ 
+′′
+ ) is better calculated using d 
+2
+ z/dρ 
+2
+  if you switch parameterization, or it tends to zero if the meridian is locally straight in the axial view. k 
+p
+​
+ =1/(ρ 
+1+(dρ/dz) 
+−2
+ 
+
+​
+ ) which becomes 1/ρ if dρ/dz→∞.
+The current code has if np.isinf(d_rho_dz): k_m = 0; k_p = 1.0 / rho_i if rho_i > 0 else np.inf. This is a reasonable approximation for a cylindrical section tangent. Ensure this is robust for dome equators.
+Step 2: Implement RK4 for _solve_non_geodesic_sin_alpha_profile
+
+The Euler method with variable step sizes (implicit in your current loop) is prone to error accumulation.
+
+You will need:
+A function that defines the ODE: ds_alpha_dz = f(z, sin_alpha, params) where params would include mu and the functions/interpolators for ρ(z), dρ/dz(z), d 
+2
+ ρ/dz 
+2
+ (z) needed to calculate E,G,k 
+m
+​
+ ,k 
+p
+​
+ .
+An RK4 integration loop that steps through z with a defined step size h_z.
+Python
+
+# Conceptual RK4 structure in TrajectoryPlanner
+    def _sin_alpha_ode_dz(self, z_val: float, current_sin_alpha: float, 
+                          rho_of_z_func, drho_dz_func, d2rho_dz2_func) -> float:
+        """
+        Calculates d(sin_alpha)/dz for the non-geodesic equation.
+        Requires functions to get rho and its derivatives at any z.
+        """
+        rho_at_z = rho_of_z_func(z_val)
+        if rho_at_z is None or rho_at_z < 1e-7: # Avoid issues at pole
+            return 0.0 
+
+        d_rho_dz = drho_dz_func(z_val)
+        d2_rho_dz2 = d2rho_dz2_func(z_val)
+
+        # Calculate E, G, E_prime_dz, k_m, k_p based on rho_at_z, d_rho_dz, d2_rho_dz2
+        # This part needs to be factored out or carefully implemented to avoid code duplication
+        # with _get_surface_properties_at_profile_index, but generalized for arbitrary z.
+
+        E_val = rho_at_z**2
+        # Handle d_rho_dz == inf for G_val and curvatures carefully
+        if np.isinf(d_rho_dz):
+            G_sqrt = np.inf # effectively
+            k_m_val = 0
+            k_p_val = 1.0 / rho_at_z if rho_at_z > 1e-9 else np.inf
+            E_prime_val = 0 # as dz is the independent variable, d(rho^2)/dz can be finite or infinite
+        else:
+            G_val = 1 + d_rho_dz**2
+            if G_val < 1e-9: return 0.0 # Avoid sqrt of zero or negative if d_rho_dz is complex/nan
+            G_sqrt = math.sqrt(G_val)
+            k_m_val = -d2_rho_dz2 / (G_val**1.5) if G_val > 1e-9 else 0
+            k_p_val = 1.0 / (rho_at_z * G_sqrt) if rho_at_z * G_sqrt > 1e-9 else (np.inf if rho_at_z == 0 else 0)
+            E_prime_val = 2 * rho_at_z * d_rho_dz
+
+        # Coefficients for (sin_alpha)' = A_c * sin_alpha^2 + B_c * sin_alpha + C_c
+        # Ensure G_sqrt is not excessively large if G itself was infinite
+        if np.isinf(G_sqrt): G_sqrt_safe = 1e6 # Heuristic cap
+        else: G_sqrt_safe = G_sqrt
+
+        A_c = self.mu_friction_coefficient * G_sqrt_safe * (k_p_val - k_m_val)
+        B_c = -0.5 * (E_prime_val / E_val) if E_val > 1e-9 else 0
+        C_c = self.mu_friction_coefficient * G_sqrt_safe * k_m_val
+        
+        # Clamp extreme coefficients that might result from numerical differentiation issues
+        A_c = np.clip(A_c, -1e4, 1e4)
+        B_c = np.clip(B_c, -1e4, 1e4)
+        C_c = np.clip(C_c, -1e4, 1e4)
+
+        d_sin_alpha_dz = A_c * current_sin_alpha**2 + B_c * current_sin_alpha + C_c
+        return d_sin_alpha_dz
+
+    def _solve_non_geodesic_sin_alpha_profile_rk4(self,
+                                               profile_r_m: np.ndarray,
+                                               profile_z_m: np.ndarray,
+                                               initial_sin_alpha: float,
+                                               is_forward_on_profile: bool,
+                                               num_steps_override: Optional[int] = None) -> Optional[np.ndarray]:
+        if self.mu_friction_coefficient == 0.0:
+            # ... (geodesic fallback as before) ...
+            return self._solve_non_geodesic_sin_alpha_profile(profile_r_m, profile_z_m, initial_sin_alpha, is_forward_on_profile)
+
+
+        # Create interpolators for rho(z) and its derivatives from the profile data
+        # This is essential for RK4 which needs function evaluations at intermediate points
+        # Ensure z is monotonic for standard interpolation
+        sorted_indices = np.argsort(profile_z_m)
+        z_sorted = profile_z_m[sorted_indices]
+        r_sorted = profile_r_m[sorted_indices]
+
+        # Remove duplicate z values for spline fitting
+        unique_z_indices = np.where(np.diff(z_sorted, prepend=np.nan) != 0)[0]
+        if len(unique_z_indices) < 4 : # Need at least k+1 points for spline of degree k
+            print("WARN: Not enough unique z-points for robust spline fitting. Using Euler-like step.")
+            return self._solve_non_geodesic_sin_alpha_profile(profile_r_m, profile_z_m, initial_sin_alpha, is_forward_on_profile) # Fallback
+
+
+        z_unique = z_sorted[unique_z_indices]
+        r_unique = r_sorted[unique_z_indices]
+        
+        try:
+            # s= len(z_unique) - math.sqrt(2*len(z_unique)) # Heuristic smoothing
+            s_smoothing = len(z_unique) * ( (np.std(r_unique) / (np.max(r_unique) - np.min(r_unique)))**2 ) if len(z_unique)>1 and (np.max(r_unique) - np.min(r_unique)) > 1e-6 else 0.01
+            s_smoothing = max(s_smoothing, 0.001) # Ensure some smoothing if std is zero
+            # print(f"DEBUG RK4: Using spline smoothing s={s_smoothing}")
+
+            rho_of_z_spline = UnivariateSpline(z_unique, r_unique, k=3, s=s_smoothing) # Smoothing cubic spline
+            drho_dz_spline = rho_of_z_spline.derivative(n=1)
+            d2rho_dz2_spline = rho_of_z_spline.derivative(n=2)
+        except Exception as e:
+            print(f"ERROR: Spline fitting failed for non-geodesic alpha: {e}. Falling back to Euler-like step.")
+            return self._solve_non_geodesic_sin_alpha_profile(profile_r_m, profile_z_m, initial_sin_alpha, is_forward_on_profile)
+
+
+        z_start, z_end = (profile_z_m[0], profile_z_m[-1]) if is_forward_on_profile else (profile_z_m[-1], profile_z_m[0])
+        
+        # Determine number of steps for RK4
+        # Use a fixed number of steps or derive from average dz of the input profile
+        if num_steps_override:
+            num_rk4_steps = num_steps_override
+        else:
+            avg_dz = np.mean(np.abs(np.diff(profile_z_m)))
+            num_rk4_steps = int(abs(z_end - z_start) / max(avg_dz / 5, 1e-5)) # 5x finer than profile avg
+            num_rk4_steps = max(num_rk4_steps, len(profile_r_m) * 2) # At least 2x profile points
+            num_rk4_steps = min(num_rk4_steps, 10000) # Cap max steps
+
+        if num_rk4_steps <=0 : 
+            print(f"WARN RK4: num_rk4_steps is {num_rk4_steps}. Defaulting to 100.")
+            num_rk4_steps = 100
+
+
+        h_z = (z_end - z_start) / num_rk4_steps
+        
+        z_rk4_points = np.linspace(z_start, z_end, num_rk4_steps + 1)
+        sin_alpha_rk4_values = np.zeros(num_rk4_steps + 1)
+        sin_alpha_rk4_values[0] = initial_sin_alpha
+
+        for i in range(num_rk4_steps):
+            z_curr = z_rk4_points[i]
+            sa_curr = sin_alpha_rk4_values[i]
+
+            k1 = h_z * self._sin_alpha_ode_dz(z_curr, sa_curr, rho_of_z_spline, drho_dz_spline, d2rho_dz2_spline)
+            k2 = h_z * self._sin_alpha_ode_dz(z_curr + h_z/2, sa_curr + k1/2, rho_of_z_spline, drho_dz_spline, d2rho_dz2_spline)
+            k3 = h_z * self._sin_alpha_ode_dz(z_curr + h_z/2, sa_curr + k2/2, rho_of_z_spline, drho_dz_spline, d2rho_dz2_spline)
+            k4 = h_z * self._sin_alpha_ode_dz(z_curr + h_z, sa_curr + k3, rho_of_z_spline, drho_dz_spline, d2rho_dz2_spline)
+            
+            sin_alpha_rk4_values[i+1] = np.clip(sa_curr + (k1 + 2*k2 + 2*k3 + k4)/6.0, -1.0, 1.0)
+
+        # Now, interpolate these RK4-solved sin_alpha values back onto the original profile_z_m points
+        # Ensure z_rk4_points is monotonic for interpolation
+        if not np.all(np.diff(z_rk4_points) >= 0) and not np.all(np.diff(z_rk4_points) <= 0):
+            print("ERROR RK4: z_rk4_points not monotonic, cannot interpolate back.")
+            # Fallback to Euler-like results
+            return self._solve_non_geodesic_sin_alpha_profile(profile_r_m, profile_z_m, initial_sin_alpha, is_forward_on_profile)
+
+        # Use the original z-coordinates for the output, but they might not be monotonic if the leg reverses axially
+        # The output should correspond to the input profile_z_m indices
+        final_sin_alpha_profile = np.interp(profile_z_m, z_rk4_points, sin_alpha_rk4_values)
+        
+        # If original profile_z_m was not monotonic (e.g. for reverse pass), need to handle interpolation carefully
+        # For now, assuming profile_z_m represents a monotonic axial sweep for the purpose of this alpha solution
+        # The is_forward_on_profile flag handles the direction of solving along this sweep.
+        # The output sin_alpha_profile must match the order of the input profile_r_m, profile_z_m.
+        # If is_forward_on_profile is False, z_rk4_points goes from z_end to z_start.
+        # Interpolation needs monotonic x. So, if h_z is negative, flip z_rk4 and sin_alpha_rk4 for interp.
+        if h_z < 0:
+            final_sin_alpha_profile = np.interp(profile_z_m, z_rk4_points[::-1], sin_alpha_rk4_values[::-1])
+        else:
+            final_sin_alpha_profile = np.interp(profile_z_m, z_rk4_points, sin_alpha_rk4_values)
+
+
+        return final_sin_alpha_profile
+You'll need to import from scipy.interpolate import UnivariateSpline.
+
+Step 3: Implement Kink Detection/Flagging
+
+After generating a leg (either geodesic or non-geodesic), you can check for kinks.
+
+Curvature of the 3D Path: Calculate the 3D curvature (k 
+t
+​
+ ) of the generated fiber path (x 
+m
+​
+ ,y 
+m
+​
+ ,z 
+m
+​
+ ). A sudden large spike in k 
+t
+​
+  indicates a kink.
+You can use Frenet-Serret formulas. For discrete points P 
+i−1
+​
+ ,P 
+i
+​
+ ,P 
+i+1
+​
+ :
+Tangent T 
+i
+​
+ ≈(P 
+i+1
+​
+ −P 
+i−1
+​
+ )/∣∣P 
+i+1
+​
+ −P 
+i−1
+​
+ ∣∣
+dT/ds≈(T 
+i+1
+​
+ −T 
+i
+​
+ )/∣∣P 
+i+1
+​
+ −P 
+i
+​
+ ∣∣ (approximate arc length ds)
+k 
+t
+​
+ ≈∣∣dT/ds∣∣
+Rate of Change of Winding Angle: A very large change in alpha_rad between closely spaced points on the mandrel surface can also indicate a problem or a region where the path is forced to turn sharply. Δα/Δs 
+meridional
+​
+ .
+Slippage Check (for non-geodesic): After calculating the non-geodesic path and its actual winding angle α(s) and thus its geodesic curvature k 
+g
+​
+ (s):
+Calculate the normal curvature of the surface k 
+n
+​
+ (s) along this path (Koussios Eq. 5.39: k 
+n
+​
+ =k 
+m
+​
+ cos 
+2
+ α+k 
+p
+​
+ sin 
+2
+ α).
+Check if ∣k 
+g
+​
+ (s)∣>μ⋅∣k 
+n
+​
+ (s)∣ at any point. If this condition is violated, the path is physically impossible, and a "kink" is likely where the solver tried to achieve it.
+Note: _solve_non_geodesic_sin_alpha_profile tries to make k 
+g
+​
+ =μ⋅k 
+n
+​
+ . So, if this check fails, it's likely due to numerical errors in k 
+m
+​
+ ,k 
+p
+​
+ ,E 
+′
+ ,G 
+′
+  making k 
+n
+​
+  too small or zero when k 
+g
+​
+  is non-zero.
+Python
+
+# Add to TrajectoryPlanner class
+
+    def check_path_for_kinks(self, trajectory_leg_data: Dict, kink_threshold_curvature: float = 500.0, kink_threshold_delta_alpha_ds : float = 1.0) -> List[Dict]:
+        """
+        Checks a generated 3D path for kinks based on high local 3D curvature
+        or rapid change in winding angle along the meridional path.
+
+        Parameters:
+        -----------
+        trajectory_leg_data : Dict
+            A dictionary for a single leg containing 'x_m', 'y_m', 'z_m', 'alpha_rad', 'rho_m'.
+        kink_threshold_curvature : float
+            Threshold for 3D path curvature (1/m) to flag a kink.
+        kink_threshold_delta_alpha_ds : float
+             Threshold for d(alpha)/ds_meridional (rad/m) to flag a kink.
+
+
+        Returns:
+        --------
+        List[Dict] :
+            A list of dictionaries, each indicating a potential kink.
+            e.g., [{'index': i, 'reason': 'High 3D Curvature', 'value': kt_val}]
+        """
+        kinks = []
+        if not trajectory_leg_data or len(trajectory_leg_data['x_m']) < 3:
+            return kinks
+
+        x = np.array(trajectory_leg_data['x_m'])
+        y = np.array(trajectory_leg_data['y_m'])
+        z = np.array(trajectory_leg_data['z_m'])
+        alpha = np.array(trajectory_leg_data['alpha_rad'])
+        rho = np.array(trajectory_leg_data['rho_m'])
+        
+        profile_z_coords = np.array(trajectory_leg_data['z_m']) # Assuming z is meridional progression for this
+        profile_rho_coords = np.array(trajectory_leg_data['rho_m'])
+
+
+        for i in range(1, len(x) - 1):
+            # 1. Check 3D Path Curvature
+            P0 = np.array([x[i-1], y[i-1], z[i-1]])
+            P1 = np.array([x[i],   y[i],   z[i]])
+            P2 = np.array([x[i+1], y[i+1], z[i+1]])
+
+            v1 = P1 - P0
+            v2 = P2 - P1
+            ds1 = np.linalg.norm(v1)
+            ds2 = np.linalg.norm(v2)
+
+            if ds1 < 1e-9 or ds2 < 1e-9:
+                continue
+
+            T0 = v1 / ds1
+            T1 = v2 / ds2
+            
+            dT = T1 - T0
+            avg_ds = (ds1 + ds2) / 2.0
+            
+            if avg_ds < 1e-9:
+                kt_val = 0.0
+            else:
+                kt_val = np.linalg.norm(dT) / avg_ds
+            
+            if kt_val > kink_threshold_curvature:
+                kinks.append({'index_3d_path': i, 'reason': 'High 3D Path Curvature', 'value': kt_val, 'z_coord': z[i]})
+
+            # 2. Check Rate of Change of Winding Angle alpha (angle with meridian)
+            # This needs ds along the *meridian* of the mandrel, not the 3D fiber path
+            # This assumes points in trajectory_leg_data correspond sequentially to mandrel profile points
+            # which is true for how _generate_geodesic_leg and _generate_non_geodesic_leg are structured.
+            
+            # Meridional distance between point i and i-1 on the input profile
+            d_rho_profile_seg = profile_rho_coords[i] - profile_rho_coords[i-1]
+            d_z_profile_seg = profile_z_coords[i] - profile_z_coords[i-1]
+            ds_meridional_seg = math.sqrt(d_rho_profile_seg**2 + d_z_profile_seg**2)
+
+            if ds_meridional_seg > 1e-9:
+                delta_alpha = abs(alpha[i] - alpha[i-1])
+                rate_change_alpha = delta_alpha / ds_meridional_seg
+                if rate_change_alpha > kink_threshold_delta_alpha_ds:
+                    kinks.append({'index_profile_point': i, 'reason': 'Rapid Alpha Change', 'value': rate_change_alpha, 'z_coord': z[i]})
+        
+        # 3. (For Non-Geodesic) Check Slippage Condition |k_g| <= mu * |k_n|
+        # This requires calculation of k_g and k_n along the generated non-geodesic path.
+        # k_g = (cos α / sqrt(G)) * (dα/ds_meridional + (1/2) * (E'/E) * (sin α / cos α))
+        # k_n = k_m * cos^2(α) + k_p * sin^2(α)
+        # This is more involved as it requires surface properties along the path.
+        # If self.mu_friction_coefficient > 0 and "non-geodesic" in trajectory_leg_data.get('type', ''):
+             # for i in range(len(alpha)):
+                 # get G, E', E, k_m, k_p at point i on mandrel
+                 # calculate current alpha[i]
+                 # calculate d_alpha_ds_meridional numerically
+                 # calculate k_g_val and k_n_val
+                 # if abs(k_g_val) > self.mu_friction_coefficient * abs(k_n_val) + some_tolerance:
+                 #     kinks.append({'index': i, 'reason': 'Slippage Condition Violation', ...})
+
+        return kinks
+
+# --- Example of how to call it after generating a leg ---
+# leg_data = planner._generate_non_geodesic_leg(...)
+# if leg_data:
+#     detected_kinks = planner.check_path_for_kinks(leg_data)
+#     if detected_kinks:
+#         print(f"WARNING: Potential kinks/instabilities detected in generated leg:")
+#         for kink_info in detected_kinks:
+#             print(f"  - At approx z={kink_info['z_coord']:.4f}m: {kink_info['reason']} (Value: {kink_info['value']:.2f})")
+
+Next Steps for You:
+
+Implement Robust Derivatives: Update _get_surface_properties_at_profile_index with spline fitting for ρ(z) and its derivatives, or at least use np.gradient more carefully and inspect its output for smoothness.
+Implement RK4 Solver: Replace the Euler-like loop in _solve_non_geodesic_sin_alpha_profile with an RK4 integrator. This will require the _sin_alpha_ode_dz function to correctly use the interpolated surface properties (from the splines created in step 1).
+Test Non-Geodesic Generation: With these improvements, test generate_non_geodesic_trajectory again with various mu_friction_coefficient values and different initial_alpha_at_first_pole_deg.
+Integrate Kink Detection: After generating each leg in generate_non_geodesic_trajectory (and even _generate_geodesic_leg if you want to be thorough), call check_path_for_kinks and print warnings. This will help pinpoint where the trajectory generation is struggling.
+The "kink" near the dome opening with high friction for non-geodesic paths strongly suggests that either the calculated surface curvatures (k 
+m
+​
+ ,k 
+p
+​
+ ) are problematic in that region, or the numerical solution to the winding angle equation is becoming unstable there. Improving the derivative calculations (Step 1) is usually the highest impact fix.

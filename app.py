@@ -474,6 +474,20 @@ def trajectory_planning_page():
                     if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                         st.session_state.trajectory_data = trajectory_data
                         st.success(f"🎯 Single circuit trajectory calculated successfully! Generated {len(trajectory_data['path_points'])} points")
+                        
+                        # Check for physics warnings in non-geodesic mode
+                        if hasattr(planner, '_kink_warnings') and planner._kink_warnings:
+                            dome_kinks = [w for w in planner._kink_warnings if w['location'] == 'dome_opening']
+                            if dome_kinks:
+                                st.error(f"⚠️ **Physics Warning: {len(dome_kinks)} kinks detected near dome openings!**")
+                                st.markdown("**These represent mathematical limitations where the physics becomes impossible:**")
+                                
+                                with st.expander("📊 View Kink Analysis", expanded=True):
+                                    for i, kink in enumerate(dome_kinks[:3]):  # Show first 3
+                                        st.markdown(f"**Kink #{i+1}:** {kink['rho_mm']:.1f}mm from axis, Δsin(α)={kink['delta_sin_alpha']:.3f}")
+                                
+                                st.info("💡 **Try:** Lower target angle, increase friction coefficient, or use geodesic patterns")
+                            planner._kink_warnings = []  # Clear for next calculation
                 
                 elif pattern_type == "Non-Geodesic":
                     st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
