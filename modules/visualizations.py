@@ -221,12 +221,12 @@ class VesselVisualizer:
         if not path_points:
             return
             
-        # Extract coordinates
-        theta_traj = [p.get('theta', 0) for p in path_points if 'theta' in p]
+        # Extract coordinates - handle both phi and theta
+        phi_traj = [p.get('phi', p.get('theta', 0)) for p in path_points if 'z' in p]
         z_traj = [p['z'] for p in path_points if 'z' in p]
         
-        # Convert theta to degrees for better readability
-        theta_deg = [math.degrees(t) for t in theta_traj]
+        # Convert phi to degrees for better readability
+        theta_deg = [math.degrees(t) for t in phi_traj]
         
         # Color by circuit if available
         if any('circuit' in p for p in path_points):
