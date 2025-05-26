@@ -382,17 +382,17 @@ def trajectory_planning_page():
                         'mandrel_speed': mandrel_speed,
                         'carriage_speed': carriage_speed
                     }
-                
-                if pattern_type in ["Helical", "Transitional"]:
-                    trajectory_params['winding_angle'] = winding_angle
-                
-                if pattern_type == "Helical":
-                    trajectory_params['circuits_to_close'] = circuits_to_close
-                    trajectory_params['overlap_allowance'] = overlap_allowance
-                
-                trajectory_data = planner.calculate_trajectory(trajectory_params)
-                st.session_state.trajectory_data = trajectory_data
-                st.success("Trajectory calculated successfully!")
+                    
+                    if pattern_type in ["Helical", "Transitional"]:
+                        trajectory_params['winding_angle'] = winding_angle
+                    
+                    if pattern_type == "Helical":
+                        trajectory_params['circuits_to_close'] = circuits_to_close
+                        trajectory_params['overlap_allowance'] = overlap_allowance
+                    
+                    trajectory_data = planner.calculate_trajectory(trajectory_params)
+                    st.session_state.trajectory_data = trajectory_data
+                    st.success("Trajectory calculated successfully!")
                 st.rerun()
                 
             except Exception as e:
@@ -459,15 +459,15 @@ def trajectory_planning_page():
         else:
             st.info("Generate a trajectory first to view visualizations.")
     
-            # Add tabbed interface for detailed analysis
-            if st.session_state.trajectory_data is not None:
-                tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
-            
-                with tab1:
-                    st.header("3D Trajectory Analysis")
-                    st.info("3D trajectory analysis will be displayed here.")
-            
-                with tab2:
+    # Add tabbed interface for detailed analysis
+    if st.session_state.trajectory_data is not None:
+        tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
+        
+        with tab1:
+            st.header("3D Trajectory Analysis")
+            st.info("3D trajectory analysis will be displayed here.")
+        
+        with tab2:
             st.header("2D Trajectory Analysis")
             
             if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:
