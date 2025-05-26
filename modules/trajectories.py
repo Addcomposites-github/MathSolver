@@ -1805,6 +1805,101 @@ class TrajectoryPlanner:
             'alpha_equator_deg': self.alpha_eq_deg
         }
 
+    def _generate_geodesic_leg(self, profile_r_m, profile_z_m, c_for_winding, 
+                              start_phi_rad, is_forward_on_profile=True, leg_number=""):
+        """
+        Generate a single geodesic leg along the vessel profile.
+        
+        Parameters:
+        -----------
+        profile_r_m : array
+            Vessel radius profile in meters
+        profile_z_m : array  
+            Vessel z-coordinate profile in meters
+        c_for_winding : float
+            Clairaut's constant for this trajectory
+        start_phi_rad : float
+            Starting phi angle for this leg
+        is_forward_on_profile : bool
+            True for forward direction, False for reverse
+        leg_number : str
+            Identifier for this leg
+            
+        Returns:
+        --------
+        Dict : Leg trajectory data including path points
+        """
+        path_points = []
+        current_phi = start_phi_rad
+        
+        # Determine profile iteration direction
+        indices = range(len(profile_r_m)) if is_forward_on_profile else range(len(profile_r_m) - 1, -1, -1)
+        
+        # Filter valid points based on Clairaut's constant
+        valid_indices = []
+        for i in indices:
+            if profile_r_m[i] >= c_for_winding - 1e-7:
+                valid_indices.append(i)
+        
+        if not valid_indices:
+            return {'path_points': []}
+        
+        # Generate points along the leg
+        for idx, i in enumerate(valid_indices):
+            rho = profile_r_m[i]
+            z = profile_z_m[i]
+            
+            # Calculate winding angle
+            if rho < c_for_winding + 1e-7:
+                alpha = math.pi / 2.0  # 90 degrees at turning radius
+            else:
+                sin_alpha = c_for_winding / rho
+                sin_alpha = max(-1.0, min(1.0, sin_alpha))  # Clamp to valid range
+                alpha = math.asin(sin_alpha)
+            
+            # Calculate phi increment if not first point
+            if idx > 0:
+                prev_i = valid_indices[idx - 1]
+                prev_rho = profile_r_m[prev_i]
+                prev_z = profile_z_m[prev_i]
+                prev_alpha = path_points[-1]['alpha'] if path_points else alpha
+                
+                # Calculate path increment
+                d_rho = rho - prev_rho
+                d_z = z - prev_z
+                ds = math.sqrt(d_rho**2 + d_z**2)
+                
+                # Calculate phi increment using geodesic equations
+                if ds > 1e-9 and abs(rho) > 1e-8:
+                    rho_avg = (rho + prev_rho) / 2.0
+                    alpha_avg = (alpha + prev_alpha) / 2.0
+                    
+                    if abs(math.cos(alpha_avg)) > 1e-8:
+                        delta_phi = (ds / rho_avg) * math.tan(alpha_avg)
+                        current_phi += delta_phi
+            
+            # Convert to Cartesian coordinates
+            x = rho * math.cos(current_phi)
+            y = rho * math.sin(current_phi)
+            
+            # Store point
+            path_points.append({
+                'rho': rho,
+                'z': z,
+                'alpha': alpha,
+                'phi': current_phi,
+                'x': x,
+                'y': y
+            })
+        
+        return {
+            'path_points': path_points,
+            'leg_number': leg_number,
+            'start_phi': start_phi_rad,
+            'end_phi': current_phi if path_points else start_phi_rad,
+            'num_points': len(path_points)
+        }
+
     def generate_multi_circuit_trajectory(self, 
                                          num_target_circuits_for_pattern: int = 10, 
                                          num_circuits_to_generate_for_vis: int = 5, 
