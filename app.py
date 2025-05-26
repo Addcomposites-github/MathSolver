@@ -363,100 +363,24 @@ def trajectory_planning_page():
                     
             else:
                 st.info("Select 'Geodesic' trajectory pattern to enable 3D visualization.")
-                    base_phi_rad = st.session_state.trajectory_data.get('phi_rad', [])
-                    
-                    # Number of passes to simulate (back-and-forth motion)
-                    st.subheader("Continuous Winding Parameters")
-                    num_passes = st.slider("Number of Passes", min_value=1, max_value=8, value=4, 
-                                         help="Number of pole-to-pole passes to simulate")
-                    
-                    if len(base_rho_m) > 0 and len(base_phi_rad) > 0:
-                        # Enhanced continuous winding with seamless joining points
-                        
-                        # Calculate phi range for one complete pass
-                        delta_phi_one_pass = base_phi_rad[-1] - base_phi_rad[0]
-                        
-                        # Initialize continuous arrays
-                        all_x_coords, all_y_coords, all_z_coords = [], [], []
-                        all_phi_continuous = []
-                        
-                        # Track cumulative phi for perfect continuity
-                        cumulative_phi = 0.0
-                        
-                        for i_pass in range(num_passes):
-                            # Enhanced pass generation with smooth turnaround transitions
-                            if (i_pass % 2) == 0:  # Forward pass (south to north)
-                                pass_rho = np.array(base_rho_m)
-                                pass_z = np.array(base_z_m)
-                                # For forward pass, use original phi progression
-                                pass_phi_relative = np.array(base_phi_rad) - base_phi_rad[0]
-                            else:  # Backward pass (north to south)
-                                pass_rho = np.array(base_rho_m[::-1])
-                                pass_z = np.array(base_z_m[::-1])
-                                # For backward pass, maintain smooth phi continuity
-                                # Use pattern advancement from enhanced polar turnaround
-                                pass_phi_relative = np.array(base_phi_rad[::-1]) - base_phi_rad[-1]
-                                pass_phi_relative = -pass_phi_relative  # Flip direction for return
-                            
-                            # Apply smooth tangent vector continuity at turnarounds
-                            if i_pass > 0:
-                                # Add pattern advancement angle for proper spacing
-                                pattern_advance = (2 * math.pi / num_passes) * 0.5  # Smooth distribution
-                                cumulative_phi += pattern_advance
-                            
-                            # Calculate absolute phi with enhanced continuity
-                            pass_phi_absolute = pass_phi_relative + cumulative_phi
-                            
-                            # Convert to Cartesian coordinates with smooth transitions
-                            pass_x = pass_rho * np.cos(pass_phi_absolute)
-                            pass_y = pass_rho * np.sin(pass_phi_absolute)
-                            
-                            # Enhanced joining point handling with C¹ tangent continuity
-                            if i_pass == 0:
-                                # First pass: include all points
-                                start_idx = 0
-                            else:
-                                # Subsequent passes: ensure tangent vector continuity
-                                start_idx = 1  # Skip duplicate point but maintain smoothness
-                                
-                                # Enhanced tangent vector continuity verification
-                                if len(all_x_coords) > 1 and len(pass_x) > 1:
-                                    # Calculate incoming tangent vector (end of previous pass)
-                                    prev_dx = all_x_coords[-1] - all_x_coords[-2]
-                                    prev_dy = all_y_coords[-1] - all_y_coords[-2]
-                                    prev_dz = all_z_coords[-1] - all_z_coords[-2]
-                                    
-                                    # Calculate outgoing tangent vector (start of new pass)
-                                    new_dx = pass_x[1] - pass_x[0]
-                                    new_dy = pass_y[1] - pass_y[0]
-                                    new_dz = pass_z[1] - pass_z[0]
-                                    
-                                    # Normalize tangent vectors for comparison
-                                    prev_mag = math.sqrt(prev_dx**2 + prev_dy**2 + prev_dz**2)
-                                    new_mag = math.sqrt(new_dx**2 + new_dy**2 + new_dz**2)
-                                    
-                                    if prev_mag > 1e-8 and new_mag > 1e-8:
-                                        # Calculate 3D tangent vector alignment
-                                        dot_product = (prev_dx * new_dx + prev_dy * new_dy + prev_dz * new_dz) / (prev_mag * new_mag)
-                                        tangent_angle_deg = math.degrees(math.acos(np.clip(dot_product, -1, 1)))
-                                        
-                                        # Store tangent continuity metric for analysis
-                                        if 'tangent_continuity_angles' not in locals():
-                                            tangent_continuity_angles = []
-                                        tangent_continuity_angles.append(tangent_angle_deg)
-                            
-                            # Append trajectory points with enhanced continuity
-                            all_x_coords.extend(pass_x[start_idx:])
-                            all_y_coords.extend(pass_y[start_idx:])
-                            all_z_coords.extend(pass_z[start_idx:])
-                            all_phi_continuous.extend(pass_phi_absolute[start_idx:])
-                            
-                            # Update cumulative phi for perfect continuity
-                            cumulative_phi = pass_phi_absolute[-1]
-                        
-                        # Validate continuity at joining points
-                        phi_jumps = []
-                        for i in range(1, len(all_phi_continuous)):
+        
+    with tab2:
+        st.header("2D Trajectory Analysis")
+        
+        if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:
+            # Show 2D trajectory plots and analysis
+            st.info("2D trajectory analysis and plots will be displayed here.")
+        else:
+            st.info("Generate a trajectory first to view 2D analysis.")
+    
+    with tab3:
+        st.header("Export & Reports")
+        
+        if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:
+            # Export functionality will be implemented here
+            st.info("Export and reporting functionality will be available here.")
+        else:
+            st.info("Generate a trajectory first to access export features.")
                             phi_diff = abs(all_phi_continuous[i] - all_phi_continuous[i-1])
                             if phi_diff > 0.1:  # Threshold for detecting jumps
                                 phi_jumps.append((i, phi_diff))
