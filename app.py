@@ -889,10 +889,12 @@ def performance_analysis_page():
         axial_load = st.number_input("Axial Load (N)", value=0.0, step=100.0)
         
         # Material properties for analysis
-        if 'fiber_type' in locals() and 'resin_type' in locals():
-            st.markdown("### Material Properties")
-            st.write(f"Fiber: {fiber_type if 'fiber_type' in locals() else 'Not selected'}")
-            st.write(f"Resin: {resin_type if 'resin_type' in locals() else 'Not selected'}")
+        st.markdown("### Material Properties")
+        if 'selected_fiber' in st.session_state and 'selected_resin' in st.session_state:
+            st.write(f"Fiber: {st.session_state.selected_fiber}")
+            st.write(f"Resin: {st.session_state.selected_resin}")
+        else:
+            st.info("Please select materials in the Material Properties page first")
         
         if st.button("Perform Stress Analysis"):
             try:
