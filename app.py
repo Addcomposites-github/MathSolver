@@ -538,9 +538,15 @@ def trajectory_planning_page():
                         st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
                         trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
                     elif pattern_mode == "Continuous Helical Physics":
-                        st.info(f"🌀 Calling PHYSICS-BASED CONTINUOUS SPIRAL with {num_circuits} circuits")
-                        # Determine path type based on friction coefficient
-                        path_type = 'non-geodesic' if friction_coefficient > 0.01 else 'geodesic'
+                        # Feature flag: Temporarily use geodesic for stability
+                        if friction_coefficient > 0.01:
+                            st.warning("🚧 **Non-geodesic continuous physics is under development**")
+                            st.info("🔄 **Falling back to geodesic pattern** for reliable trajectory generation")
+                            path_type = 'geodesic'
+                        else:
+                            path_type = 'geodesic'
+                        
+                        st.info(f"🌀 Calling PHYSICS-BASED CONTINUOUS SPIRAL with {num_circuits} circuits ({path_type.upper()})")
                         trajectory_data = planner.generate_physical_continuous_spiral(
                             number_of_circuits=num_circuits,
                             path_type=path_type,
