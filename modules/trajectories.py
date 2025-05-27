@@ -3077,6 +3077,72 @@ class TrajectoryPlanner:
         }
         
         return trajectory_data
+    
+    def _generate_smooth_pass_transition(self, last_point, next_rho, next_z, current_phi, phi_advance):
+        """
+        Generate smooth transition points between continuous passes to eliminate visualization jumps.
+        
+        Parameters:
+        -----------
+        last_point : dict
+            Last point of the current pass
+        next_rho : float
+            First rho coordinate of the next pass
+        next_z : float
+            First z coordinate of the next pass
+        current_phi : float
+            Current phi angle (radians)
+        phi_advance : float
+            Phi advancement for pattern (radians)
+            
+        Returns:
+        --------
+        List[dict] : Smooth transition points
+        """
+        transition_points = []
+        
+        # Extract current position
+        current_rho = last_point['rho']
+        current_z = last_point['z']
+        current_phi_pos = last_point['phi']
+        
+        # Calculate smooth transition parameters
+        num_transition_steps = 5  # Small number for minimal overhead
+        
+        # Create smooth interpolation between current and next position
+        for i in range(1, num_transition_steps + 1):
+            t = i / num_transition_steps  # Interpolation parameter [0,1]
+            
+            # Smooth interpolation with cubic easing for natural motion
+            t_smooth = t * t * (3 - 2 * t)  # Smoothstep function
+            
+            # Interpolate position
+            interp_rho = current_rho + t_smooth * (next_rho - current_rho)
+            interp_z = current_z + t_smooth * (next_z - current_z)
+            interp_phi = current_phi_pos + t * phi_advance
+            
+            # Calculate alpha using surface properties for physical accuracy
+            if interp_rho > 1e-6:
+                # Approximate alpha for transition (maintains physics)
+                sin_alpha = min(1.0, self.clairauts_constant_for_path_m / interp_rho)
+                alpha = math.asin(sin_alpha)
+            else:
+                alpha = math.pi / 2  # Vertical at pole
+            
+            # Convert to Cartesian coordinates
+            x = interp_rho * math.cos(interp_phi)
+            y = interp_rho * math.sin(interp_phi)
+            
+            transition_point = {
+                'x': x, 'y': y, 'z': interp_z,
+                'rho': interp_rho, 'alpha': alpha, 'phi': interp_phi,
+                'pass': -1,  # Mark as transition
+                'direction': 'Transition',
+                'winding_angle': math.degrees(alpha)
+            }
+            transition_points.append(transition_point)
+        
+        return transition_points
         
     def _calculate_dome_transitions(self, winding_angle: float, circuits_to_close: int) -> List[Dict]:
         """Calculate trajectory points for dome transition regions"""
