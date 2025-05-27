@@ -1117,13 +1117,17 @@ class TrajectoryPlanner:
                     alpha_curr = math.asin(np.clip(math.sin(target_alpha) / friction_factor, -1.0, 1.0))
                     alpha_prev = alpha_curr
                 
-                # Calculate azimuthal angle increment: dφ = (ds/ρ) * tan(α)
+                # Calculate azimuthal angle increment using physics: dφ = (ds/ρ) * tan(α)
                 alpha_avg = (alpha_curr + alpha_prev) / 2.0
                 rho_avg = (rho_curr + rho_prev) / 2.0
                 
+                # Apply safe bounds to prevent extreme jumps
                 delta_phi = 0.0
-                if rho_avg > 1e-9 and abs(math.cos(alpha_avg)) > 1e-9:
-                    delta_phi = (ds_m / rho_avg) * math.tan(alpha_avg)
+                if rho_avg > 1e-6 and abs(alpha_avg) < math.pi/2 - 0.01:  # Avoid near-vertical angles
+                    # Limit phi increment to prevent massive jumps
+                    raw_delta_phi = (ds_m / rho_avg) * math.tan(alpha_avg)
+                    max_delta_phi = math.pi/180  # Limit to 1 degree per step
+                    delta_phi = np.clip(raw_delta_phi, -max_delta_phi, max_delta_phi)
                 
                 current_phi_rad += delta_phi
                 
