@@ -1016,7 +1016,7 @@ class TrajectoryPlanner:
             clairaut_C = self.clairauts_constant_for_path_m
             print(f"   Using Clairaut's constant: {clairaut_C:.6f} m")
         else:
-            print(f"   Using friction coefficient: μ = {self.mu}")
+            print(f"   Using friction coefficient: μ = {self.mu_friction_coefficient}")
         
         # Initialize trajectory
         full_path_points = []
@@ -1087,7 +1087,7 @@ class TrajectoryPlanner:
                     # Non-geodesic: Use target angle with friction effects
                     target_alpha = math.radians(self.target_cylinder_angle_deg) if hasattr(self, 'target_cylinder_angle_deg') else math.pi/4
                     # Apply friction correction
-                    friction_factor = 1.0 + self.mu * abs(math.cos(target_alpha))
+                    friction_factor = 1.0 + self.mu_friction_coefficient * abs(math.cos(target_alpha))
                     alpha_curr = math.asin(np.clip(math.sin(target_alpha) / friction_factor, -1.0, 1.0))
                     alpha_prev = alpha_curr
                 
