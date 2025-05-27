@@ -740,7 +740,7 @@ class TrajectoryPlanner:
             
             print(f"   Direction: {direction}, Starting phi: {math.degrees(current_phi_continuous):.1f}°")
             
-            # Add points for this pass
+            # Add points for this pass with proper phi direction handling
             pass_points = []
             for i in range(len(profile_r_pass)):
                 rho = profile_r_pass[i]
@@ -753,6 +753,12 @@ class TrajectoryPlanner:
                     ds = math.sqrt((rho - profile_r_pass[i-1])**2 + (z - profile_z_pass[i-1])**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
+                        
+                        # Critical fix: Handle phi direction for reverse passes
+                        if direction == "Reverse":
+                            # For reverse passes, maintain proper winding direction
+                            dphi = -dphi  # Reverse the phi increment direction
+                        
                         current_phi_continuous += dphi
                 
                 x = rho * math.cos(current_phi_continuous)

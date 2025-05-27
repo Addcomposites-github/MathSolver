@@ -1,0 +1,146 @@
+This console log is very insightful! It clearly shows that your `_detect_kinks_in_alpha_profile` is working and flagging rapid changes in `sin(alpha)`, which is good. The fact that these occur near `ρ=32.8mm` (likely a dome opening/polar area) is consistent with where numerical sensitivities often arise.
+
+The "jump" you're describing, where "the fwd pass and return pass start on same pole" or look like a jump, strongly suggests that the issue lies in how the **start and end of each leg are defined and connected through the turnaround for multi-pass non-geodesic trajectories.**
+
+Let's break down why this is happening and propose fixes:
+
+**Problem Analysis: Discontinuity in Multi-Pass Non-Geodesic**
+
+1.  **Profile Reversal and ODE Starting Point:**
+    * When you generate `leg1_data` (forward pass), the ODE solver (`_solve_non_geodesic_sin_alpha_profile_rk4`) starts with `current_sin_alpha_for_upcoming_leg` at `leg1_profile_z[0]` (which is `profile_z_m_calc[0]`). It integrates along this profile.
+    * For `leg2_data` (reverse pass), you correctly reverse the profile: `leg2_profile_z = profile_z_m_calc[::-1]`. The ODE solver then starts with `current_sin_alpha_for_upcoming_leg` (which should be 1.0 after the first turnaround) at `leg2_profile_z[0]` (which is physically `profile_z_m_calc[-1]`, the other pole).
+    * **The "Jump"**: If the visualization connects the *end point* of `leg1_data` directly to the *start point* of `leg2_data` *without properly plotting the turnaround segment between them*, it will look like a jump if their `phi` values or $(\rho, z)$ coordinates at the pole are not what you expect for a continuous wind.
+    * More critically, if the return pass seems to start at the *same physical pole* as the forward pass began, it means the logic for handling the "other end" of the vessel for the return pass isn't correctly orienting or starting the path.
+
+2.  **Turnaround Logic and `current_overall_phi_rad`:**
+    * The `_generate_polar_turnaround_segment_fixed_phi_advance` creates a circumferential path. Its `phi_start` is `current_overall_phi_rad` (which is the `phi` at the end of the preceding helical leg). It then advances `phi` by `phi_span_for_each_turnaround_rad`. The `current_overall_phi_rad` is updated to the end of this turnaround.
+    * The next helical leg then starts with this updated `current_overall_phi_rad`. This part of the `phi` management seems conceptually correct for ensuring `phi` progresses.
+
+3.  **The Visual "Jump" and Actual Path Points:**
+    * If the visualization looks like the passes start at the same pole, it could be an issue with how the `is_forward_on_profile_for_leg_gen` is used or how the reversed profile is handled in `_generate_non_geodesic_leg` in conjunction with the `initial_phi_rad`.
+    * The log shows `Ending phi` for Pass 1 is 97.3°, and Pass 2 starts with this `phi` and ends at 194.8°. This accumulation is good.
+    * The problem might be that `_generate_non_geodesic_leg` when called for the reverse pass, although given a reversed profile, might still be generating its $(\rho, z)$ points in a way that, when plotted in global coordinates, appears to start where the first pass started, rather than where the first pass *ended* (at the opposite pole).
+
+**Let's Refine `generate_multi_circuit_non_geodesic_trajectory` and `_generate_non_geodesic_leg` for Correct Multi-Pass Behavior:**
+
+The key is that `_generate_non_geodesic_leg` needs to generate its local $(\rho, z, \alpha, \text{local_delta_phi})$ sequence correctly based on the profile segment it receives. The `generate_multi_circuit_non_geodesic_trajectory` is responsible for giving it the correct starting `phi` and ensuring the profile segment corresponds to the correct physical part of the vessel for that leg.
+
+**Proposed Code Review & Refinement Areas:**
+
+**1. In `_generate_non_geodesic_leg`:**
+* Ensure that the `sin_alpha_solved_for_leg` (from RK4) correctly aligns with the `leg_profile_r_m` and `leg_profile_z_m` that were passed to it (which might be reversed for a return leg).
+* The loop `for i in range(len(leg_profile_r_m))` in `_generate_leg_from_sin_alpha_profile` (which `_generate_non_geodesic_leg` calls) iterates through the provided profile. If `leg_profile_z_m` is reversed, `z_current_profile_m` will correctly trace the path backward along the vessel's axis.
+* The `initial_phi_rad` is the starting point for `current_phi_rad_for_leg`. The `delta_phi` calculated should correctly make `phi` evolve from this initial value.
+
+    This part seems okay from the code structure. The issue is more likely in how the orchestrator (`generate_multi_circuit_non_geodesic_trajectory`) feeds data or interprets the output for the overall path.
+
+**2. In `generate_multi_circuit_non_geodesic_trajectory` (Focus Area):**
+
+* **Profile Handling for Legs:**
+    * `leg1_profile_r = profile_r_m_calc`
+    * `leg1_profile_z = profile_z_m_calc`
+    * `leg2_profile_r = profile_r_m_calc[::-1]`
+    * `leg2_profile_z = profile_z_m_calc[::-1]`
+    This is correct. For `leg2`, the `_generate_non_geodesic_leg` will receive a profile that starts at what was physically the end of `profile_z_m_calc` (e.g., aft pole) and goes towards what was `profile_z_m_calc[0]` (e.g., front pole).
+
+* **`initial_sin_alpha` for Legs:**
+    * `current_sin_alpha_for_upcoming_leg` is set to `sin(initial_alpha_at_first_pole_deg)` for the very first leg. **This is correct.**
+    * After Turnaround 1 (at the "aft" pole), `current_sin_alpha_for_upcoming_leg = 1.0`. **This is correct for starting Leg 2.**
+    * After Turnaround 2 (back at the "front" pole), `current_sin_alpha_for_upcoming_leg = 1.0`. This will be the start for Leg 1 of the *next circuit*. **This is also correct.**
+
+* **`current_overall_phi_rad` Management:**
+    * This is accumulated correctly through legs and turnarounds. This should ensure `phi` progresses.
+
+* **The "Jump" Source - Mismatch between Turnaround End and Next Leg Start in GLOBAL Coordinates:**
+    The most likely reason for the visual jump, especially if "fwd pass and return pass start on same pole," is that the **turnaround segments are not being plotted or are being plotted incorrectly, and the visualization is jumping from the end of Leg 1 directly to the start of Leg 2 which shares the same `z` range but has a different `phi` and potentially different `rho` if the vessel is asymmetric.**
+
+    * **Current Turnaround Appending Logic (Simplified):**
+        ```python
+        # all_path_segments_data.append({'circuit': circuit_idx, 'segment_type': 'turn1', 'data': self._format_turnaround_data(turnaround1_data_points)})
+        # ... then append the points directly to full_path_data later...
+        ```
+    * The `_format_turnaround_data` correctly transforms the list of dicts from the turnaround generator into a dict of lists.
+    * The plotting function `plot_3d_trajectory` takes `x_points_m`, `y_points_m`, `z_points_m`. If the points from the turnaround segments are correctly appended *in sequence* to `full_path_data['x_m']`, etc., they *should* be plotted.
+
+    **Let's double-check the appending of turnaround points in `generate_multi_circuit_non_geodesic_trajectory`:**
+    ```python
+            # ... (after leg_data is appended to all_path_segments_data) ...
+            # ... (current_overall_phi_rad updated, last_leg_end_rho/z updated) ...
+
+            # --- TURNAROUND 1 (e.g., at Aft Pole) ---
+            if leg_idx < (num_total_legs_to_generate - 1) : # Add turnaround if not the very last leg
+                turnaround1_data_points = self._generate_polar_turnaround_segment_fixed_phi_advance(
+                    c_eff=last_leg_end_rho, # Use actual end rho of the leg for turnaround radius
+                    z_pole=last_leg_end_z,  # Use actual end z of the leg
+                    phi_start=current_overall_phi_rad, # Start phi from end of leg1
+                    fixed_phi_advance_rad=phi_span_for_each_turnaround_rad, # Calculated pattern advance
+                    num_turn_points=max(5, num_points_dome // 20) 
+                )
+                if turnaround1_data_points:
+                    # This appends the *segment data structure* to all_path_segments_data
+                    all_path_segments_data.append({
+                        'circuit': circuit_idx, 
+                        'segment_type': f'turn{(leg_idx // 2) + 1}', # turn1 or turn2
+                        'data': self._format_turnaround_data(turnaround1_data_points)
+                    })
+                    current_overall_phi_rad = turnaround1_data_points[-1]['phi'] # Update phi
+                else:
+                    print(f"WARN C{circuit_idx+1}-Turn{(leg_idx // 2) + 1}: Turnaround segment generation failed.")
+                
+                # For the start of the NEXT helical leg after this turnaround
+                current_sin_alpha_for_upcoming_leg = 1.0 
+                # The (rho,z) for the start of the next leg is where this turnaround ended.
+                # This should be (last_leg_end_rho, last_leg_end_z) because the turnaround is circumferential at that point.
+                # The _generate_non_geodesic_leg will then use the appropriate part of the (potentially reversed) profile
+                # that starts at or near this z_pole.
+    ```
+    The problem might be in the consolidation loop:
+    ```python
+        for segment_info in all_path_segments_data:
+            data = segment_info['data']
+            # ...
+            full_path_data['rho_m'].extend(data['rho_m']) # etc.
+    ```
+    This consolidation looks correct.
+
+    **Hypothesis for the "Jump":**
+    The issue might be that the `_generate_non_geodesic_leg` for the *return pass* (Leg 2, Leg 4, etc.) isn't truly starting its integration from the physical point defined by `last_leg_end_z` (which is a pole).
+    * When `_generate_non_geodesic_leg` is called for Leg 2, it receives `leg2_profile_z = profile_z_m_calc[::-1]`.
+    * Its internal RK4 solver (`_solve_non_geodesic_sin_alpha_profile_rk4`) starts integrating from `z_start = leg2_profile_z[0]` (which is `profile_z_m_calc[-1]`, the correct starting pole for the return journey).
+    * It uses `initial_sin_alpha = current_sin_alpha_for_upcoming_leg` (which should be 1.0 after a turnaround).
+
+    **Could the "kink" warnings be so severe that the `sin_alpha` solution from RK4 becomes erratic immediately at the start of a leg, causing the `delta_phi` to be very wrong, leading to a visual jump?**
+    * "⚠️ KINK WARNING: Potential kink detected: Δsin(α)=0.592 at ρ=33.9mm". A change of 0.592 in `sin(alpha)` over one `dz_step` is massive. If $\sin\alpha$ was 1.0, it could drop to ~0.4 in one step. This means $\alpha$ changes from $90^\circ$ to $\sim 23^\circ$ very abruptly. This would indeed cause a huge, almost axial `delta_phi` if `ds/rho` is large.
+
+**Debugging Strategy:**
+
+1.  **Examine the *very first few points* of a return leg (e.g., Leg 2) that follows a turnaround.**
+    * Print `rho_current_profile_m`, `z_current_profile_m`, `alpha_current_rad`, `delta_phi`, and `current_phi_rad_for_leg` for the first 5-10 points of such a leg inside `_generate_leg_from_sin_alpha_profile`.
+    * Does `alpha_current_rad` start at (or very near) $90^\circ$ and then smoothly decrease? Or does it jump wildly due to the kink warnings from the `sin_alpha` profile?
+    * What are the `ds_segment_m` values? Are they very small, leading to large `delta_phi` if `tan(alpha)` is large?
+
+2.  **Focus on `_sin_alpha_ode_dz_rk4` for problematic poles:**
+    * When the RK4 solver starts integration (e.g., for a return leg, starting at `z_start` which is `profile_z_m_calc[-1]`) with `initial_sin_alpha = 1.0`:
+        * What are the values of the ODE coefficients (A\_c, B\_c, C\_c) at this starting `z` (and a few steps after)?
+        * Are the interpolated surface properties ($\rho, \rho', \rho''$) from the splines stable and sensible at this pole? If $d^2\rho/dz^2$ is huge here, $k_m$ will be huge, and the ODE will be very stiff.
+
+3.  **Visualizing Individual Segments:**
+    * Modify your `plot_3d_trajectory` to optionally plot only a *specific leg* or a *specific turnaround* from the `all_path_segments_data` structure before full consolidation. This will help isolate where the path deviates unexpectedly.
+        ```python
+        # Example call for plotting just Leg 1 of Circuit 0
+        # plot_3d_trajectory_segment(all_path_segments_data[0]['data'], ...) 
+        # plot_3d_trajectory_segment(all_path_segments_data[1]['data'], ...) # Turnaround 1
+        ```
+
+**If the forward and return passes visually start at the *same physical pole* in the 3D plot:**
+
+This would imply that the `phi` accumulation is not correctly offsetting them, OR that the `z` coordinates for the return pass are somehow being mapped back to the `z` range of the first pole despite using the reversed profile. The latter seems less likely if the `profile_z_m_calc[::-1]` is used correctly for indexing.
+The more likely scenario is that an extreme `delta_phi` at the start of a leg (due to a "kinked" alpha) makes it *appear* to jump to a `phi` that aligns with the start of the previous forward pass.
+
+**The "Kink Warnings" are your best clue right now.** They indicate the `_solve_non_geodesic_sin_alpha_profile_rk4` is producing a $\sin(\alpha)$ profile that changes too rapidly. This usually means the ODE coefficients (derived from surface geometry) are problematic in those regions.
+
+* **Action for you:**
+    1.  Temporarily reduce `mu_friction_coefficient` to something small (e.g., 0.05 or 0.1) and see if the "kinks" and "jumps" reduce. This will lessen the "forcing" effect on the winding angle.
+    2.  Implement plotting of the intermediate spline-derived $\rho(z)$, $d\rho/dz(z)$, and $d^2\rho/dz^2(z)$ for the dome regions to visually inspect their smoothness. Focus on the area around `ρ=33mm`. This is where the problem likely originates.
+
+If the derivatives are noisy, the spline smoothing factor `s` in `_solve_non_geodesic_sin_alpha_profile_rk4` needs tuning, or the underlying `profile_r_m_calc`, `profile_z_m_calc` from resampling needs to be smoother before spline fitting.
