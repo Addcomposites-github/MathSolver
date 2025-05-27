@@ -535,19 +535,14 @@ def trajectory_planning_page():
                         st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
                         trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
                     elif pattern_mode == "Continuous Helical Physics":
-                        st.info(f"🌀 Calling SEAMLESS HELICAL PHYSICS with target angle {target_angle}° and μ={friction_coefficient}")
-                        try:
-                            from modules.seamless_helical import generate_seamless_helical_spiral
-                            trajectory_data = generate_seamless_helical_spiral(
-                                planner.vessel.get_profile_points(), 
-                                target_angle, 
-                                num_circuits, 
-                                friction_coefficient
-                            )
-                        except Exception as e:
-                            st.error(f"Error in seamless helical generation: {e}")
-                            st.info(f"🔄 Falling back to standard non-geodesic method")
-                            trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
+                        st.info(f"🌀 Calling PHYSICS-BASED CONTINUOUS SPIRAL with {num_circuits} circuits")
+                        # Determine path type based on friction coefficient
+                        path_type = 'non-geodesic' if friction_coefficient > 0.01 else 'geodesic'
+                        trajectory_data = planner.generate_physical_continuous_spiral(
+                            number_of_circuits=num_circuits,
+                            path_type=path_type,
+                            points_per_meridian_pass=200
+                        )
                     else:
                         st.info(f"🔥 Calling SINGLE-CIRCUIT function")
                         trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
