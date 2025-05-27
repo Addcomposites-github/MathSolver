@@ -697,179 +697,63 @@ def trajectory_planning_page():
         final_angle = st.session_state.trajectory_data.get('total_angular_span_deg', 0)
         st.metric("Angular Span", f"{final_angle:.1f}°" if final_angle else 'N/A')
                     
-    # Move non-geodesic visualization outside of column layout for full width
-    if st.session_state.trajectory_data is not None and st.session_state.trajectory_data.get('pattern_type') in ['Non-Geodesic', 'Multi-Circuit Non-Geodesic']:
-        # 3D visualization for Non-Geodesic trajectories (single and multi-circuit) - FULL WIDTH
-        pattern_type = st.session_state.trajectory_data.get('pattern_type')
-        is_multi_circuit = pattern_type == 'Multi-Circuit Non-Geodesic'
+    # Clean 3D visualization for continuous non-geodesic patterns
+    if (st.session_state.trajectory_data is not None and 
+        'Continuous Non-Geodesic Helical' in st.session_state.trajectory_data.get('pattern_type', '')):
         
-        if is_multi_circuit:
-            st.subheader("🔬 Multi-Circuit Non-Geodesic 3D Pattern")
-        else:
-            st.subheader("🔬 Non-Geodesic 3D Trajectory")
+        st.markdown("---")
+        st.subheader("🌟 Continuous Non-Geodesic Helical Pattern - 3D View")
+        
+        # Display key metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Points", st.session_state.trajectory_data.get('total_points', 'N/A'))
+        with col2:
+            st.metric("Circuits", st.session_state.trajectory_data.get('number_of_circuits', 'N/A'))
+        with col3:
+            kinks = st.session_state.trajectory_data.get('total_kinks', 0)
+            st.metric("Kinks Detected", kinks, delta=f"μ={st.session_state.trajectory_data.get('friction_coefficient', 'N/A')}")
         
         if all(key in st.session_state.trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
             try:
-                        import plotly.graph_objects as go
-                        
-                        x_data = st.session_state.trajectory_data['x_points_m']
-                        y_data = st.session_state.trajectory_data['y_points_m'] 
-                        z_data = st.session_state.trajectory_data['z_points_m']
-                        
-                        # Create 3D trajectory plot
-                        fig = go.Figure()
-                        
-                        # Add trajectory line(s)
-                        if is_multi_circuit:
-                            # For multi-circuit, use different colors for each circuit
-                            num_circuits = st.session_state.trajectory_data.get('number_of_circuits', 1)
-                            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 'magenta', 'yellow']
-                            
-                            # Group points by circuit if available
-                            path_points = st.session_state.trajectory_data.get('path_points', [])
-                            if path_points and 'circuit' in path_points[0]:
-                                # Points have circuit information
-                                for circuit_idx in range(num_circuits):
-                                    circuit_points = [p for p in path_points if p.get('circuit') == circuit_idx]
-                                    if circuit_points:
-                                        circuit_x = [p['x'] for p in circuit_points]
-                                        circuit_y = [p['y'] for p in circuit_points]
-                                        circuit_z = [p['z'] for p in circuit_points]
-                                        
-                                        color = colors[circuit_idx % len(colors)]
-                                        fig.add_trace(go.Scatter3d(
-                                            x=circuit_x,
-                                            y=circuit_y,
-                                            z=circuit_z,
-                                            mode='lines+markers',
-                                            line=dict(color=color, width=4),
-                                            marker=dict(size=2, color=color),
-                                            name=f'Circuit {circuit_idx + 1}'
-                                        ))
-                            else:
-                                # Fallback: treat as single continuous path
-                                fig.add_trace(go.Scatter3d(
-                                    x=x_data,
-                                    y=y_data,
-                                    z=z_data,
-                                    mode='lines+markers',
-                                    line=dict(color='red', width=4),
-                                    marker=dict(size=2, color='darkred'),
-                                    name=f'Multi-Circuit Pattern ({num_circuits} circuits)'
-                                ))
-                        else:
-                            # Single circuit
-                            fig.add_trace(go.Scatter3d(
-                                x=x_data,
-                                y=y_data,
-                                z=z_data,
-                                mode='lines+markers',
-                                line=dict(color='red', width=6),
-                                marker=dict(size=3, color='darkred'),
-                                name='Non-Geodesic Path'
-                            ))
-                        
-                        # Add vessel geometry outline
-                        vessel_r = st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3
-                        vessel_z = st.session_state.vessel_geometry.profile_points['z'] * 1e-3
-                        
-                        # Create vessel surface outline
-                        theta_outline = np.linspace(0, 2*np.pi, 36)
-                        vessel_x_outline = []
-                        vessel_y_outline = []
-                        vessel_z_outline = []
-                        
-                        for r, z in zip(vessel_r, vessel_z):
-                            for th in theta_outline:
-                                vessel_x_outline.append(r * np.cos(th))
-                                vessel_y_outline.append(r * np.sin(th))
-                                vessel_z_outline.append(z)
-                        
-                        fig.add_trace(go.Scatter3d(
-                            x=vessel_x_outline,
-                            y=vessel_y_outline,
-                            z=vessel_z_outline,
-                            mode='markers',
-                            marker=dict(size=1, color='lightblue', opacity=0.3),
-                            name='Vessel Surface',
-                            showlegend=False
-                        ))
-                        
-                        # Update layout
-                        friction_coeff = st.session_state.trajectory_data.get('friction_coefficient', 0)
-                        if is_multi_circuit:
-                            num_circuits = st.session_state.trajectory_data.get('number_of_circuits', 1)
-                            title = f"🔬 Multi-Circuit Non-Geodesic Pattern ({num_circuits} circuits, μ={friction_coeff:.2f})"
-                        else:
-                            title = f"🔬 Non-Geodesic Trajectory (μ={friction_coeff:.2f})"
-                            
-                        fig.update_layout(
-                            title=title,
-                            scene=dict(
-                                xaxis_title="X (m)",
-                                yaxis_title="Y (m)", 
-                                zaxis_title="Z (m)",
-                                aspectmode='data'
-                            ),
-                            width=800,
-                            height=600
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Display trajectory statistics with kink warnings
-                        if is_multi_circuit:
-                            st.write("**Multi-Circuit Non-Geodesic Pattern Statistics:**")
-                            st.write(f"**Total Points:** {len(x_data)}")
-                            st.write(f"**Number of Circuits:** {st.session_state.trajectory_data.get('number_of_circuits', 1)}")
-                            st.write(f"**Friction Coefficient:** μ = {friction_coeff:.2f}")
-                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
-                            st.write(f"**Target Angle:** {target_angle}°")
-                            
-                            # Show kink summary for multi-circuit
-                            total_kinks = st.session_state.trajectory_data.get('total_kinks', 0)
-                            if total_kinks > 0:
-                                st.warning(f"⚠️ **Total kinks detected:** {total_kinks} across all circuits")
-                            else:
-                                st.success("✅ **No kinks detected** - Pattern is physically realizable")
-                        else:
-                            st.write("**Non-Geodesic Trajectory Statistics:**")
-                            st.write(f"**Total Points:** {len(x_data)}")
-                            st.write(f"**Friction Coefficient:** μ = {friction_coeff:.2f}")
-                            target_angle = st.session_state.trajectory_data.get('target_angle_deg', 0)
-                            st.write(f"**Target Angle:** {target_angle}°")
-                            
+                import plotly.graph_objects as go
+                
+                x_data = st.session_state.trajectory_data['x_points_m']
+                y_data = st.session_state.trajectory_data['y_points_m'] 
+                z_data = st.session_state.trajectory_data['z_points_m']
+                
+                # Create 3D trajectory plot
+                fig = go.Figure()
+                
+                # Add the continuous trajectory as a single line
+                fig.add_trace(go.Scatter3d(
+                    x=x_data,
+                    y=y_data,
+                    z=z_data,
+                    mode='lines',
+                    line=dict(color='red', width=4),
+                    name='Continuous Helical Path'
+                ))
+                
+                # Configure the layout
+                fig.update_layout(
+                    title="3D Continuous Non-Geodesic Helical Pattern",
+                    scene=dict(
+                        xaxis_title="X (m)",
+                        yaxis_title="Y (m)",
+                        zaxis_title="Z (m)",
+                        aspectmode='data'
+                    ),
+                    height=600,
+                    showlegend=True
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
             except Exception as e:
-                st.error(f"Error creating 3D visualization: {str(e)}")
-                st.info("Non-geodesic trajectory data available but visualization failed.")
+                st.error(f"Error creating 3D plot: {str(e)}")
         else:
-            st.info("Non-geodesic trajectory generated but missing 3D coordinate data.")
-    
-    # Add tabbed interface for detailed analysis
-    if st.session_state.trajectory_data is not None:
-        tab1, tab2, tab3 = st.tabs(["🎯 3D Analysis", "📊 2D Analysis", "📋 Export & Reports"])
-        
-        with tab1:
-            st.header("3D Trajectory Analysis")
-            st.info("3D trajectory analysis will be displayed here.")
-        
-        with tab2:
-            st.header("2D Trajectory Analysis")
-            
-            if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:
-                # Show 2D trajectory plots and analysis
-                st.info("2D trajectory analysis and plots will be displayed here.")
-            else:
-                st.info("Generate a trajectory first to view 2D analysis.")
-        
-        with tab3:
-            st.header("Export & Reports")
-            
-            if 'trajectory_data' in st.session_state and st.session_state.trajectory_data:
-                # Export functionality will be implemented here
-                st.info("Export and reporting functionality will be available here.")
-            else:
-                st.info("Generate a trajectory first to access export features.")
+            st.info("3D coordinates not available in trajectory data")
 
 def performance_analysis_page():
     st.header("Performance Analysis")
