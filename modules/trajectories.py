@@ -2188,18 +2188,27 @@ class TrajectoryPlanner:
             )
 
             if turnaround_segment_points:
-                # Append turnaround points, skipping first if it's identical to last helical
-                for pt_idx, pt in enumerate(turnaround_segment_points):
-                    if pt_idx == 0 and abs(pt['rho'] - path_rho_m[-1]) < 1e-6 and abs(pt['z'] - path_z_m[-1]) < 1e-6 and abs(pt['phi'] - path_phi_rad_cumulative[-1]) < 1e-6:
-                        continue
+                # SMOOTHNESS FIX: Skip first and last turnaround points to eliminate junction kinks
+                # This ensures C¹ continuity by removing overlapping connection points
+                turnaround_points_to_add = turnaround_segment_points[1:-1] if len(turnaround_segment_points) > 2 else []
+                
+                print(f"  SMOOTHNESS: Original turnaround had {len(turnaround_segment_points)} points, using {len(turnaround_points_to_add)} (removed endpoints)")
+                
+                # Add the filtered turnaround points
+                for pt in turnaround_points_to_add:
                     path_rho_m.append(pt['rho'])
                     path_z_m.append(pt['z'])
                     path_alpha_rad.append(pt['alpha']) # Should be pi/2
                     path_phi_rad_cumulative.append(pt['phi'])
                     path_x_m.append(pt['x'])
                     path_y_m.append(pt['y'])
-                current_phi_rad = path_phi_rad_cumulative[-1] # Update current_phi_rad
-                print(f"  Leg {leg_number} TURNAROUND END: Added {len(turnaround_segment_points)} points. New current_phi={math.degrees(current_phi_rad):.2f}°")
+                
+                # Update current_phi_rad for next segment
+                if turnaround_segment_points:
+                    # Use the original endpoint phi for continuity, but don't add the point
+                    current_phi_rad = turnaround_segment_points[-1]['phi']
+                
+                print(f"  Leg {leg_number} TURNAROUND END: Added {len(turnaround_points_to_add)} points. New current_phi={math.degrees(current_phi_rad):.2f}°")
             else:
                 print(f"  Leg {leg_number} WARN: Turnaround segment generation failed or returned empty.")
 
