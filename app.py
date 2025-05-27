@@ -750,6 +750,18 @@ def trajectory_planning_page():
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # Show key statistics below the plot
+                st.write("**Pattern Statistics:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Points Generated", len(x_data))
+                with col2:
+                    friction = st.session_state.trajectory_data.get('friction_coefficient', 0)
+                    st.metric("Friction Coefficient", f"μ = {friction:.3f}")
+                with col3:
+                    angular_span = st.session_state.trajectory_data.get('total_angular_span_deg', 0)
+                    st.metric("Angular Span", f"{angular_span:.1f}°")
+                
             except Exception as e:
                 st.error(f"Error creating 3D plot: {str(e)}")
         else:
