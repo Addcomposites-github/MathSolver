@@ -272,14 +272,17 @@ def trajectory_planning_page():
             with col1:
                 pattern_mode = st.radio(
                     "Pattern Mode:",
-                    ["Single Circuit", "Multi-Circuit Pattern"],
+                    ["Single Circuit", "Multi-Circuit Pattern", "Continuous Helical Physics"],
                     key="non_geodesic_pattern_mode",
-                    help="Single circuit for testing, multi-circuit for full coverage"
+                    help="Single circuit for testing, multi-circuit for coverage, continuous helical for gap-free physics-based winding"
                 )
             with col2:
                 if pattern_mode == "Multi-Circuit Pattern":
                     num_circuits = st.slider("Number of Circuits", 6, 24, 12, 
                                             help="Number of circuits for full coverage pattern")
+                elif pattern_mode == "Continuous Helical Physics":
+                    num_circuits = st.slider("Number of Circuits", 2, 20, 6, 
+                                            help="Number of pole-to-pole circuits for continuous physics-based spiral")
                 else:
                     num_circuits = 1
             
