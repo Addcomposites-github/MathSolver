@@ -292,7 +292,7 @@ class TrajectoryPlannerRefactored:
                     
                     current_phi_rad = turnaround_result['final_phi']
                 else:
-                    self.logger.warning(f"Turnaround generation failed at pass {pass_idx + 1}")
+                    print(f"Warning: Turnaround generation failed at pass {pass_idx + 1}")
                     
             # Update phi for next pass
             current_phi_rad += self.phi_advancement_rad_per_pass
@@ -303,7 +303,7 @@ class TrajectoryPlannerRefactored:
     def _prepare_profile_data(self) -> Optional[Dict]:
         """Prepare vessel profile data for trajectory calculations."""
         if not self.vessel.profile_points:
-            self.logger.error("No vessel profile available")
+            print("Error: No vessel profile available")
             return None
             
         r_inner_mm = self.vessel.profile_points['r_inner_mm']
@@ -340,7 +340,7 @@ class TrajectoryPlannerRefactored:
         valid_indices = np.where(r_m >= self.clairauts_constant_for_path_m - 1e-6)[0]
         
         if len(valid_indices) == 0:
-            self.logger.error("No valid trajectory points found (all ρ < C)")
+            print("Error: No valid trajectory points found (all ρ < C)")
             return None
             
         start_idx, end_idx = valid_indices[0], valid_indices[-1]
@@ -358,7 +358,7 @@ class TrajectoryPlannerRefactored:
             r_of_z = UnivariateSpline(z_range, r_range, s=0, k=3)
             dr_dz_func = r_of_z.derivative(1)
         except Exception as e:
-            self.logger.error(f"Failed to create interpolation functions: {e}")
+            print(f"Error: Failed to create interpolation functions: {e}")
             return None
             
         # Solve geodesic ODE
@@ -446,7 +446,7 @@ class TrajectoryPlannerRefactored:
                 return [dphi_dz]
                 
             except Exception as e:
-                self.logger.warning(f"ODE evaluation error at z={z}: {e}")
+                print(f"Warning: ODE evaluation error at z={z}: {e}")
                 return [0.0]
                 
         # Solve ODE
@@ -464,13 +464,13 @@ class TrajectoryPlannerRefactored:
             )
             
             if not solution.success:
-                self.logger.warning(f"ODE solver failed: {solution.message}")
+                print(f"Warning: ODE solver failed: {solution.message}")
                 return None
                 
             return {'solution': solution}
             
         except Exception as e:
-            self.logger.error(f"ODE solving exception: {e}")
+            print(error(f"ODE solving exception: {e}")
             return None
             
     def _generate_geodesic_turnaround(self, final_position: Dict, current_phi: float) -> Optional[Dict]:
@@ -515,16 +515,16 @@ class TrajectoryPlannerRefactored:
         Implements Koussios differential equations with friction effects.
         Currently marked as experimental due to ODE solver stability issues.
         """
-        self.logger.warning("Non-geodesic engine is experimental - use with caution")
+        print(warning("Non-geodesic engine is experimental - use with caution")
         
         if self.mu_friction_coefficient <= 0:
-            self.logger.warning("Non-geodesic pattern requires friction coefficient > 0")
+            print(warning("Non-geodesic pattern requires friction coefficient > 0")
             # Fall back to geodesic
             return self._engine_geodesic_spiral(coverage_option, num_passes)
             
         # Placeholder for non-geodesic implementation
         # This would implement the full Koussios ODE system
-        self.logger.info("Non-geodesic engine not yet implemented - falling back to geodesic")
+        print(info("Non-geodesic engine not yet implemented - falling back to geodesic")
         return self._engine_geodesic_spiral(coverage_option, num_passes)
         
     def _engine_standard_patterns(self, pattern_name: str, coverage_option: str, num_passes: int) -> Optional[Dict]:
@@ -533,7 +533,7 @@ class TrajectoryPlannerRefactored:
         
         These patterns use simplified mathematical models compared to geodesic spirals.
         """
-        self.logger.info(f"Generating standard pattern: {pattern_name}")
+        print(info(f"Generating standard pattern: {pattern_name}")
         
         # Placeholder for standard pattern implementations
         if pattern_name == 'helical':
@@ -543,25 +543,25 @@ class TrajectoryPlannerRefactored:
         elif pattern_name == 'hoop':
             return self._generate_hoop_pattern(num_passes)
         else:
-            self.logger.error(f"Unknown standard pattern: {pattern_name}")
+            print(error(f"Unknown standard pattern: {pattern_name}")
             return None
             
     def _generate_helical_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate traditional helical winding pattern."""
         # Simplified helical implementation
-        self.logger.info("Helical pattern generation not yet implemented")
+        print(info("Helical pattern generation not yet implemented")
         return None
         
     def _generate_polar_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate polar winding pattern."""
         # Simplified polar implementation
-        self.logger.info("Polar pattern generation not yet implemented")
+        print(info("Polar pattern generation not yet implemented")
         return None
         
     def _generate_hoop_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate hoop winding pattern."""
         # Simplified hoop implementation
-        self.logger.info("Hoop pattern generation not yet implemented")
+        print(info("Hoop pattern generation not yet implemented")
         return None
         
     def _format_trajectory_output(self, trajectory_points: List[Dict], pattern_type: str, num_passes: int) -> Dict:
