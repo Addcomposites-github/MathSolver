@@ -996,14 +996,14 @@ class TrajectoryPlanner:
         print(f"   Points per meridian pass: {points_per_meridian_pass}")
         
         # Get vessel profile data
-        profile_points = self.vessel.get_profile_points()
-        if not profile_points:
+        profile_data = self.vessel.get_profile_points()
+        if not profile_data or 'r_inner' not in profile_data:
             print("❌ No vessel profile available")
             return {'path_points': [], 'gaps_over_1mm': 0, 'max_gap_mm': 0.0, 'is_continuous': True}
         
-        # Extract and sort profile data
-        profile_r_m = np.array([point['r'] for point in profile_points])
-        profile_z_m = np.array([point['z'] for point in profile_points])
+        # Extract and sort profile data from the dictionary structure
+        profile_r_m = np.array(profile_data['r_inner']) * 1e-3  # Convert mm to m
+        profile_z_m = np.array(profile_data['z']) * 1e-3  # Convert mm to m
         
         # Sort by Z for consistent meridional progression
         sort_indices = np.argsort(profile_z_m)
