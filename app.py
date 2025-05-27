@@ -681,7 +681,7 @@ def trajectory_planning_page():
         
         with vis_col2:
             # Add 3D visualization for all trajectory types
-            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern', 'Continuous Non-Geodesic Helical', 'Multi-Circuit Non-Geodesic']:
+            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern', 'Continuous Non-Geodesic Helical', 'Multi-Circuit Non-Geodesic', 'physics_continuous_geodesic_helical', 'physics_continuous_non-geodesic_helical', 'seamless_continuous_helical']:
                 st.write("**3D Trajectory View**")
                 
                 # Check if we have the required 3D coordinate data

@@ -1,0 +1,61 @@
+3D Visualization Not Displaying
+Analysis:
+Your visualizations.py plot_3d_trajectory function expects trajectory_data to have 'x_points_m', 'y_points_m', and 'z_points_m'.
+The seamless_helical.py function does provide these keys.
+The app.py code for showing the 3D plot is:
+
+Python
+
+if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern', 'Continuous Non-Geodesic Helical', 'Multi-Circuit Non-Geodesic']:
+    # ...
+    has_3d_data = ('x_points_m' in st.session_state.trajectory_data and ...)
+    if has_3d_data:
+        fig_3d = visualizer.plot_3d_trajectory(...)
+Proposed Solutions:
+
+Pattern Type Matching: The seamless_helical.py returns pattern_type': 'seamless_continuous_helical'. Ensure this string is included in the list checked by app.py, or standardize the pattern_type strings.
+
+In app.py (trajectory_planning_page, around line 260-270 where 3D plot is handled):
+Python
+
+# Modify the condition to include the new pattern type
+allowed_patterns_for_3d = ['Geodesic', 'Multi-Circuit Geodesic', 
+                           'Geodesic_MultiPass', 'Multi-Circuit Pattern', 
+                           'Continuous Non-Geodesic Helical', 
+                           'Multi-Circuit Non-Geodesic', 
+                           'seamless_continuous_helical', # Add this
+                           'physical_continuous_geodesic_helical'] # Add if you use my new func name
+
+if st.session_state.trajectory_data.get('pattern_type') in allowed_patterns_for_3d:
+    # ... rest of the 3D plotting code
+Data Passing: Double-check in app.py that st.session_state.trajectory_data is correctly updated with the output from whichever trajectory generation function is called. If generate_seamless_helical_spiral is called from within a method of TrajectoryPlanner (like the placeholder generate_continuous_helical_non_geodesic), ensure the main trajectory_data in the session state gets this output.
+
+Vessel Profile Data for 3D Plot:
+
+visualizations.py plot_3d_trajectory takes vessel_profile_data argument as {'r_m': array_of_radii, 'z_m': array_of_axial_coords} in meters.
+
+app.py prepares it as:
+
+Python
+
+vessel_profile_for_plot = {
+    'r_m': st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3,
+    'z_m': st.session_state.vessel_geometry.profile_points['z'] * 1e-3
+}
+Your VesselGeometry class in trajectories.py seems to store profile points as r_inner_mm and z_mm in its profile_points dictionary (after generation).
+
+Ensure Consistency:
+
+When plot_3d_trajectory is called, st.session_state.vessel_geometry.profile_points should contain the keys r_inner and z (or r_inner_mm and z_mm which are then correctly converted).
+The VesselGeometry.get_profile_points() method (if it exists and is used by the app) should return data that app.py can correctly transform into the {'r_m': ..., 'z_m': ...} structure (in meters).
+It seems app.py uses vessel.profile_points['r_inner'] and vessel.profile_points['z']. Your VesselGeometry in trajectories.py __init__ refers to self.vessel.profile_points['r_inner'] and self.vessel.profile_points['z'] as if they are direct attributes. This might be a point of mismatch. The generate_profile() method in VesselGeometry should ensure it populates these exact keys or that app.py uses the correct keys (e.g. r_inner_mm).
+Recommendation: Standardize the keys in VesselGeometry.profile_points to, for example, r_inner_mm, z_mm, r_outer_mm. Then, in app.py preparing vessel_profile_for_plot:
+
+Python
+
+# In app.py
+profile_points_dict = st.session_state.vessel_geometry.profile_points
+vessel_profile_for_plot = {
+    'r_m': np.array(profile_points_dict['r_inner_mm']) * 1e-3,
+    'z_m': np.array(profile_points_dict['z_mm']) * 1e-3
+}
