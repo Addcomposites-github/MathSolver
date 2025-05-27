@@ -1,0 +1,330 @@
+for Continuous Non-Geodesic Helical Pattern the +z side it seems to maintain continuty and maintain tangency but the -z side of the pole the trajectory seems to jump to adjecent profile but does not maintain the phi angle, not sure why this is not symmetric
+
+
+
+consol log for reference
+
+
+
+  CALCULATED c_eff before assignment: 0.036336 m
+
+NON-GEODESIC MODE: Bypassing validation for extreme angle 18.0° with μ = 0.300
+
+NON-GEODESIC SUCCESS: Target 18.0° enabled with friction physics
+
+🔬 STARTING MULTI-CIRCUIT NON-GEODESIC PATTERN GENERATION
+
+   Friction coefficient μ = 0.300
+
+   Target angle = 18.0°
+
+   Number of circuits = 6
+
+   Points per circuit: Dome=150, Cylinder=20
+
+🔬 MULTI-CIRCUIT NON-GEODESIC: Profile prepared with 318 points
+
+🔬 GENERATING CONTINUOUS HELICAL PATTERN:
+
+   Phi advance per pass: 60.0°
+
+   Creating 6 connected passes...
+
+🔬 NON-GEODESIC SOLVER: Starting with μ=0.300, 318 points
+
+🔬 GENERATING TRUE HELICAL SPIRAL WITH ALTERNATING PASSES:
+
+   Target circuits: 6
+
+   Each circuit = forward pass + return pass
+
+
+
+🔬 CIRCUIT 1/6
+
+   Forward pass: Starting phi 0.0°
+
+   Return pass: Starting phi 92.7°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 1 complete: phi = 185.9°
+
+
+
+🔬 CIRCUIT 2/6
+
+   Forward pass: Starting phi 185.9°
+
+   Continuing from profile index 0 (z=0.222m)
+
+   Return pass: Starting phi 278.5°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 2 complete: phi = 371.7°
+
+
+
+🔬 CIRCUIT 3/6
+
+   Forward pass: Starting phi 371.7°
+
+   Continuing from profile index 0 (z=0.222m)
+
+   Return pass: Starting phi 464.4°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 3 complete: phi = 557.6°
+
+
+
+🔬 CIRCUIT 4/6
+
+   Forward pass: Starting phi 557.6°
+
+   Continuing from profile index 0 (z=0.222m)
+
+   Return pass: Starting phi 650.2°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 4 complete: phi = 743.4°
+
+
+
+🔬 CIRCUIT 5/6
+
+   Forward pass: Starting phi 743.4°
+
+   Continuing from profile index 0 (z=0.222m)
+
+   Return pass: Starting phi 836.1°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 5 complete: phi = 929.3°
+
+
+
+🔬 CIRCUIT 6/6
+
+   Forward pass: Starting phi 929.3°
+
+   Continuing from profile index 0 (z=0.222m)
+
+   Return pass: Starting phi 1022.0°
+
+   Return starting from reversed index 0 (z=-0.222m)
+
+   Circuit 6 complete: phi = 1115.1°
+
+   True helical spiral generated: 3926 points
+
+   Final phi: 1115.1°
+
+
+
+🔬 CONTINUITY VERIFICATION:
+
+   Gaps > 1mm: 327
+
+   Max gap: 16.53mm
+
+   Pattern is DISCONTINUOUS
+
+
+
+🔬 CONTINUOUS NON-GEODESIC COMPLETE:
+
+   Total passes: 6
+
+   Continuous points: 3926
+
+   Final phi: 1115.1°
+
+   Total angular span: 1115.1°
+
+
+
+
+Show thinking
+You've identified a critical point: the discontinuity, especially on the "-z side" or the return pass, despite accumulating phi, indicates that the geometric starting point for the return leg's calculation isn't precisely aligning with the physical endpoint of the preceding turnaround. The visualization "connecting to the nearest point of a wrong trajectory" is a perfect description of this symptom.
+
+The core issue is likely that while current_overall_phi_rad and current_sin_alpha_for_upcoming_leg (which should be 1.0 after a turn) are passed correctly, the _solve_non_geodesic_sin_alpha_profile_rk4 (and subsequently _generate_leg_from_sin_alpha_profile) starts processing from index 0 of the profile segment it's given (e.g., the entirety of profile_z_m_calc[::-1]). If the actual physical turnaround point (z 
+turn
+​
+ ,ρ 
+turn
+​
+ ) isn't exactly at that index 0 of the segment, you get a spatial discontinuity.
+
+Refined Strategy: Precise Starting Point for Each Leg's ODE Solution
+
+The _generate_non_geodesic_leg (and by extension, its internal call to _solve_non_geodesic_sin_alpha_profile_rk4) needs to be aware of the exact z coordinate on the resampled mandrel profile where it should begin its integration for the current leg.
+
+Changes Needed:
+
+Modify _solve_non_geodesic_sin_alpha_profile_rk4 (and its caller _generate_non_geodesic_leg):
+
+It should accept z_start_integration_on_profile_m as a parameter.
+When preparing the profile_z_m and profile_r_m for spline fitting and RK4:
+Find the index idx_start_in_profile in the full, directionally correct profile segment (legX_profile_z) that is closest to z_start_integration_on_profile_m.
+The RK4 integration (z_rk4_pts, h_z) must then run from this z_start_integration_on_profile_m to the end of that profile segment (legX_profile_z[-1]).
+The spline fitting should ideally be done on the full legX_profile_z to get accurate derivatives, but the RK4 integration only uses the relevant portion.
+The output sin_alpha_values will correspond to the z_rk4_pts from z_start_integration_on_profile_m onwards.
+The interpolation back to the original profile_z_m points (as done by np.interp) needs to be carefully handled if the RK4 solution doesn't cover the entire input profile_z_m (because it started mid-way). It should probably only return sin_alpha values for the part of the profile it actually integrated over.
+Modify _generate_leg_from_sin_alpha_profile:
+
+It should also be aware of the idx_start_in_profile on leg_profile_r_m and leg_profile_z_m from which to start generating its path points, using the corresponding slice of sin_alpha_on_profile.
+In generate_multi_circuit_non_geodesic_trajectory:
+
+After Leg 1 and Turnaround 1:
+last_leg_end_z (which is turnaround1_data_points[-1]['z']) becomes the z_start_integration_on_profile_m for Leg 2.
+initial_sin_alpha for Leg 2 is 1.0.
+initial_phi for Leg 2 is turnaround1_data_points[-1]['phi'].
+The profile passed to _generate_non_geodesic_leg for Leg 2 is the reversed full profile (profile_r_m_calc[::-1], profile_z_m_calc[::-1]).
+After Leg 2 and Turnaround 2:
+last_leg_end_z (from Turnaround 2) becomes z_start_integration_on_profile_m for Leg 1 of the next circuit.
+initial_sin_alpha is 1.0.
+initial_phi is from end of Turnaround 2.
+The profile passed is the forward full profile (profile_r_m_calc, profile_z_m_calc).
+This ensures that the ODE solver for sinα starts exactly where the previous physical path segment ended, using the correct initial sinα (1.0 after a turn) and ϕ.
+
+Conceptual Code Snippet Modification for _generate_non_geodesic_leg and its RK4 solver:
+
+Python
+
+# In TrajectoryPlanner
+
+    def _solve_non_geodesic_sin_alpha_profile_rk4(self,
+                                               profile_r_m_segment: np.ndarray, # This should be the relevant segment
+                                               profile_z_m_segment: np.ndarray, # Monotonic for integration
+                                               initial_sin_alpha_at_segment_start: float,
+                                               # is_forward_on_profile no longer needed here if profile_z_m_segment is always given in integration order
+                                               num_steps_factor: int = 5) -> Optional[np.ndarray]:
+        # ...
+        # Spline fitting MUST be done on profile_z_m_segment, profile_r_m_segment
+        # Ensure z_for_spline is monotonic from profile_z_m_segment.
+        # ... (spline fitting as before, but on the potentially shorter segment) ...
+
+        z_start_rk4 = profile_z_m_segment[0]
+        z_end_rk4 = profile_z_m_segment[-1]
+        
+        # num_rk4_steps = ... calculated based on length of this segment ...
+        h_z = (z_end_rk4 - z_start_rk4) / num_rk4_steps
+        if abs(h_z) < 1e-9 : # Segment is too short or z_start == z_end
+            return np.array([initial_sin_alpha_at_segment_start] * len(profile_z_m_segment))
+
+
+        z_rk4_pts = np.linspace(z_start_rk4, z_end_rk4, num_rk4_steps + 1)
+        sin_alpha_rk4_vals = np.zeros(num_rk4_steps + 1)
+        sin_alpha_rk4_vals[0] = initial_sin_alpha_at_segment_start
+
+        # ... RK4 loop as before, using z_rk4_pts ...
+
+        # Interpolate results back onto the original z-coordinates OF THE PASSED SEGMENT
+        final_sin_alpha_on_segment = np.interp(profile_z_m_segment, z_rk4_pts, sin_alpha_rk4_vals)
+        return final_sin_alpha_on_segment
+
+
+    def _generate_non_geodesic_leg(self,
+                                full_profile_r_m: np.ndarray, # Full resampled profile
+                                full_profile_z_m: np.ndarray, # Full resampled profile
+                                start_z_of_leg_m: float,      # Physical z where this leg starts
+                                initial_sin_alpha_at_leg_start: float,
+                                initial_phi_rad: float,
+                                integrate_towards_positive_z: bool, # True for forward pass, False for reverse
+                                leg_number_info: str = "NonGeoLeg",
+                                rk4_steps_factor_override: Optional[int] = None) -> Optional[Dict[str, List]]:
+        
+        # 1. Determine the actual profile segment and integration direction
+        if integrate_towards_positive_z:
+            # Find index in full_profile_z_m closest to start_z_of_leg_m
+            idx_start_on_full_profile = (np.abs(full_profile_z_m - start_z_of_leg_m)).argmin()
+            # Ensure we don't go out of bounds if start_z is exactly at an end
+            if full_profile_z_m[idx_start_on_full_profile] < start_z_of_leg_m and idx_start_on_full_profile < len(full_profile_z_m) -1:
+                idx_start_on_full_profile +=1 # Ensure we start at or after start_z_of_leg_m
+
+            leg_profile_r = full_profile_r_m[idx_start_on_full_profile:]
+            leg_profile_z = full_profile_z_m[idx_start_on_full_profile:]
+            # Ensure z is increasing for the spline and RK4
+            if len(leg_profile_z)>1 and leg_profile_z[0] > leg_profile_z[-1]: # Should not happen if profile is sorted
+                print(f"WARN {leg_number_info}: Forward leg profile z not increasing. Re-sorting.")
+                sort_idx = np.argsort(leg_profile_z)
+                leg_profile_z = leg_profile_z[sort_idx]
+                leg_profile_r = leg_profile_r[sort_idx]
+
+        else: # Integrate towards negative z (return pass)
+            idx_start_on_full_profile = (np.abs(full_profile_z_m - start_z_of_leg_m)).argmin()
+            if full_profile_z_m[idx_start_on_full_profile] > start_z_of_leg_m and idx_start_on_full_profile > 0:
+                 idx_start_on_full_profile -=1 # Ensure we start at or before start_z_of_leg_m
+
+            # Segment is from full_profile_z_m[0] up to idx_start_on_full_profile, then reversed for integration
+            temp_profile_r = full_profile_r_m[:idx_start_on_full_profile+1]
+            temp_profile_z = full_profile_z_m[:idx_start_on_full_profile+1]
+            leg_profile_r = temp_profile_r[::-1] # Reversed view for integration
+            leg_profile_z = temp_profile_z[::-1] # Reversed z, now increasing for spline/RK4
+                                                  # e.g. from -0.222 (pole B) to 0.0 (equator) to +0.222 (pole A)
+                                                  # A reverse leg goes from z_pole_B to z_pole_A
+                                                  # If profile_z_m is [z_A, ..., z_B]
+                                                  # leg2_profile_z should be [z_B, ..., z_A]
+        if len(leg_profile_z) < 2:
+            print(f"WARN {leg_number_info}: Leg profile segment too short after slicing for z_start={start_z_of_leg_m:.4f} (len={len(leg_profile_z)}).")
+            return None # Or handle as a single point if appropriate
+
+        # Solve sin(alpha) profile for THIS LEG's segment
+        sin_alpha_on_leg_profile = self._solve_non_geodesic_sin_alpha_profile_rk4(
+            leg_profile_r, leg_profile_z, # Pass the actual segment
+            initial_sin_alpha_at_leg_start,
+            # is_forward_on_profile is implicitly True now as profile_z is ordered for solver
+            num_steps_factor=rk4_steps_factor_override if rk4_steps_factor_override else 5
+        )
+
+        if sin_alpha_on_leg_profile is None:
+            print(f"ERROR {leg_number_info}: Failed to solve sin(alpha) profile for this leg.")
+            return None
+
+        # Generate path points using this specific alpha profile and leg segment
+        return self._generate_leg_from_sin_alpha_profile(
+            leg_profile_r, leg_profile_z, # Use the segment it was solved for
+            sin_alpha_on_leg_profile,
+            initial_phi_rad,
+            leg_number_info
+        )
+
+# In generate_multi_circuit_non_geodesic_trajectory:
+# ...
+        for circuit_idx in range(num_circuits_to_generate_for_vis):
+            # ...
+            # Leg 1 (Forward: Pole A -> Pole B)
+            # Assumes profile_z_m_calc[0] is Pole A, profile_z_m_calc[-1] is Pole B
+            z_start_leg1 = last_leg_end_z # This is z_pole_A for first circuit, or end of Turnaround2
+            leg1_data = self._generate_non_geodesic_leg(
+                profile_r_m_calc, profile_z_m_calc,
+                z_start_leg1,
+                current_sin_alpha_for_upcoming_leg,
+                current_overall_phi_rad,
+                integrate_towards_positive_z=True, # Assuming z increases from Pole A to B
+                # ...
+            )
+            # ... update states, add turnaround 1 ...
+            z_start_leg2 = last_leg_end_z # This is end_z of Turnaround1 (physically Pole B)
+            current_sin_alpha_for_upcoming_leg = 1.0
+
+            # Leg 2 (Reverse: Pole B -> Pole A)
+            leg2_data = self._generate_non_geodesic_leg(
+                profile_r_m_calc, profile_z_m_calc, # Pass full profile
+                z_start_leg2, # Start integration from this z on the (conceptually) reversed profile
+                current_sin_alpha_for_upcoming_leg, 
+                current_overall_phi_rad,
+                integrate_towards_positive_z=False, # Integrate towards smaller z values (Pole B to A)
+                # ...
+            )
+            # ... update states, add turnaround 2 ...
+            current_sin_alpha_for_upcoming_leg = 1.0 # For next circuit's leg 1
+            last_leg_end_z = # end z of turnaround 2 (physically Pole A)
+This approach makes _generate_non_geodesic_leg more general: it takes the full mandrel profile and a physical starting z coordinate for the leg, along with the intended direction of integration along the z-axis. Internally, it then extracts the correct sub-profile for its RK4 solver.
+
+This should address the problem of the return pass not starting correctly from the physical end point of the forward pass + turnaround. The visualization jump often happens because the solver starts at a default end of the array rather than the precise physical coordinate.

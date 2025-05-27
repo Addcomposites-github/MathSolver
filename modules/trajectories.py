@@ -823,10 +823,26 @@ class TrajectoryPlanner:
             
             # Find starting index in reversed profile from turnaround end position
             if len(continuous_path_points) > 0:
-                turnaround_end_z = continuous_path_points[-1]['z']
-                z_diffs = [abs(profile_z_m_calc[i] - turnaround_end_z) for i in reversed_indices]
-                start_return_idx = min(range(len(z_diffs)), key=z_diffs.__getitem__)
-                print(f"   Return starting from reversed index {start_return_idx} (z={profile_z_m_calc[reversed_indices[start_return_idx]]:.3f}m)")
+                turnaround_end_point = continuous_path_points[-1]
+                turnaround_end_z = turnaround_end_point['z']
+                turnaround_end_rho = turnaround_end_point['rho']
+                
+                # Find closest match in reversed profile considering both z and rho
+                best_match_idx = 0
+                min_distance = float('inf')
+                for idx, profile_idx in enumerate(reversed_indices):
+                    z_diff = abs(profile_z_m_calc[profile_idx] - turnaround_end_z)
+                    rho_diff = abs(profile_r_m_calc[profile_idx] - turnaround_end_rho)
+                    distance = math.sqrt(z_diff**2 + rho_diff**2)
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_match_idx = idx
+                
+                start_return_idx = best_match_idx
+                actual_start_z = profile_z_m_calc[reversed_indices[start_return_idx]]
+                actual_start_rho = profile_r_m_calc[reversed_indices[start_return_idx]]
+                print(f"   Return starting from reversed index {start_return_idx} (z={actual_start_z:.3f}m, rho={actual_start_rho:.3f}m)")
+                print(f"   Distance from turnaround end: {min_distance*1000:.1f}mm")
             
             for idx in range(start_return_idx, len(reversed_indices)):
                 i = reversed_indices[idx]
