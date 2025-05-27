@@ -271,7 +271,7 @@ class TrajectoryPlannerRefactored:
             )
             
             if segment_result is None:
-                self.logger.error(f"Failed to generate pass {pass_idx + 1}")
+                print(f"Failed to generate pass {pass_idx + 1}")
                 return None
                 
             # Add helical points to trajectory
