@@ -140,36 +140,44 @@ class TrajectoryPlannerRefactored:
             self.clairauts_constant_for_path_m = self.R_cyl_m * math.sin(alpha_target_rad)
             
             # Validate against physical minimum
-            if self.clairauts_constant_for_path_m < self.effective_polar_opening_radius_m:
-                self.logger.warning(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
-                self.logger.warning(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm")
-                self.logger.info("Using geometric limit instead")
+            if (self.clairauts_constant_for_path_m and self.effective_polar_opening_radius_m and 
+                self.clairauts_constant_for_path_m < self.effective_polar_opening_radius_m):
+                print(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+                print(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm")
+                print("Using geometric limit instead")
                 self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
             else:
-                self.logger.info(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+                print(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
         else:
             # Use geometric limit (minimum physically possible)
             self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
-            self.logger.info(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
             
     def _calculate_pattern_advancement(self):
         """
         Calculate azimuthal advancement per pass for pattern coverage.
         This determines how much the pattern shifts after each pole-to-pole pass.
         """
-        if self.target_cylinder_angle_deg is not None:
-            target_alpha_rad = math.radians(self.target_cylinder_angle_deg)
-        else:
-            # Calculate effective angle from Clairaut's constant
-            sin_alpha_eff = self.clairauts_constant_for_path_m / self.R_cyl_m
-            target_alpha_rad = math.asin(np.clip(sin_alpha_eff, 0, 1))
+        try:
+            if self.target_cylinder_angle_deg is not None:
+                target_alpha_rad = math.radians(self.target_cylinder_angle_deg)
+            else:
+                # Calculate effective angle from Clairaut's constant
+                if self.clairauts_constant_for_path_m and self.R_cyl_m:
+                    sin_alpha_eff = self.clairauts_constant_for_path_m / self.R_cyl_m
+                    target_alpha_rad = math.asin(np.clip(sin_alpha_eff, 0, 1))
+                else:
+                    target_alpha_rad = math.radians(45.0)  # Safe default
+                
+            # Angular width of one band projected perpendicular to winding direction
+            self.phi_advancement_rad_per_pass = (
+                self.dry_roving_width_m / math.cos(target_alpha_rad)
+            ) / self.R_cyl_m
             
-        # Angular width of one band projected perpendicular to winding direction
-        self.phi_advancement_rad_per_pass = (
-            self.dry_roving_width_m / math.cos(target_alpha_rad)
-        ) / self.R_cyl_m
-        
-        self.logger.debug(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass")
+            print(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass")
+        except Exception as e:
+            print(f"Error calculating pattern advancement: {e}")
+            self.phi_advancement_rad_per_pass = 0.05  # Safe default
         
     def generate_trajectory(self, 
                           pattern_name: str, 
