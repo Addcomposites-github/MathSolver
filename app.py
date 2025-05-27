@@ -544,73 +544,60 @@ def trajectory_planning_page():
                     if 'num_circuits' not in locals():
                         num_circuits = 2  # Default 2 circuits
                     
-                    st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
-                    
-                    # Create planner with NO validation - allows any angle
-                    planner = TrajectoryPlanner(
-                        st.session_state.vessel_geometry,
-                        dry_roving_width_m=roving_width/1000,
-                        dry_roving_thickness_m=roving_thickness/1000,
-                        roving_eccentricity_at_pole_m=polar_eccentricity/1000,
-                        target_cylinder_angle_deg=target_angle,  # ANY angle allowed!
-                        mu_friction_coefficient=friction_coefficient
-                    )
-                    
-                    # Skip geodesic validation completely for non-geodesic mode
-                    st.success(f"🔬 **Non-Geodesic Physics**: Target {target_angle}° with friction μ = {friction_coefficient:.2f}")
-                    st.info("✨ **No geometric limits** - Using advanced differential equation solving")
-                    
                     # Debug: Check pattern mode
                     st.write(f"🔍 DEBUG: Pattern mode = '{pattern_mode}', Number of circuits = {num_circuits}")
                     
-                    # Generate trajectory using proven geodesic methods (temporarily using geodesic for stability)
+                    # Special handling for Multi-Circuit Pattern - route to geodesic path for stability
                     if pattern_mode == "Multi-Circuit Pattern":
                         st.warning("🚧 **Multi-circuit non-geodesic is under development**")
                         st.info("🔄 **Using proven geodesic multi-pass generation** for reliable trajectories")
                         st.info(f"🔥 Generating MULTI-PASS GEODESIC pattern with {num_circuits} circuits")
                         
-                        # For multi-circuit, we want target angle validation like geodesic mode
-                        # Recreate planner WITH target angle validation for proper Clairaut's constant
-                        if target_angle is not None and target_angle > 0:
-                            st.info(f"🎯 Using target angle: {target_angle}°")
-                            # Recreate planner with proper target angle
-                            planner = TrajectoryPlanner(
-                                st.session_state.vessel_geometry,
-                                dry_roving_width_m=roving_width/1000,
-                                dry_roving_thickness_m=roving_thickness/1000,
-                                roving_eccentricity_at_pole_m=polar_eccentricity/1000,
-                                target_cylinder_angle_deg=target_angle,
-                                mu_friction_coefficient=0.0  # Geodesic patterns don't use friction
-                            )
-                            
-                            # Show validation results like geodesic mode
-                            validation = planner.get_validation_results()
-                            if validation and validation.get('is_valid', True):
-                                if target_angle:
-                                    st.success(f"✅ **Target Angle Validated**: {target_angle}° achievable (Safety margin: {validation.get('safety_margin_mm', 0):.1f}mm)")
-                                else:
-                                    st.info(f"🔧 **Geometric Limit**: Using minimum achievable angle ({validation.get('effective_polar_opening_mm', 0):.1f}mm opening)")
-                            else:
-                                st.error(f"❌ **Validation Failed**: {validation.get('error_message', 'Unknown validation error')}")
-                                st.stop()
+                        # Use the SAME trajectory generation path as the working Geodesic mode
+                        st.info(f"🎯 Using target angle: {target_angle}°")
                         
-                        trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points, number_of_passes=num_circuits)
-                    elif pattern_mode == "Continuous Helical Physics":
-                        # Feature flag: Temporarily use geodesic for stability
-                        if friction_coefficient > 0.01:
-                            st.warning("🚧 **Non-geodesic continuous physics is under development**")
-                            st.info("🔄 **Falling back to geodesic pattern** for reliable trajectory generation")
-                            path_type = 'geodesic'
-                        else:
-                            path_type = 'geodesic'
-                        
-                        st.info(f"🌀 Calling PHYSICS-BASED CONTINUOUS SPIRAL with {num_circuits} circuits ({path_type.upper()})")
-                        trajectory_data = planner.generate_physical_continuous_spiral(
-                            number_of_circuits=num_circuits,
-                            path_type=path_type,
-                            points_per_meridian_pass=200
+                        # Create geodesic planner with proper validation
+                        planner = TrajectoryPlanner(
+                            st.session_state.vessel_geometry,
+                            dry_roving_width_m=roving_width/1000,
+                            dry_roving_thickness_m=roving_thickness/1000,
+                            roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                            target_cylinder_angle_deg=target_angle,
+                            mu_friction_coefficient=0.0  # Geodesic patterns don't use friction
                         )
+                        
+                        # Show validation results like geodesic mode
+                        validation = planner.get_validation_results()
+                        if validation and validation.get('is_valid', True):
+                            if target_angle:
+                                st.success(f"✅ **Target Angle Validated**: {target_angle}° achievable (Safety margin: {validation.get('safety_margin_mm', 0):.1f}mm)")
+                            else:
+                                st.info(f"🔧 **Geometric Limit**: Using minimum achievable angle ({validation.get('effective_polar_opening_mm', 0):.1f}mm opening)")
+                        else:
+                            st.error(f"❌ **Validation Failed**: {validation.get('error_message', 'Unknown validation error')}")
+                            st.stop()
+                        
+                        # Use the proven working geodesic trajectory generation
+                        trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points, number_of_passes=num_circuits)
                     else:
+                        # Other non-geodesic modes
+                        st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
+                        
+                        # Create planner with NO validation - allows any angle
+                        planner = TrajectoryPlanner(
+                            st.session_state.vessel_geometry,
+                            dry_roving_width_m=roving_width/1000,
+                            dry_roving_thickness_m=roving_thickness/1000,
+                            roving_eccentricity_at_pole_m=polar_eccentricity/1000,
+                            target_cylinder_angle_deg=target_angle,  # ANY angle allowed!
+                            mu_friction_coefficient=friction_coefficient
+                        )
+                        
+                        # Skip geodesic validation completely for non-geodesic mode
+                        st.success(f"🔬 **Non-Geodesic Physics**: Target {target_angle}° with friction μ = {friction_coefficient:.2f}")
+                        st.info("✨ **No geometric limits** - Using advanced differential equation solving")
+                        
+                        # Generate trajectory based on pattern mode
                         st.info(f"🔥 Calling SINGLE-CIRCUIT function")
                         trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
                     
