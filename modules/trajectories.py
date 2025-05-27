@@ -984,14 +984,6 @@ class TrajectoryPlanner:
             'y_points_m': all_y_points,
             'z_points_m': all_z_points
         }
-                max_gap = max(max_gap, gap)
-        
-        print(f"   Gaps > 1mm: {total_gaps}")
-        print(f"   Max gap: {max_gap*1000:.2f}mm")
-        print(f"   Pattern is {'CONTINUOUS' if total_gaps == 0 else 'DISCONTINUOUS'}")
-        
-        print(f"\n🔬 CONTINUOUS NON-GEODESIC COMPLETE:")
-        print(f"   Total passes: {number_of_circuits}")
         print(f"   Continuous points: {len(continuous_path_points)}")
         print(f"   Final phi: {math.degrees(current_phi_continuous):.1f}°")
         print(f"   Total angular span: {math.degrees(current_phi_continuous):.1f}°")
