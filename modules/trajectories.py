@@ -758,7 +758,32 @@ class TrajectoryPlanner:
                 all_y_points.append(y)
                 all_z_points.append(z)
             
-            # Add pattern advancement after forward pass
+            # Add turnaround at pole B before return pass
+            pole_b_rho = profile_r_m_calc[-1]  # Last point of forward pass
+            pole_b_z = profile_z_m_calc[-1]
+            turnaround_start_phi = current_phi_continuous
+            
+            # Generate turnaround points at pole B
+            num_turnaround_points = 10
+            for turnaround_i in range(num_turnaround_points):
+                turnaround_phi = turnaround_start_phi + (turnaround_i / (num_turnaround_points - 1)) * phi_advance_per_pass
+                
+                x_turn = pole_b_rho * math.cos(turnaround_phi)
+                y_turn = pole_b_rho * math.sin(turnaround_phi)
+                
+                turnaround_point = {
+                    'x': x_turn, 'y': y_turn, 'z': pole_b_z,
+                    'rho': pole_b_rho, 'alpha': math.pi/2, 'phi': turnaround_phi,
+                    'circuit': circuit_idx, 'pass': 'turnaround_B',
+                    'direction': 'Turnaround',
+                    'winding_angle': 90.0
+                }
+                continuous_path_points.append(turnaround_point)
+                all_x_points.append(x_turn)
+                all_y_points.append(y_turn)
+                all_z_points.append(pole_b_z)
+            
+            # Update phi after turnaround
             current_phi_continuous += phi_advance_per_pass
             
             # Return pass (pole B to pole A) - reversed profile
@@ -789,6 +814,31 @@ class TrajectoryPlanner:
                 all_x_points.append(x)
                 all_y_points.append(y)
                 all_z_points.append(z)
+            
+            # Add turnaround at pole A after return pass (except for last circuit)
+            if circuit_idx < number_of_circuits - 1:  # Don't add turnaround after the last circuit
+                pole_a_rho = profile_r_m_calc[0]  # First point of profile (pole A)
+                pole_a_z = profile_z_m_calc[0]
+                turnaround_start_phi = current_phi_continuous
+                
+                # Generate turnaround points at pole A
+                for turnaround_i in range(num_turnaround_points):
+                    turnaround_phi = turnaround_start_phi + (turnaround_i / (num_turnaround_points - 1)) * phi_advance_per_pass
+                    
+                    x_turn = pole_a_rho * math.cos(turnaround_phi)
+                    y_turn = pole_a_rho * math.sin(turnaround_phi)
+                    
+                    turnaround_point = {
+                        'x': x_turn, 'y': y_turn, 'z': pole_a_z,
+                        'rho': pole_a_rho, 'alpha': math.pi/2, 'phi': turnaround_phi,
+                        'circuit': circuit_idx, 'pass': 'turnaround_A',
+                        'direction': 'Turnaround',
+                        'winding_angle': 90.0
+                    }
+                    continuous_path_points.append(turnaround_point)
+                    all_x_points.append(x_turn)
+                    all_y_points.append(y_turn)
+                    all_z_points.append(pole_a_z)
             
             # Add pattern advancement after return pass
             current_phi_continuous += phi_advance_per_pass
