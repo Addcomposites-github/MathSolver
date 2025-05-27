@@ -1078,9 +1078,10 @@ class TrajectoryPlanner:
         else:
             passes_for_one_coverage_layer = number_of_circuits * 2  # Fallback
             
-        # Use calculated coverage passes for true helical pattern
-        actual_passes_to_run = passes_for_one_coverage_layer
-        print(f"   🎯 Running {actual_passes_to_run} passes for complete helical coverage")
+        # For debugging: limit to user-requested circuits instead of full coverage
+        debug_passes = number_of_circuits * 2  # Use user input for debugging
+        actual_passes_to_run = min(debug_passes, passes_for_one_coverage_layer)
+        print(f"   🎯 Running {actual_passes_to_run} passes (user requested: {debug_passes}, full coverage needs: {passes_for_one_coverage_layer})")
         
         # Traverse the profile for complete coverage
         for pass_num in range(actual_passes_to_run):
