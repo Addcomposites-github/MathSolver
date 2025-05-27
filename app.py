@@ -286,6 +286,20 @@ def trajectory_planning_page():
                 else:
                     num_circuits = 1
             
+            # Target angle configuration for non-geodesic patterns
+            st.markdown("### 🎯 Target Winding Angle")
+            use_target_angle = st.checkbox("Specify Target Cylinder Angle", value=True,
+                                         help="Define desired winding angle for physics-based patterns")
+            
+            target_angle = None
+            if use_target_angle:
+                target_angle = st.slider("Target Cylinder Angle (degrees)", 
+                                        min_value=10.0, max_value=80.0, value=45.0, step=1.0,
+                                        help="Desired winding angle on cylinder section")
+                st.info(f"🎯 **Target**: {target_angle}° winding angle on cylinder")
+            else:
+                st.info("🔧 **Mode**: Using geometric limit (minimum physically possible angle)")
+            
             # Calculation parameters  
             dome_points = st.number_input("Points per Dome Segment", min_value=20, max_value=300, value=150, step=10)
             cylinder_points = st.number_input("Points per Cylinder Segment", min_value=5, max_value=100, value=20, step=5)
