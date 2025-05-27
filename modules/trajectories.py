@@ -646,13 +646,13 @@ class TrajectoryPlanner:
         print(f"   Number of circuits = {number_of_circuits}")
         print(f"   Points per circuit: Dome={num_points_dome}, Cylinder={num_points_cylinder}")
         
-        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+        if self.vessel.profile_points is None or 'r_inner_mm' not in self.vessel.profile_points:
             print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
             return None
             
         # Get vessel profile
-        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
-        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        profile_r_m_orig = self.vessel.profile_points['r_inner_mm'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z_mm'] * 1e-3
         
         # Create adaptive profile 
         segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
