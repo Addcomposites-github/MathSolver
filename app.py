@@ -787,6 +787,13 @@ def trajectory_planning_page():
             # Handle the refactored engine pattern
             st.markdown("### 🔬 Refactored Engine Parameters")
             
+            # Ensure the import is available
+            try:
+                from modules.trajectories_refactored import TrajectoryPlannerRefactored
+            except ImportError:
+                st.error("❌ Refactored engine not available")
+                st.stop()
+            
             # Get parameters from session state or use defaults
             roving_width = st.number_input("Roving Width (mm)", min_value=0.1, max_value=10.0, value=3.0, step=0.1)
             roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, max_value=1.0, value=0.2, step=0.01)
@@ -810,7 +817,8 @@ def trajectory_planning_page():
             if st.button("🚀 Generate Refactored Trajectory", type="primary"):
                 with st.spinner("Generating trajectory with refactored engine..."):
                     try:
-                        # Create refactored planner
+                        # Import and create refactored planner
+                        from modules.trajectories_refactored import TrajectoryPlannerRefactored
                         planner_refactored = TrajectoryPlannerRefactored(
                             vessel_geometry=st.session_state.vessel_geometry,
                             dry_roving_width_m=roving_width * 1e-3,
