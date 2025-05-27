@@ -737,8 +737,18 @@ class TrajectoryPlanner:
                 sin_alpha = sin_alpha_profile[i]
                 alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                if i > 0:
-                    ds = math.sqrt((rho - profile_r_m_calc[i-1])**2 + (z - profile_z_m_calc[i-1])**2)
+                # Calculate continuous phi progression (no reset between passes)
+                if i > 0 or (circuit_idx > 0 and len(continuous_path_points) > 0):
+                    if i > 0:
+                        prev_rho = profile_r_m_calc[i-1]
+                        prev_z = profile_z_m_calc[i-1]
+                    else:
+                        # Continue from last point of previous circuit
+                        prev_point = continuous_path_points[-1]
+                        prev_rho = prev_point['rho']
+                        prev_z = prev_point['z']
+                    
+                    ds = math.sqrt((rho - prev_rho)**2 + (z - prev_z)**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
                         current_phi_continuous += dphi
@@ -788,14 +798,25 @@ class TrajectoryPlanner:
             
             # Return pass (pole B to pole A) - reversed profile
             print(f"   Return pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
-            for i in range(len(profile_r_m_calc)-1, -1, -1):
+            for idx, i in enumerate(range(len(profile_r_m_calc)-1, -1, -1)):
                 rho = profile_r_m_calc[i]
                 z = profile_z_m_calc[i]
                 sin_alpha = sin_alpha_profile[i]
                 alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                if i < len(profile_r_m_calc)-1:
-                    ds = math.sqrt((rho - profile_r_m_calc[i+1])**2 + (z - profile_z_m_calc[i+1])**2)
+                # Calculate continuous phi progression from previous point
+                if idx > 0 or len(continuous_path_points) > 0:
+                    if idx > 0:
+                        prev_i = list(range(len(profile_r_m_calc)-1, -1, -1))[idx-1]
+                        prev_rho = profile_r_m_calc[prev_i]
+                        prev_z = profile_z_m_calc[prev_i]
+                    else:
+                        # Continue from last point (end of turnaround)
+                        prev_point = continuous_path_points[-1]
+                        prev_rho = prev_point['rho']
+                        prev_z = prev_point['z']
+                    
+                    ds = math.sqrt((rho - prev_rho)**2 + (z - prev_z)**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
                         current_phi_continuous += dphi
