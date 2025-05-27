@@ -741,21 +741,82 @@ def trajectory_planning_page():
                               'z_points_m' in st.session_state.trajectory_data)
                 
                 if has_3d_data:
-                    # Prepare vessel profile data for 3D visualization
-                    vessel_profile_for_plot = {
-                        'r_m': st.session_state.vessel_geometry.profile_points['r_inner_mm'] * 1e-3, # Convert mm to meters
-                        'z_m': st.session_state.vessel_geometry.profile_points['z_mm'] * 1e-3    # Convert mm to meters
-                    }
-                    
-                    # Create 3D trajectory plot using the enhanced visualization function
-                    fig_3d = visualizer.plot_3d_trajectory(
-                        trajectory_data=st.session_state.trajectory_data,
-                        vessel_profile_data=vessel_profile_for_plot,
-                        title=f"3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory"
-                    )
-                    
-                    if fig_3d:
-                        st.pyplot(fig_3d)
+                    # Create 3D trajectory plot using Plotly for better interactivity
+                    try:
+                        import plotly.graph_objects as go
+                        
+                        x_data = st.session_state.trajectory_data['x_points_m']
+                        y_data = st.session_state.trajectory_data['y_points_m'] 
+                        z_data = st.session_state.trajectory_data['z_points_m']
+                        
+                        # Create 3D trajectory plot
+                        fig = go.Figure()
+                        
+                        # Add the trajectory as a colored line
+                        fig.add_trace(go.Scatter3d(
+                            x=x_data,
+                            y=y_data,
+                            z=z_data,
+                            mode='lines+markers',
+                            line=dict(color='red', width=4),
+                            marker=dict(size=2),
+                            name='Multi-Circuit Trajectory'
+                        ))
+                        
+                        # Add vessel outline if available
+                        if hasattr(st.session_state.vessel_geometry, 'profile_points'):
+                            r_profile = st.session_state.vessel_geometry.profile_points['r_inner_mm'] * 1e-3
+                            z_profile = st.session_state.vessel_geometry.profile_points['z_mm'] * 1e-3
+                            
+                            # Create circular vessel outline at key z positions
+                            theta_outline = np.linspace(0, 2*np.pi, 50)
+                            
+                            # Add vessel outline at a few z positions
+                            for i in range(0, len(z_profile), len(z_profile)//5):
+                                x_vessel = r_profile[i] * np.cos(theta_outline)
+                                y_vessel = r_profile[i] * np.sin(theta_outline)
+                                z_vessel = np.full_like(x_vessel, z_profile[i])
+                                
+                                fig.add_trace(go.Scatter3d(
+                                    x=x_vessel,
+                                    y=y_vessel,
+                                    z=z_vessel,
+                                    mode='lines',
+                                    line=dict(color='lightgray', width=2),
+                                    name='Vessel Outline' if i == 0 else None,
+                                    showlegend=(i == 0)
+                                ))
+                        
+                        # Configure the layout
+                        fig.update_layout(
+                            title=f"3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory - {st.session_state.trajectory_data.get('total_points', 0)} Points",
+                            scene=dict(
+                                xaxis_title="X (m)",
+                                yaxis_title="Y (m)",
+                                zaxis_title="Z (m)",
+                                aspectmode='data'
+                            ),
+                            height=600,
+                            showlegend=True
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Show key statistics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Points Generated", len(x_data))
+                        with col2:
+                            circuits = st.session_state.trajectory_data.get('total_circuits_legs', 'N/A')
+                            st.metric("Total Circuits", circuits)
+                        with col3:
+                            angle_span = st.session_state.trajectory_data.get('final_turn_around_angle_deg', 0)
+                            st.metric("Angular Span", f"{angle_span:.1f}°" if angle_span else 'N/A')
+                            
+                    except ImportError:
+                        st.error("Plotly not available for 3D visualization")
+                    except Exception as e:
+                        st.error(f"Error creating 3D visualization: {str(e)}")
                     
                 else:
                     st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
