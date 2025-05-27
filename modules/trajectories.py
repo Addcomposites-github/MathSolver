@@ -718,46 +718,37 @@ class TrajectoryPlanner:
             print("⚠️ Base non-geodesic sin(alpha) solution failed")
             return None
         
-        # Generate continuous spiral trajectory with proper phi management
+        # Generate TRUE continuous helical spiral pattern
         current_phi_continuous = 0.0  # Start at phi=0 and keep advancing
         
-        for pass_idx in range(number_of_circuits):
-            print(f"\n🔬 CONTINUOUS PASS {pass_idx + 1}/{number_of_circuits}")
+        print(f"🔬 GENERATING TRUE CONTINUOUS HELICAL SPIRAL:")
+        print(f"   Total circuits to wind: {number_of_circuits}")
+        
+        # Create single continuous trajectory by repeating the profile multiple times
+        # Each repetition advances phi by the natural helical progression plus pattern offset
+        for circuit_idx in range(number_of_circuits):
+            print(f"\n🔬 HELICAL CIRCUIT {circuit_idx + 1}/{number_of_circuits}")
+            print(f"   Starting phi: {math.degrees(current_phi_continuous):.1f}°")
             
-            # Determine direction for this pass (alternating for continuous winding)
-            if pass_idx % 2 == 0:
-                # Forward pass: use profile as-is
-                profile_r_pass = profile_r_m_calc
-                profile_z_pass = profile_z_m_calc
-                sin_alpha_pass = sin_alpha_profile
-                direction = "Forward"
-            else:
-                # Reverse pass: reverse the profile for continuous path
-                profile_r_pass = profile_r_m_calc[::-1]
-                profile_z_pass = profile_z_m_calc[::-1]
-                sin_alpha_pass = sin_alpha_profile[::-1]
-                direction = "Reverse"
+            # Track phi at start of this circuit
+            circuit_start_phi = current_phi_continuous
             
-            print(f"   Direction: {direction}, Starting phi: {math.degrees(current_phi_continuous):.1f}°")
+            # Add points for this complete circuit (pole to pole and back)
+            circuit_points = []
             
-            # Track phi at start of this pass
-            pass_start_phi = current_phi_continuous
-            
-            # Add points for this pass with consistent phi advancement
-            pass_points = []
-            for i in range(len(profile_r_pass)):
-                rho = profile_r_pass[i]
-                z = profile_z_pass[i]
-                sin_alpha = sin_alpha_pass[i]
+            # Use the full profile for each circuit
+            for i in range(len(profile_r_m_calc)):
+                rho = profile_r_m_calc[i]
+                z = profile_z_m_calc[i]
+                sin_alpha = sin_alpha_profile[i]
                 alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                # Calculate phi increment for continuous path
+                # Calculate phi increment for continuous helical path
                 if i > 0:
-                    ds = math.sqrt((rho - profile_r_pass[i-1])**2 + (z - profile_z_pass[i-1])**2)
+                    ds = math.sqrt((rho - profile_r_m_calc[i-1])**2 + (z - profile_z_m_calc[i-1])**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
-                        # Always advance phi in positive direction for continuous spiral
-                        current_phi_continuous += abs(dphi)
+                        current_phi_continuous += dphi
                 
                 x = rho * math.cos(current_phi_continuous)
                 y = rho * math.sin(current_phi_continuous)
@@ -765,11 +756,11 @@ class TrajectoryPlanner:
                 point = {
                     'x': x, 'y': y, 'z': z,
                     'rho': rho, 'alpha': alpha, 'phi': current_phi_continuous,
-                    'pass': pass_idx,
-                    'direction': direction,
+                    'circuit': circuit_idx,
+                    'direction': 'Continuous',
                     'winding_angle': math.degrees(alpha)
                 }
-                pass_points.append(point)
+                circuit_points.append(point)
                 continuous_path_points.append(point)
                 
                 # Add to global collections
@@ -777,15 +768,15 @@ class TrajectoryPlanner:
                 all_y_points.append(y)
                 all_z_points.append(z)
             
-            # Calculate actual phi span for this pass
-            pass_phi_span = current_phi_continuous - pass_start_phi
+            # Calculate actual phi span for this circuit
+            circuit_phi_span = current_phi_continuous - circuit_start_phi
             
-            # Add systematic advancement for pattern closure
+            # Add pattern advancement for next circuit
             current_phi_continuous += phi_advance_per_pass
             
-            print(f"   Pass {pass_idx + 1}: {len(pass_points)} points added")
-            print(f"   Pass phi span: {math.degrees(pass_phi_span):.1f}°")
-            print(f"   Ending phi: {math.degrees(current_phi_continuous):.1f}°")
+            print(f"   Circuit {circuit_idx + 1}: {len(circuit_points)} points added")
+            print(f"   Natural phi span: {math.degrees(circuit_phi_span):.1f}°")
+            print(f"   With pattern advance: {math.degrees(current_phi_continuous):.1f}°")
         
         print(f"\n🔬 CONTINUOUS NON-GEODESIC COMPLETE:")
         print(f"   Total passes: {number_of_circuits}")
