@@ -848,6 +848,24 @@ class TrajectoryPlanner:
         print(f"   True helical spiral generated: {len(continuous_path_points)} points")
         print(f"   Final phi: {math.degrees(current_phi_continuous):.1f}°")
         
+        # Add continuity verification
+        print(f"\n🔬 CONTINUITY VERIFICATION:")
+        total_gaps = 0
+        max_gap = 0.0
+        for i in range(1, len(continuous_path_points)):
+            prev_point = continuous_path_points[i-1]
+            curr_point = continuous_path_points[i]
+            gap = math.sqrt((curr_point['x'] - prev_point['x'])**2 + 
+                           (curr_point['y'] - prev_point['y'])**2 + 
+                           (curr_point['z'] - prev_point['z'])**2)
+            if gap > 0.001:  # 1mm threshold
+                total_gaps += 1
+                max_gap = max(max_gap, gap)
+        
+        print(f"   Gaps > 1mm: {total_gaps}")
+        print(f"   Max gap: {max_gap*1000:.2f}mm")
+        print(f"   Pattern is {'CONTINUOUS' if total_gaps == 0 else 'DISCONTINUOUS'}")
+        
         print(f"\n🔬 CONTINUOUS NON-GEODESIC COMPLETE:")
         print(f"   Total passes: {number_of_circuits}")
         print(f"   Continuous points: {len(continuous_path_points)}")
