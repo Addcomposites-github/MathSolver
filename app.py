@@ -668,13 +668,20 @@ def trajectory_planning_page():
                     # Ensure trajectory data is properly stored
                     if trajectory_data and trajectory_data.get('total_points', 0) > 0:
                         st.session_state.trajectory_data = trajectory_data
-                        st.success(f"🎯 Multi-circuit pattern calculated successfully!")
-                        st.info(f"Generated {trajectory_data['num_circuits_generated']} circuits with {trajectory_data['total_points']} total points")
-                        st.info(f"Pattern advancement: {trajectory_data['advancement_angle_per_circuit_deg']:.1f}° per circuit")
-                        st.info(f"Coverage efficiency: {trajectory_data['coverage_efficiency']:.1%}")
+                        st.success(f"🎯 **Multi-circuit trajectory generated successfully!** {trajectory_data['total_points']} points")
+                        
+                        # Show trajectory details using available data
+                        circuits = trajectory_data.get('total_circuits_legs', num_circuits_for_vis)
+                        st.info(f"🔥 **Multi-pass geodesic pattern** with {circuits} circuits")
+                        
+                        # Calculate angular span from trajectory data
+                        if 'final_turn_around_angle_deg' in trajectory_data:
+                            angle_span = trajectory_data['final_turn_around_angle_deg']
+                            st.info(f"🌟 **Angular progression**: {angle_span:.1f}° total span")
+                        
                         st.rerun()
                     else:
-                        st.error("❌ No trajectory points were generated. Check the debug logs for details.")
+                        st.error("❌ Multi-circuit pattern generation failed")
                 else:
                     planner = TrajectoryPlanner(st.session_state.vessel_geometry)
                     trajectory_params = {
