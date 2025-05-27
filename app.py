@@ -536,10 +536,12 @@ def trajectory_planning_page():
                     # Debug: Check pattern mode
                     st.write(f"🔍 DEBUG: Pattern mode = '{pattern_mode}', Number of circuits = {num_circuits}")
                     
-                    # Generate trajectory using TRUE non-geodesic differential equations
+                    # Generate trajectory using proven geodesic methods (temporarily using geodesic for stability)
                     if pattern_mode == "Multi-Circuit Pattern":
-                        st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
-                        trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
+                        st.warning("🚧 **Multi-circuit non-geodesic is under development**")
+                        st.info("🔄 **Using proven geodesic multi-pass generation** for reliable trajectories")
+                        st.info(f"🔥 Generating MULTI-PASS GEODESIC pattern with {num_circuits} circuits")
+                        trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points, number_of_passes=num_circuits)
                     elif pattern_mode == "Continuous Helical Physics":
                         # Feature flag: Temporarily use geodesic for stability
                         if friction_coefficient > 0.01:
