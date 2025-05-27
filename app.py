@@ -188,7 +188,7 @@ def trajectory_planning_page():
         st.subheader("Winding Parameters")
         
         # Winding pattern type
-        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "Helical", "Hoop", "Polar", "Transitional"])
+        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "🔬 Refactored Engine (Test)", "Helical", "Hoop", "Polar", "Transitional"])
         
         if pattern_type in ["Helical", "Transitional"]:
             winding_angle = st.slider("Winding Angle (degrees)", min_value=5.0, max_value=85.0, value=55.0, step=1.0)
@@ -204,7 +204,81 @@ def trajectory_planning_page():
         carriage_speed = st.number_input("Carriage Speed (mm/min)", min_value=1.0, value=100.0, step=1.0)
         
         # Pattern parameters
-        if pattern_type == "Geodesic":
+        if pattern_type == "🔬 Refactored Engine (Test)":
+            st.markdown("### 🔬 Refactored Trajectory Engine")
+            st.info("Testing new clean architecture before full migration")
+            
+            # Refactored engine parameters
+            refactored_pattern = st.selectbox("Pattern Type", ["geodesic_spiral", "non_geodesic_spiral"], 
+                                            help="Choose trajectory generation method")
+            coverage_option = st.selectbox("Coverage Strategy", ["single_circuit", "full_coverage", "user_defined"],
+                                         help="Single circuit = 2 passes, Full coverage = complete vessel")
+            
+            if coverage_option == "user_defined":
+                user_circuits = st.number_input("Number of Circuits", min_value=1, max_value=10, value=2)
+            else:
+                user_circuits = 1
+            
+            # Basic roving parameters
+            roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
+            roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
+            polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, value=0.0, step=0.1)
+            
+            # Target angle
+            use_target_angle = st.checkbox("Specify Target Angle", value=True)
+            target_angle = None
+            if use_target_angle:
+                target_angle = st.slider("Target Angle (degrees)", min_value=10.0, max_value=80.0, value=45.0)
+            
+            # Test button
+            if st.button("🧪 Test Refactored Engine", key="refactored_btn"):
+                with st.spinner("Testing refactored trajectory engine..."):
+                    try:
+                        from modules.trajectories_refactored import TrajectoryPlannerRefactored
+                        
+                        # Create refactored planner
+                        planner_refactored = TrajectoryPlannerRefactored(
+                            vessel_geometry=st.session_state.vessel_geometry,
+                            dry_roving_width_m=roving_width * 1e-3,
+                            dry_roving_thickness_m=roving_thickness * 1e-3,
+                            roving_eccentricity_at_pole_m=polar_eccentricity * 1e-3,
+                            target_cylinder_angle_deg=target_angle,
+                            mu_friction_coefficient=0.0 if refactored_pattern == "geodesic_spiral" else 0.3
+                        )
+                        
+                        # Validate parameters
+                        validation = planner_refactored.get_validation_results()
+                        if validation['is_valid']:
+                            st.success(f"✅ Validation passed! C = {validation['clairaut_constant_mm']:.2f}mm")
+                        else:
+                            st.warning(f"⚠️ {validation['error_message']}")
+                        
+                        # Generate trajectory
+                        trajectory_data = planner_refactored.generate_trajectory(
+                            pattern_name=refactored_pattern,
+                            coverage_option=coverage_option,
+                            user_circuits=user_circuits
+                        )
+                        
+                        if trajectory_data and trajectory_data.get('success'):
+                            st.success(f"🎉 Generated {trajectory_data['total_points']} points!")
+                            st.session_state.trajectory_data = trajectory_data
+                            
+                            # Show metrics
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Points", trajectory_data['total_points'])
+                            with col2:
+                                st.metric("Passes", trajectory_data['total_circuits_legs'])
+                            with col3:
+                                st.metric("Final φ", f"{trajectory_data['final_turn_around_angle_deg']:.1f}°")
+                        else:
+                            st.error("❌ Generation failed")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                        
+        elif pattern_type == "Geodesic":
             st.markdown("### Geodesic Parameters")
             roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
             roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, value=0.2, step=0.01)
