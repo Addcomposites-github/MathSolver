@@ -264,21 +264,73 @@ class TrajectoryPlanner:
 
     def _compute_smooth_derivatives(self, profile_r_m: np.ndarray, profile_z_m: np.ndarray):
         """
-        Compute smooth derivatives using spline fitting to eliminate kinks near dome openings.
-        This is the key fix for non-geodesic mathematical stability.
+        Enhanced spline derivative calculation to eliminate kinks near dome openings.
+        Uses adaptive smoothing and robust boundary conditions for mathematical stability.
         """
         try:
-            from scipy.interpolate import CubicSpline
-            # Create cubic spline for ρ(z) - ensures smooth derivatives
-            spline = CubicSpline(profile_z_m, profile_r_m, bc_type='natural')
-            # Get smooth derivatives at all points
-            d_rho_dz_smooth = spline(profile_z_m, 1)  # First derivative
-            d2_rho_dz2_smooth = spline(profile_z_m, 2)  # Second derivative
-            return d_rho_dz_smooth, d2_rho_dz2_smooth
-        except:
-            # Fallback to improved gradient if spline fails
-            d_rho_dz_smooth = np.gradient(profile_r_m, profile_z_m, edge_order=2)
-            d2_rho_dz2_smooth = np.gradient(d_rho_dz_smooth, profile_z_m, edge_order=2)
+            from scipy.interpolate import UnivariateSpline
+            
+            # Ensure data is properly sorted and unique
+            sort_indices = np.argsort(profile_z_m)
+            z_sorted = profile_z_m[sort_indices]
+            r_sorted = profile_r_m[sort_indices]
+            
+            # Remove duplicate z values for spline stability
+            unique_mask = np.diff(z_sorted, prepend=z_sorted[0]-1) > 1e-12
+            z_unique = z_sorted[unique_mask]
+            r_unique = r_sorted[unique_mask]
+            
+            if len(z_unique) < 4:
+                # Fall back to gradient for insufficient data
+                d_rho_dz_smooth = np.gradient(profile_r_m, profile_z_m, edge_order=2)
+                d2_rho_dz2_smooth = np.gradient(d_rho_dz_smooth, profile_z_m, edge_order=2)
+                return d_rho_dz_smooth, d2_rho_dz2_smooth
+            
+            # Adaptive smoothing factor based on data density
+            data_length = len(z_unique)
+            smoothing_factor = max(1e-6, data_length * 1e-8)  # Scales with data size
+            
+            # Create robust spline with adaptive smoothing
+            spline = UnivariateSpline(z_unique, r_unique, s=smoothing_factor, k=3)
+            
+            # Calculate smooth derivatives at original points
+            d_rho_dz_interp = spline.derivative(1)(profile_z_m)
+            d2_rho_dz2_interp = spline.derivative(2)(profile_z_m)
+            
+            # Apply stability filters near poles and extreme regions
+            for i in range(len(profile_r_m)):
+                rho_i = profile_r_m[i]
+                
+                # Near-axis stability (pole regions)
+                if rho_i < 0.005:  # Within 5mm of axis
+                    # Enforce smooth behavior near poles
+                    d_rho_dz_interp[i] = max(-50, min(50, d_rho_dz_interp[i]))
+                    d2_rho_dz2_interp[i] = max(-1000, min(1000, d2_rho_dz2_interp[i]))
+                
+                # Filter extreme values that could cause kinks
+                if abs(d_rho_dz_interp[i]) > 100:
+                    d_rho_dz_interp[i] = np.sign(d_rho_dz_interp[i]) * 100
+                if abs(d2_rho_dz2_interp[i]) > 10000:
+                    d2_rho_dz2_interp[i] = np.sign(d2_rho_dz2_interp[i]) * 10000
+            
+            return d_rho_dz_interp, d2_rho_dz2_interp
+            
+        except Exception as e:
+            print(f"Warning: Spline derivative calculation failed ({e}), using robust gradient")
+            # Enhanced fallback with smoothing
+            d_rho_dz_raw = np.gradient(profile_r_m, profile_z_m, edge_order=2)
+            d2_rho_dz2_raw = np.gradient(d_rho_dz_raw, profile_z_m, edge_order=2)
+            
+            # Apply median filtering to reduce noise-induced kinks
+            from scipy.signal import medfilt
+            window_size = min(5, len(d_rho_dz_raw) // 4 * 2 + 1)  # Odd window size
+            if window_size >= 3:
+                d_rho_dz_smooth = medfilt(d_rho_dz_raw, kernel_size=window_size)
+                d2_rho_dz2_smooth = medfilt(d2_rho_dz2_raw, kernel_size=window_size)
+            else:
+                d_rho_dz_smooth = d_rho_dz_raw
+                d2_rho_dz2_smooth = d2_rho_dz2_raw
+            
             return d_rho_dz_smooth, d2_rho_dz2_smooth
 
     def _get_surface_properties_at_profile_index(self, profile_idx: int,
@@ -303,31 +355,41 @@ class TrajectoryPlanner:
         d_rho_dz = d_rho_dz_smooth[profile_idx]
         d2_rho_dz2 = d2_rho_dz2_smooth[profile_idx]
 
-        # Apply stability checks near poles and extreme regions
-        if rho_i < 1e-6:  # Very close to axis
+        # Enhanced stability checks for kink-free non-geodesic paths
+        if rho_i < 0.002:  # Enhanced near-axis stability (2mm threshold)
             d_rho_dz = 0.0  # Force vertical at axis
-            d2_rho_dz2 = max(-1e4, min(1e4, d2_rho_dz2))  # Limit extreme curvatures
+            d2_rho_dz2 = max(-500, min(500, d2_rho_dz2))  # Tighter curvature limits
             
-        # Handle NaN/Inf values
+        # Robust NaN/Inf handling with logging
         if not np.isfinite(d_rho_dz):
+            print(f"Warning: Non-finite d_rho_dz at ρ={rho_i*1000:.1f}mm, setting to 0")
             d_rho_dz = 0.0
         if not np.isfinite(d2_rho_dz2):
+            print(f"Warning: Non-finite d2_rho_dz2 at ρ={rho_i*1000:.1f}mm, setting to 0")
             d2_rho_dz2 = 0.0
 
-        # Calculate surface properties with stability
-        if abs(d_rho_dz) > 1e6:  # Handle vertical tangent
-            k_m = 0  # Meridional curvature for vertical segment
+        # Calculate surface properties with enhanced stability for kink prevention
+        if abs(d_rho_dz) > 50:  # More restrictive threshold for vertical tangent
+            k_m = 0  # Meridional curvature for near-vertical segment
             k_p = 1.0 / max(1e-6, rho_i)  # Parallel curvature with floor
-            G_val = 1e6  # Large but finite
+            G_val = max(1e-6, 1 + min(2500, d_rho_dz**2))  # Bounded G value
         else:
             denominator = max(1e-12, 1 + d_rho_dz**2)
             k_m = -d2_rho_dz2 / (denominator**1.5)
             k_p = 1.0 / (max(1e-6, rho_i) * math.sqrt(denominator))
             G_val = denominator
             
-            # Clamp extreme curvatures to prevent integration instability
-            k_m = max(-1e4, min(1e4, k_m))
-            k_p = max(-1e4, min(1e4, k_p))
+            # Enhanced curvature clamping specifically tuned for non-geodesic stability
+            k_m_limit = 2000  # Reduced from 1e4 for smoother paths
+            k_p_limit = 5000  # Adjusted for better pole behavior
+            k_m = max(-k_m_limit, min(k_m_limit, k_m))
+            k_p = max(-k_p_limit, min(k_p_limit, k_p))
+            
+            # Additional smoothing for extreme gradient regions
+            if rho_i < 0.01 and abs(d_rho_dz) > 10:  # Near pole with steep gradient
+                smoothing_factor = max(0.1, min(1.0, rho_i * 100))  # Scale with distance from axis
+                k_m *= smoothing_factor
+                k_p *= smoothing_factor
 
         E_val = max(1e-12, rho_i**2)  # Prevent zero
         E_prime_val = 2 * rho_i * d_rho_dz
