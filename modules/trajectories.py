@@ -718,7 +718,7 @@ class TrajectoryPlanner:
             print("⚠️ Base non-geodesic sin(alpha) solution failed")
             return None
         
-        # Generate continuous spiral trajectory
+        # Generate continuous spiral trajectory with proper phi management
         current_phi_continuous = 0.0  # Start at phi=0 and keep advancing
         
         for pass_idx in range(number_of_circuits):
@@ -740,7 +740,10 @@ class TrajectoryPlanner:
             
             print(f"   Direction: {direction}, Starting phi: {math.degrees(current_phi_continuous):.1f}°")
             
-            # Add points for this pass with proper phi direction handling
+            # Track phi at start of this pass
+            pass_start_phi = current_phi_continuous
+            
+            # Add points for this pass with consistent phi advancement
             pass_points = []
             for i in range(len(profile_r_pass)):
                 rho = profile_r_pass[i]
@@ -753,13 +756,8 @@ class TrajectoryPlanner:
                     ds = math.sqrt((rho - profile_r_pass[i-1])**2 + (z - profile_z_pass[i-1])**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
-                        
-                        # Critical fix: Handle phi direction for reverse passes
-                        if direction == "Reverse":
-                            # For reverse passes, maintain proper winding direction
-                            dphi = -dphi  # Reverse the phi increment direction
-                        
-                        current_phi_continuous += dphi
+                        # Always advance phi in positive direction for continuous spiral
+                        current_phi_continuous += abs(dphi)
                 
                 x = rho * math.cos(current_phi_continuous)
                 y = rho * math.sin(current_phi_continuous)
@@ -779,22 +777,14 @@ class TrajectoryPlanner:
                 all_y_points.append(y)
                 all_z_points.append(z)
             
-            # Enhanced smooth transition at pass boundaries
-            if pass_idx < number_of_circuits - 1:  # Not the last pass
-                # Add interpolated transition points for smoother handover
-                transition_points = self._generate_smooth_pass_transition(
-                    pass_points[-1], profile_r_pass[0], profile_z_pass[0], 
-                    current_phi_continuous, phi_advance_per_pass
-                )
-                continuous_path_points.extend(transition_points)
-                all_x_points.extend([p['x'] for p in transition_points])
-                all_y_points.extend([p['y'] for p in transition_points])
-                all_z_points.extend([p['z'] for p in transition_points])
+            # Calculate actual phi span for this pass
+            pass_phi_span = current_phi_continuous - pass_start_phi
             
             # Add systematic advancement for pattern closure
             current_phi_continuous += phi_advance_per_pass
             
             print(f"   Pass {pass_idx + 1}: {len(pass_points)} points added")
+            print(f"   Pass phi span: {math.degrees(pass_phi_span):.1f}°")
             print(f"   Ending phi: {math.degrees(current_phi_continuous):.1f}°")
         
         print(f"\n🔬 CONTINUOUS NON-GEODESIC COMPLETE:")
