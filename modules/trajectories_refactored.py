@@ -142,16 +142,16 @@ class TrajectoryPlannerRefactored:
             # Validate against physical minimum
             if (self.clairauts_constant_for_path_m and self.effective_polar_opening_radius_m and 
                 self.clairauts_constant_for_path_m < self.effective_polar_opening_radius_m):
-                print(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
-                print(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm")
-                print("Using geometric limit instead")
+                print(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
+                print(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm"
+                print("Using geometric limit instead"
                 self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
             else:
-                print(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+                print(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
         else:
             # Use geometric limit (minimum physically possible)
             self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
-            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
             
     def _calculate_pattern_advancement(self):
         """
@@ -174,9 +174,9 @@ class TrajectoryPlannerRefactored:
                 self.dry_roving_width_m / math.cos(target_alpha_rad)
             ) / self.R_cyl_m
             
-            print(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass")
+            print(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass"
         except Exception as e:
-            print(f"Error calculating pattern advancement: {e}")
+            print(f"Error calculating pattern advancement: {e}"
             self.phi_advancement_rad_per_pass = 0.05  # Safe default
         
     def generate_trajectory(self, 
@@ -199,18 +199,18 @@ class TrajectoryPlannerRefactored:
         --------
         Dict containing trajectory data or None if generation fails
         """
-        print(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}")
+        print(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}"
         
         # Validate inputs
         valid_patterns = ['geodesic_spiral', 'non_geodesic_spiral', 'helical', 'polar', 'hoop']
         valid_coverage = ['single_circuit', 'full_coverage', 'user_defined']
         
         if pattern_name not in valid_patterns:
-            print(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}")
+            print(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}"
             return None
             
         if coverage_option not in valid_coverage:
-            print(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}")
+            print(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}"
             return None
             
         # Calculate number of passes based on coverage option
@@ -245,7 +245,7 @@ class TrajectoryPlannerRefactored:
         - Smooth pattern advancement between passes
         - Robust ODE integration with error handling
         """
-        print(f"Geodesic engine: Generating {num_passes} passes")
+        print(f"Geodesic engine: Generating {num_passes} passes"
         
         # Get vessel profile for trajectory calculation
         profile_data = self._prepare_profile_data()
@@ -260,7 +260,7 @@ class TrajectoryPlannerRefactored:
         for pass_idx in range(num_passes):
             is_forward = (pass_idx % 2 == 0)
             
-            print(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})")
+            print(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})"
             
             # Generate helical segment
             segment_result = self._solve_geodesic_segment(
@@ -271,7 +271,7 @@ class TrajectoryPlannerRefactored:
             )
             
             if segment_result is None:
-                print(f"Failed to generate pass {pass_idx + 1}")
+                print(f"Failed to generate pass {pass_idx + 1}"
                 return None
                 
             # Add helical points to trajectory
@@ -292,7 +292,7 @@ class TrajectoryPlannerRefactored:
                     
                     current_phi_rad = turnaround_result['final_phi']
                 else:
-                    print(f"Warning: Turnaround generation failed at pass {pass_idx + 1}")
+                    print(f"Warning: Turnaround generation failed at pass {pass_idx + 1}"
                     
             # Update phi for next pass
             current_phi_rad += self.phi_advancement_rad_per_pass
@@ -303,7 +303,7 @@ class TrajectoryPlannerRefactored:
     def _prepare_profile_data(self) -> Optional[Dict]:
         """Prepare vessel profile data for trajectory calculations."""
         if not self.vessel.profile_points:
-            print("Error: No vessel profile available")
+            print("Error: No vessel profile available"
             return None
             
         r_inner_mm = self.vessel.profile_points['r_inner_mm']
@@ -340,7 +340,7 @@ class TrajectoryPlannerRefactored:
         valid_indices = np.where(r_m >= self.clairauts_constant_for_path_m - 1e-6)[0]
         
         if len(valid_indices) == 0:
-            print("Error: No valid trajectory points found (all ρ < C)")
+            print("Error: No valid trajectory points found (all ρ < C)"
             return None
             
         start_idx, end_idx = valid_indices[0], valid_indices[-1]
@@ -358,7 +358,7 @@ class TrajectoryPlannerRefactored:
             r_of_z = UnivariateSpline(z_range, r_range, s=0, k=3)
             dr_dz_func = r_of_z.derivative(1)
         except Exception as e:
-            print(f"Error: Failed to create interpolation functions: {e}")
+            print(f"Error: Failed to create interpolation functions: {e}"
             return None
             
         # Solve geodesic ODE
@@ -446,7 +446,7 @@ class TrajectoryPlannerRefactored:
                 return [dphi_dz]
                 
             except Exception as e:
-                print(f"Warning: ODE evaluation error at z={z}: {e}")
+                print(f"Warning: ODE evaluation error at z={z}: {e}"
                 return [0.0]
                 
         # Solve ODE
@@ -464,13 +464,13 @@ class TrajectoryPlannerRefactored:
             )
             
             if not solution.success:
-                print(f"Warning: ODE solver failed: {solution.message}")
+                print(f"Warning: ODE solver failed: {solution.message}"
                 return None
                 
             return {'solution': solution}
             
         except Exception as e:
-            print(error(f"ODE solving exception: {e}")
+            print(error(f"ODE solving exception: {e}"
             return None
             
     def _generate_geodesic_turnaround(self, final_position: Dict, current_phi: float) -> Optional[Dict]:
@@ -515,16 +515,16 @@ class TrajectoryPlannerRefactored:
         Implements Koussios differential equations with friction effects.
         Currently marked as experimental due to ODE solver stability issues.
         """
-        print(warning("Non-geodesic engine is experimental - use with caution")
+        print("Warning: Non-geodesic engine is experimental - use with caution")
         
         if self.mu_friction_coefficient <= 0:
-            print(warning("Non-geodesic pattern requires friction coefficient > 0")
+            print("Warning: Non-geodesic pattern requires friction coefficient > 0")
             # Fall back to geodesic
             return self._engine_geodesic_spiral(coverage_option, num_passes)
             
         # Placeholder for non-geodesic implementation
         # This would implement the full Koussios ODE system
-        print(info("Non-geodesic engine not yet implemented - falling back to geodesic")
+        print(info("Non-geodesic engine not yet implemented - falling back to geodesic"
         return self._engine_geodesic_spiral(coverage_option, num_passes)
         
     def _engine_standard_patterns(self, pattern_name: str, coverage_option: str, num_passes: int) -> Optional[Dict]:
@@ -533,7 +533,7 @@ class TrajectoryPlannerRefactored:
         
         These patterns use simplified mathematical models compared to geodesic spirals.
         """
-        print(info(f"Generating standard pattern: {pattern_name}")
+        print(info(f"Generating standard pattern: {pattern_name}"
         
         # Placeholder for standard pattern implementations
         if pattern_name == 'helical':
@@ -543,25 +543,25 @@ class TrajectoryPlannerRefactored:
         elif pattern_name == 'hoop':
             return self._generate_hoop_pattern(num_passes)
         else:
-            print(error(f"Unknown standard pattern: {pattern_name}")
+            print(error(f"Unknown standard pattern: {pattern_name}"
             return None
             
     def _generate_helical_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate traditional helical winding pattern."""
         # Simplified helical implementation
-        print(info("Helical pattern generation not yet implemented")
+        print(info("Helical pattern generation not yet implemented"
         return None
         
     def _generate_polar_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate polar winding pattern."""
         # Simplified polar implementation
-        print(info("Polar pattern generation not yet implemented")
+        print(info("Polar pattern generation not yet implemented"
         return None
         
     def _generate_hoop_pattern(self, num_passes: int) -> Optional[Dict]:
         """Generate hoop winding pattern."""
         # Simplified hoop implementation
-        print(info("Hoop pattern generation not yet implemented")
+        print(info("Hoop pattern generation not yet implemented"
         return None
         
     def _format_trajectory_output(self, trajectory_points: List[Dict], pattern_type: str, num_passes: int) -> Dict:
