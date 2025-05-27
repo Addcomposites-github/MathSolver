@@ -535,13 +535,13 @@ class TrajectoryPlanner:
         print(f"   Target angle = {self.target_cylinder_angle_deg}°")
         print(f"   Dome points = {num_points_dome}, Cylinder points = {num_points_cylinder}")
         
-        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+        if self.vessel.profile_points is None or 'r_inner_mm' not in self.vessel.profile_points:
             print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
             return None
             
         # Get vessel profile
-        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
-        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        profile_r_m_orig = self.vessel.profile_points['r_inner_mm'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z_mm'] * 1e-3
         
         # Create adaptive profile (similar to geodesic but for non-geodesic physics)
         segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
