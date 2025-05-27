@@ -1068,8 +1068,22 @@ class TrajectoryPlanner:
             's_m': current_s_m
         })
         
-        # Traverse the profile multiple times for multiple circuits
-        for pass_num in range(number_of_circuits * 2):  # pole-to-pole passes
+        # Calculate passes needed for proper circumferential coverage
+        if phi_advancement_per_pass_rad > 1e-7:
+            passes_for_one_coverage_layer = math.ceil((2 * math.pi) / phi_advancement_per_pass_rad)
+            # Ensure even number of passes (pole-to-pole pairs)
+            if passes_for_one_coverage_layer % 2 != 0:
+                passes_for_one_coverage_layer += 1
+            print(f"   📊 Calculated {passes_for_one_coverage_layer} passes needed for full coverage")
+        else:
+            passes_for_one_coverage_layer = number_of_circuits * 2  # Fallback
+            
+        # Use calculated coverage passes for true helical pattern
+        actual_passes_to_run = passes_for_one_coverage_layer
+        print(f"   🎯 Running {actual_passes_to_run} passes for complete helical coverage")
+        
+        # Traverse the profile for complete coverage
+        for pass_num in range(actual_passes_to_run):
             # APPLY AZIMUTHAL ADVANCEMENT at the start of each new pass
             if pass_num > 0:
                 current_phi_rad += phi_advancement_per_pass_rad
@@ -1121,15 +1135,31 @@ class TrajectoryPlanner:
                 alpha_avg = (alpha_curr + alpha_prev) / 2.0
                 rho_avg = (rho_curr + rho_prev) / 2.0
                 
-                # Apply safe bounds to prevent extreme jumps
+                # Apply safe bounds to prevent extreme jumps and integration failures
                 delta_phi = 0.0
                 if rho_avg > 1e-6 and abs(alpha_avg) < math.pi/2 - 0.01:  # Avoid near-vertical angles
-                    # Limit phi increment to prevent massive jumps
-                    raw_delta_phi = (ds_m / rho_avg) * math.tan(alpha_avg)
-                    max_delta_phi = math.pi/180  # Limit to 1 degree per step
-                    delta_phi = np.clip(raw_delta_phi, -max_delta_phi, max_delta_phi)
+                    try:
+                        # Calculate physics-based phi increment: dφ = (ds/ρ) * tan(α)
+                        raw_delta_phi = (ds_m / rho_avg) * math.tan(alpha_avg)
+                        # Limit phi increment to prevent massive jumps
+                        max_delta_phi = math.pi/90  # Limit to 2 degrees per step
+                        delta_phi = np.clip(raw_delta_phi, -max_delta_phi, max_delta_phi)
+                        
+                        # Validate delta_phi is reasonable
+                        if not math.isfinite(delta_phi):
+                            delta_phi = 0.0
+                            print(f"   ⚠️  Invalid delta_phi detected, setting to 0")
+                            
+                    except (ValueError, ZeroDivisionError, OverflowError) as e:
+                        delta_phi = 0.0
+                        print(f"   ⚠️  Physics calculation failed: {e}, using delta_phi=0")
                 
                 current_phi_rad += delta_phi
+                
+                # Safety check for phi accumulation
+                if not math.isfinite(current_phi_rad):
+                    print(f"   ❌ CRITICAL: Invalid phi_rad detected at pass {pass_num+1}, point {i}. Stopping generation.")
+                    break
                 
                 # Create seamless trajectory point
                 full_path_points.append({

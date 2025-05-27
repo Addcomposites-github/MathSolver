@@ -1,0 +1,152 @@
+It's good that you're methodically testing and observing the output. The persistence of the "forward/back passes," "abrupt angle changes at poles," and the (misleadingly reported) "gaps" points to specific areas in your generate_physical_continuous_spiral_non_geodesic method within trajectories.py.
+
+Let's clarify the "gap" issue first, as it seems to be a misinterpretation of the metric, and then dive into the path generation.
+
+1. Understanding the "Gap" Metric Issue
+
+The log shows:
+Max gap: 308.662mm
+Gaps > 1mm: 1116
+
+You mentioned this gap calculation logic likely comes from seamless_helical.py. As I reviewed previously, that calculation is:
+
+Python
+
+# From seamless_helical.py (or similar logic if you moved it)
+for i in range(1, len(trajectory_points)):
+    prev = trajectory_points[i-1]
+    curr = trajectory_points[i]
+    gap_m = math.sqrt((curr['x'] - prev['x'])**2 + (curr['y'] - prev['y'])**2 + (curr['z'] - prev['z'])**2)
+This formula calculates the Euclidean distance between consecutive points along a single generated fiber path. This is essentially the step length or discretization resolution of your path.
+
+What a 308mm "Max Gap" here means: It signifies that somewhere along your generated fiber path, two consecutive points are 308.662mm apart. This is a very large step length and indicates a problem with how points are being generated or stored for at least one segment of the path. It's not the gap between adjacent overwrapped bands.
+Why this happens: The most likely cause, as we discussed, is an ODE solver failure for one or more "passes." If _solve_non_geodesic_sin_alpha_phi_segment_ode returns None (or fails to produce a dense solution), and your main loop then tries to connect the end of the last successful pass to the beginning of the next successful pass, a huge jump (appearing as a single very long segment) will occur if several intermediate passes failed.
+Action for "Gap" Metric:
+
+Immediate: For now, recognize that this metric is not measuring coverage gaps. The large value indicates a path generation problem (likely due to ODE failures).
+Long-term: To measure coverage gaps, you'd need a much more complex algorithm that compares the positions of fiber bands from different circuits on the mandrel surface. This is a non-trivial computational geometry problem. Focus on visual inspection of the 3D plot for coverage for now.
+2. Evaluating the generate_physical_continuous_spiral (Non-Geodesic Implementation)
+
+Based on your new trajectories.py (3563 lines), let's analyze the generate_physical_continuous_spiral method (around line 2547) and _solve_non_geodesic_sin_alpha_phi_segment_ode (around line 1525).
+
+Key Observations & Potential Issues in your trajectories.py:
+
+a. Handling of ODE Solver Failures (Critical for the 308mm "gap")
+In generate_physical_continuous_spiral:
+
+Python
+
+# Around line 2716
+if segment_solution is None or segment_solution.sol is None:
+    print(f"Warning: ODE solution failed for pass {pass_idx+1}. Skipping pass points storage.")
+    # ... (current_sin_alpha and current_phi_rad_pass_end are NOT updated from this failed pass)
+    current_phi_rad = current_phi_rad_pass_end + phi_advancement_rad # Uses potentially stale current_phi_rad_pass_end
+    print(f"DEBUG: Pass {pass_idx+1} failed. Advancing phi globally to {math.degrees(current_phi_rad)} for next attempt.")
+    continue # Skips to the next pass_idx
+Problem: If a pass (e.g., Pass N+1) fails, current_sin_alpha and current_phi_rad_pass_end retain their values from the end of the last successful pass (Pass N). The global current_phi_rad is then advanced based on this stale current_phi_rad_pass_end. The next pass (Pass N+2) will start with sin_alpha from the end of Pass N and a phi that has been advanced twice from phi_end_of_pass_N. The starting z for Pass N+2 will be at a pole, potentially far from where Pass N ended.
+
+Result: The last point stored in full_path_points is from the end of Pass N. The next set of points stored will be from the beginning of Pass N+2. The direct line segment connecting these two points in the output data will be very long if Pass N+1 failed and covered a significant meridional distance. This is the 308mm "step length."
+
+Proposed Solution (Simple Fix for now): If an ODE pass fails, the trajectory integrity is compromised. It's better to stop generation or handle it more gracefully than to create a disjointed path. For now, you might consider returning the path generated so far, or raising an error. A more robust solution would be to try the failed segment with different solver settings or smaller steps, but that's more advanced.
+
+Python
+
+# In generate_physical_continuous_spiral, around line 2716
+if segment_solution is None or segment_solution.sol is None:
+    print(f"ERROR: ODE solution failed for pass {pass_idx+1}. Trajectory generation aborted.")
+    # Optionally return what has been generated so far, but mark as incomplete
+    # For now, let's break and return the partial path.
+    # Or, if you want to try to make it "limp along":
+    # Reset current_z to the expected start of the *next* pass to avoid huge Z jumps
+    # This is complex, better to signal failure.
+    self.log_ode_failure_details(pass_idx, initial_conditions_ode, z_eval_points_pass) # Add a logging method
+    # Mark trajectory as incomplete or failed
+    # For debugging, let's see where the next pass *would* have started
+    _next_pass_is_forward = ((pass_idx + 1) % 2 == 0)
+    _next_pass_start_z = self.profile_z_m_sorted[0] if _next_pass_is_forward else self.profile_z_m_sorted[-1]
+    print(f"   Failed pass was supposed to go from z={initial_conditions_ode[2]:.4f} to z={z_eval_points_pass[-1]:.4f}.") # Assuming initial_z was part of conditions
+    print(f"   Next pass would start at z={_next_pass_start_z:.4f} with potentially stale alpha/phi.")
+    # Simplest for now: stop
+    break # Exit the pass loop
+You'll also need to pass the pass_start_z to log_ode_failure_details or include it in initial_conditions_ode if it's not already there. My previous conceptual code didn't explicitly put z_start into initial_conditions_ode which is [sin_alpha, phi]. The z_eval_points[0] is the start z.
+
+b. Phi Advancement Logic (phi_advancement_rad)
+The calculation (line 2621) and application (line 2749) seem structurally okay for a simplified adjacent band placement.
+
+Python
+
+# Calculation (Line 2621)
+phi_advancement_rad = (self.dry_roving_width_m / math.cos(target_alpha_cyl_rad_effective)) / self.R_cyl_m \
+                        if self.R_cyl_m > 1e-6 and abs(math.cos(target_alpha_cyl_rad_effective)) > 1e-9 else 0.05
+
+# Application (Line 2749)
+current_phi_rad = current_phi_rad_pass_end + phi_advancement_rad
+Why it might not "look" like it's working (leading to "forward/back passes" visually):
+
+Magnitude vs. Number of Passes: If phi_advancement_rad is small (e.g., 3-5 degrees) and you only run 12 passes, the total azimuthal sweep created by this advancement is only 12 * ~4 = ~48 degrees. This is not enough to make the pattern appear to fully encircle the mandrel. The path will indeed look like it's mostly going back and forth along a narrow segment of the vessel's circumference.
+number_of_circuits Interpretation: The input number_of_circuits (e.g., 6 in your log, leading to 12 passes) currently dictates how many of these small-advancement passes are made. To achieve full circumferential coverage for one layer of bands, you need roughly (2 * math.pi) / phi_advancement_rad passes.
+Example: If phi_advancement_rad is 0.0698 rad (4 degrees), you need (2 * math.pi) / 0.0698 \approx 90 passes for one layer of coverage. Your 12 passes are only doing 12/90 \approx 13% of one circumferential coverage.
+Proposed Solution for Phi Advancement & Coverage:
+
+Clarify the meaning of number_of_circuits. If it's meant to be "layers of full coverage", then the inner loop needs to run for enough passes to achieve one layer.
+Modify the loop to run for coverage:
+Python
+
+# In generate_physical_continuous_spiral, before the pass loop
+if phi_advancement_rad > 1e-7: # Avoid division by zero
+    passes_for_one_coverage_layer = math.ceil((2 * math.pi) / phi_advancement_rad)
+    # Ensure even number of passes if each "circuit" is pole-A -> B -> A
+    if passes_for_one_coverage_layer % 2 != 0:
+        passes_for_one_coverage_layer += 1
+    print(f"INFO: Approx. {passes_for_one_coverage_layer} pole-to-pole passes needed for one coverage layer.")
+else:
+    passes_for_one_coverage_layer = 200 # Fallback large number if no advancement
+    print(f"WARNING: phi_advancement_rad is too small, coverage calculation might be unreliable.")
+
+# The 'number_of_circuits' from input could now mean 'number of layers'
+# For now, let's aim for one layer of coverage.
+# The original code runs 'number_of_circuits * 2' passes.
+# Let's use the calculated passes for one coverage layer for now for testing.
+actual_num_passes_to_run = passes_for_one_coverage_layer # <<<<<< CHANGE THIS
+# actual_num_passes_to_run = number_of_circuits * 2 # Revert to this if you want user to control raw passes
+
+print(f"Running for {actual_num_passes_to_run} passes to aim for one coverage layer.")
+
+# In the loop:
+for pass_idx in range(actual_num_passes_to_run): # USE THE NEW CALCULATED NUMBER
+    # ... rest of the loop ...
+This change will make the simulation run for enough passes to theoretically cover the circumference once. The "forward/back" appearance will then transform into a visible spiral pattern.
+
+c. Polar Turnaround & Angle Continuity (current_sin_alpha)
+The update current_sin_alpha = sin_alpha_values_pass[-1] (Line 2745) is correct for maintaining continuity of the angle solution from the DE.
+
+Why "abrupt angle changes at poles" might still be perceived:
+
+ODE Solver Behavior Near Poles: The Koussios DE can be stiff near the poles where ρ is small, and curvatures can be high. The solver (LSODA or RK45) might struggle or take larger steps if the solution changes rapidly. This could make the transition seem abrupt even if the sin_alpha value is continuous.
+Highly Meridional Path: For non-geodesic paths, especially with lower friction or certain target angles, the actual path of the fiber (dictated by the DE) might indeed become very meridional (small α) near the poles. This means dϕ/dz becomes small. The "turn" (change in ϕ) is then dominated by the discrete phi_advancement_rad added between passes. This isn't necessarily "wrong" but a consequence of the physics and the simplified turnaround model (advancing ϕ after a meridional pass rather than simulating a continuous circumferential sweep at the pole).
+Initial current_sin_alpha (Line 2600-2618): The logic for the very first point is reasonable. For subsequent passes, current_sin_alpha comes from the previous pass's end. This is correct.
+Python
+
+# Around line 2613 (for first pass, if starting near pole)
+elif current_rho < self.effective_polar_opening_radius_m * 1.1:
+    current_sin_alpha = math.sin(math.radians(0.1)) # Very small angle
+This small initial angle at the pole means the fiber starts moving almost purely meridionally. The DE then dictates how quickly α can increase as ρ increases.
+
+Proposed Solution/Refinement for Polar Turnaround:
+
+Ensure Profile Smoothness: The spline interpolations for ρ(z) and its derivatives in _get_surface_properties_for_ode are crucial. Ensure self.profile_z_m_sorted and self.profile_r_m_sorted are smooth and dense enough, especially near the poles.
+Solver Tolerances: You might need to experiment with atol and rtol in solve_ivp if stiffness is an issue, but LSODA is generally good for stiff problems.
+True Continuous Turn (Advanced): A truly continuous circumferential turn at the pole would involve solving the DE where dz≈0 and dϕ is the primary change. This is a different regime for the ODE system and usually handled by specific "polar orbit" or "turnaround path" equations. Your current model (meridional pass + discrete ϕ shift) is a common and often sufficient simplification. The "abruptness" is likely the visual effect of this discrete shift if the meridional path doesn't generate much ϕ rotation near the pole.
+d. _solve_non_geodesic_sin_alpha_phi_segment_ode (Line 1525)
+
+The target_sin_alpha_on_cylinder parameter is passed but not used within the ODE system defined in ode_system_non_geodesic (Line 1555). The ODE system only uses the initial sin_alpha and integrates forward based on the Koussios DE coefficients (A, B, C).
+If you want the path to actively try to achieve a certain angle on the cylinder, the DE formulation itself would need to change (e.g., by adding a control term, or by solving a boundary value problem, which is much harder). For now, the target_cylinder_angle_deg primarily influences the calculation of phi_advancement_rad and the initial current_sin_alpha if starting on the cylinder.
+Summary of Recommendations:
+
+Fix ODE Failure Handling: In generate_physical_continuous_spiral, if segment_solution is None, break the loop or implement a more robust error recovery/logging, as this is the most likely cause of the 308mm "step length".
+Adjust Number of Passes for Coverage: Modify generate_physical_continuous_spiral to calculate and run for actual_num_passes_to_run = passes_for_one_coverage_layer (derived from (2 * math.pi) / phi_advancement_rad). This will address the "only forward/back passes" visual and the true coverage gaps.
+Verify phi_advancement_rad Calculation Details: Double-check self.R_cyl_m and target_alpha_cyl_rad_effective are correctly obtained and non-zero where expected.
+Understand Polar Turn: Accept that with the current model (meridional DE solve + discrete ϕ shift), the turn might appear as a sharp corner in ϕ if α is small near the pole. Smoother visual turns require α to approach 90 
+∘
+  near the pole (more circumferential motion during the meridional pass), which depends on friction and how the DE is solved. Ensure the ODE solver is stable and using sufficient points near the pole.
+Start with points 1 and 2, as they are most likely to resolve the large reported "gap" (step length) and the lack of overall pattern formation.
