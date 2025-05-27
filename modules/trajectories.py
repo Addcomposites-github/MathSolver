@@ -1001,8 +1001,8 @@ class TrajectoryPlanner:
             return {'path_points': [], 'gaps_over_1mm': 0, 'max_gap_mm': 0.0, 'is_continuous': True}
         
         # Extract and sort profile data from the vessel's internal structure
-        profile_r_m = np.array(self.vessel.profile_points['r_inner']) * 1e-3  # Convert mm to m
-        profile_z_m = np.array(self.vessel.profile_points['z']) * 1e-3  # Convert mm to m
+        profile_r_m = np.array(self.vessel.profile_points['r_inner_mm']) * 1e-3  # Convert mm to m
+        profile_z_m = np.array(self.vessel.profile_points['z_mm']) * 1e-3  # Convert mm to m
         
         print(f"   Successfully accessed profile: {len(profile_r_m)} points")
         
