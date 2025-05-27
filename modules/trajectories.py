@@ -1018,6 +1018,27 @@ class TrajectoryPlanner:
         else:
             print(f"   Using friction coefficient: μ = {self.mu_friction_coefficient}")
         
+        # Calculate azimuthal advancement for proper coverage
+        R_cyl_m = self.vessel.inner_radius * 1e-3  # Convert mm to m
+        target_alpha_cyl_rad = math.radians(self.target_cylinder_angle_deg) if hasattr(self, 'target_cylinder_angle_deg') else math.radians(30.0)
+        
+        # Calculate effective roving width on cylinder for pattern advancement
+        if abs(math.cos(target_alpha_cyl_rad)) < 1e-9:
+            eff_roving_width_on_cyl_m = self.dry_roving_width_m
+        else:
+            eff_roving_width_on_cyl_m = self.dry_roving_width_m / math.cos(target_alpha_cyl_rad)
+        
+        # Calculate phi advancement per pole-to-pole pass for proper coverage
+        if R_cyl_m > 1e-9:
+            phi_advancement_per_pass_rad = eff_roving_width_on_cyl_m / R_cyl_m
+        else:
+            phi_advancement_per_pass_rad = 0.05  # Fallback advancement
+            
+        print(f"   Cylinder radius: {R_cyl_m:.3f} m")
+        print(f"   Target cylinder angle: {math.degrees(target_alpha_cyl_rad):.1f}°")
+        print(f"   Effective roving width: {eff_roving_width_on_cyl_m*1000:.1f} mm")
+        print(f"   Phi advancement per pass: {math.degrees(phi_advancement_per_pass_rad):.2f}°")
+        
         # Initialize trajectory
         full_path_points = []
         current_phi_rad = 0.0
@@ -1049,13 +1070,18 @@ class TrajectoryPlanner:
         
         # Traverse the profile multiple times for multiple circuits
         for pass_num in range(number_of_circuits * 2):  # pole-to-pole passes
+            # APPLY AZIMUTHAL ADVANCEMENT at the start of each new pass
+            if pass_num > 0:
+                current_phi_rad += phi_advancement_per_pass_rad
+                print(f"   🔄 Applied phi advancement: {math.degrees(phi_advancement_per_pass_rad):.2f}° → Total phi: {math.degrees(current_phi_rad):.1f}°")
+            
             # Determine direction: forward (0,2,4...) or reverse (1,3,5...)
             is_reverse = (pass_num % 2 == 1)
             indices_this_pass = list(range(len(profile_r_m_sorted)))
             if is_reverse:
                 indices_this_pass = indices_this_pass[::-1]
             
-            print(f"   Pass {pass_num + 1}: {'Reverse' if is_reverse else 'Forward'}")
+            print(f"   Pass {pass_num + 1}: {'Reverse' if is_reverse else 'Forward'} - Starting phi: {math.degrees(current_phi_rad):.1f}°")
             
             # Skip first point on subsequent passes (already added)
             start_idx = 1 if pass_num > 0 else 0
@@ -1133,12 +1159,18 @@ class TrajectoryPlanner:
             if gap_mm > 1.0:
                 gaps_over_1mm += 1
         
+        # Calculate coverage metrics for the helical pattern
+        total_phi_advancement_deg = math.degrees(phi_advancement_per_pass_rad * number_of_circuits * 2)
+        coverage_ratio = math.degrees(current_phi_rad) / 360.0
+        
         print(f"✅ PHYSICS-BASED SPIRAL COMPLETE:")
         print(f"   Total points: {len(full_path_points)}")
         print(f"   Total phi rotation: {math.degrees(current_phi_rad):.1f}°")
+        print(f"   Pattern advancement: {total_phi_advancement_deg:.1f}° over {number_of_circuits * 2} passes")
+        print(f"   Coverage ratio: {coverage_ratio:.2f} circuits")
         print(f"   Max gap: {max_gap_mm:.3f}mm")
         print(f"   Gaps > 1mm: {gaps_over_1mm}")
-        print(f"   Status: {'PERFECTLY CONTINUOUS' if gaps_over_1mm == 0 else 'HAS GAPS'}")
+        print(f"   Status: {'PERFECTLY CONTINUOUS HELICAL COVERAGE' if gaps_over_1mm == 0 else 'HELICAL WITH GAPS'}")
         
         # Return trajectory data
         return {

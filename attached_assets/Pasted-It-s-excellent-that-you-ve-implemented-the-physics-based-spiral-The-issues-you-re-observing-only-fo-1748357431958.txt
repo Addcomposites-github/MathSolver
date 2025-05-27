@@ -1,0 +1,315 @@
+It's excellent that you've implemented the physics-based spiral! The issues you're observing—only forward/back passes, abrupt angle changes at poles, and large gaps—are characteristic of a system that is correctly calculating the path for a single meridional sweep but is not yet implementing the pattern advancement (azimuthal shift) needed for coverage or a smooth, continuous turn in the polar region.
+
+Let's break down how to address this, focusing on your non-geodesic implementation.
+
+The core problem is that simply reversing the direction of integration along the meridian (forward pass, then reverse pass) without a corresponding shift in the starting azimuthal angle (ϕ) for each new "circuit" or significant portion of the path will cause the fiber to retrace its steps or lay very close to the previous path, leading to no area coverage.
+
+Key Areas to Modify in generate_physical_continuous_spiral (or similar non-geodesic function):
+
+Azimuthal Pattern Advancement: This is the most critical part for eliminating gaps.
+Polar Turnaround and Angle Continuity: Ensuring the winding angle α behaves correctly and continuously through the polar turn.
+1. Implementing Azimuthal Pattern Advancement
+
+After each full circuit (e.g., from one pole, to the other, and back to the starting pole, or a similar repeating unit of your pattern), or even after each pole-to-pole pass, the starting ϕ for the next segment of the spiral needs to be incremented.
+
+Calculate Advancement Angle:
+
+You need to determine how much phi should advance to lay the next band adjacent to the previous one. This depends on the effective roving width on the cylinder and the desired pattern.
+The calculate_koussios_pattern_parameters() method I outlined previously (or a simplified version) is designed for this. It should return a delta_phi_advancement_per_circuit_rad or similar.
+Simplified approach (if Koussios full theory is not yet implemented):
+Effective Roving Width on Cylinder (B 
+eff_cyl
+​
+ ): B 
+eff_cyl
+​
+ =dry_roving_width_m/cos(α 
+cyl
+​
+ ), where α 
+cyl
+​
+  is the winding angle (with meridian) on the cylinder.
+Number of bands to cover circumference (N 
+bands
+​
+ ): N 
+bands
+​
+ =(2πR 
+cyl
+​
+ )/B 
+eff_cyl
+​
+ . This doesn't have to be an integer for a helical pattern.
+Angular shift per band: Δϕ 
+band
+​
+ ≈2π/N 
+bands
+​
+ =B 
+eff_cyl
+​
+ /R 
+cyl
+​
+ .
+This delta_phi_band is what you need to add to current_phi_rad after a segment that represents one band width progression around the vessel.
+Applying the Advancement:
+
+In your main loop that iterates through number_of_circuits * 2 passes:
+Identify when a "turnaround" or the start of a new effective circuit occurs.
+Add the calculated phi_advancement to your current_global_phi_rad before starting the next significant leg of the spiral.
+Conceptual Change in generate_physical_continuous_spiral:
+
+Python
+
+# Inside your TrajectoryPlanner class, within the non-geodesic spiral generator
+
+# ... (setup code, get profile, friction coeff, etc.) ...
+# Assume profile_r_m_sorted, profile_z_m_sorted are ready
+
+# Calculate phi_advancement (e.g., per pole-to-pole pass, or per full circuit)
+# This should ideally come from Koussios pattern parameters or a robust calculation
+# For simplicity, let's assume a phi_advancement_per_pole_pass_rad
+# Example:
+R_cyl_m = self.vessel.get_cylindrical_radius_m() # You'll need this method in VesselGeometry
+target_alpha_cyl_rad = math.radians(self.target_cylinder_angle_deg if self.target_cylinder_angle_deg else 30.0) # default if None
+if abs(math.cos(target_alpha_cyl_rad)) < 1e-9:
+    eff_roving_width_on_cyl_m = self.dry_roving_width_m
+else:
+    eff_roving_width_on_cyl_m = self.dry_roving_width_m / math.cos(target_alpha_cyl_rad)
+
+if R_cyl_m > 1e-9:
+    phi_advancement_per_pole_pass_rad = (eff_roving_width_on_cyl_m / R_cyl_m)
+    # This is a very simplified advancement, Koussios' theory provides better control for closure
+    # This might need to be divided by 2 if applied at *each* pole turnaround for one circuit
+else:
+    phi_advancement_per_pole_pass_rad = 0.05 # Fallback small advancement
+
+print(f"Debug: R_cyl_m={R_cyl_m}, target_alpha_cyl_rad={target_alpha_cyl_rad}, eff_width={eff_roving_width_on_cyl_m}, phi_adv_per_pass={math.degrees(phi_advancement_per_pole_pass_rad)}°")
+
+# ... (rest of setup) ...
+
+# In the loop for passes:
+for pass_num in range(number_of_circuits * 2): # pole-to-pole passes
+    # Determine start_z, end_z, and initial alpha for this pass
+    # ... (logic for this) ...
+
+    # Solve for sin_alpha_profile and phi_profile for THIS PASS
+    # This might involve calling _solve_non_geodesic_sin_alpha_profile_segment_ode
+    # and then integrating d(phi)/ds_m or d(phi)/dz for the pass points.
+    # The `initial_conditions_segment` for the ODE solver should use the
+    # *current_global_phi_rad* as its starting phi.
+    # The winding angle alpha from the end of the previous pass should be the
+    # starting alpha for this pass to ensure continuity.
+
+    # pass_path_points = self._solve_one_non_geodesic_pass(
+    #      profile_r_m_sorted, profile_z_m_sorted,
+    #      initial_z_this_pass, end_z_this_pass,
+    #      initial_alpha_this_pass, # from end of previous pass or target
+    #      current_global_phi_rad,  # starting phi for this pass
+    #      is_forward_integration_this_pass
+    # )
+    # all_path_points.extend(pass_path_points)
+
+    # Update global phi from the end of the generated pass
+    # if pass_path_points:
+    #    current_global_phi_rad = pass_path_points[-1]['phi_rad']
+
+    # APPLY AZIMUTHAL ADVANCEMENT for the next pass
+    # This typically happens conceptually "at the pole" before reversing.
+    current_global_phi_rad += phi_advancement_per_pole_pass_rad
+    print(f"Debug: End of Pass {pass_num + 1}, current_global_phi_rad after advancement: {math.degrees(current_global_phi_rad)}°")
+
+    # Update initial_alpha_this_pass for the next pass
+    # initial_alpha_this_pass = pass_path_points[-1]['alpha_meridian_rad'] if pass_path_points else target_alpha_cyl_rad # or some other logic for pole area
+You would need a helper function like _solve_one_non_geodesic_pass that takes the current state (start z, start alpha, start phi) and integrates along the meridian to the other end, returning the list of points for that pass.
+
+2. Polar Turnaround and Angle Continuity (Non-Geodesic)
+
+The "abrupt change" in angle suggests that the winding angle α (with meridian) is not being handled continuously as the path approaches and leaves the polar region. For a non-geodesic path, the Koussios DE for d(sinα)/ds 
+m
+​
+  should govern the angle evolution throughout.
+
+Continuous Solution of the DE:
+
+When you switch from a "forward" pass to a "reverse" pass, the final sinα value from the end of the forward pass must be the initial sinα value for the reverse pass. The DE solver will then determine how α evolves as you integrate in the opposite meridional direction.
+Don't reset α to a fixed target angle at the pole for each pass, unless that's a specific boundary condition you want to enforce and can physically achieve with friction. The DE should naturally show what angle is sustainable.
+ODE Solver State:
+
+Your _solve_non_geodesic_sin_alpha_profile_segment_ode (or similar that solves for sinα and ϕ simultaneously) needs:
+z_eval_points: The axial points to solve for.
+initial_conditions = [initial_sin_alpha, initial_phi].
+When a pass ends (e.g., at z_pole_aft), the sin_alpha_end_pass1 and phi_end_pass1 are determined.
+For the next pass (e.g., from z_pole_aft back to z_pole_front):
+initial_sin_alpha_pass2 = sin_alpha_end_pass1.
+initial_phi_pass2 = phi_end_pass1 + phi_advancement_at_this_pole.
+Polar Region Behavior:
+
+As radius ρ becomes small near the poles, the terms k 
+m
+​
+  (meridional curvature) and k 
+p
+​
+ =cosβ 
+s
+​
+ /ρ (parallel curvature, where β 
+s
+​
+  is meridian slope angle) in Koussios's DE become significant.
+The term E 
+′
+ /E=(2/ρ)(dρ/ds 
+m
+​
+ ). If dρ/ds 
+m
+​
+  is small (flat dome cap), this term is also large.
+The DE solution will show that α tends to decrease (become more meridional) at very small radii unless friction μ is very high. A perfectly circumferential wind (α=90 
+∘
+ ) at a very small polar opening is often not possible without very high friction or specific "bridging" techniques not covered by the basic DE.
+The "abrupt change" might be because the path integration effectively stops, ϕ is advanced, and then a new path starts with a re-initialized α that doesn't smoothly connect.
+Revised Structure for generate_physical_continuous_spiral (Non-Geodesic):
+
+Python
+
+def generate_physical_continuous_spiral_non_geodesic(self, number_of_circuits: int, points_per_meridian_pass_segment: int = 100):
+    # ... (Setup: profile points in meters, friction, target_alpha_cyl_rad) ...
+
+    full_path_points = []
+    
+    # Initial conditions for the very first segment
+    # Start at one pole (e.g., z_min_profile)
+    # Initial alpha: could be a small angle, or derived from target_alpha_cyl if starting from cylinder outwards.
+    # For pole-to-pole, it might be close to 0 or a small value that the DE allows.
+    # Let's assume starting at z_min, heading towards z_max.
+    current_z = self.profile_z_m_sorted[0]
+    current_rho = self.profile_r_m_sorted[0] # rho at current_z
+
+    # Estimate initial sin_alpha (this is a tricky part for the very first point at a pole)
+    # One approach: Start slightly off-pole or assume a small initial angle if starting at pole.
+    # Or, assume it starts from where it would have arrived from cylinder if it were a geodesic.
+    # For non-geodesic, if target is on cylinder, you might solve from cylinder to pole first to find polar alpha.
+    # For simplicity, let's set a small initial alpha or use target_alpha_cyl if profile starts at cylinder.
+    if abs(current_rho - self.R_cyl_m) < 1e-3: # Starting on cylinder
+         current_sin_alpha = math.sin(target_alpha_cyl_rad)
+    elif current_rho < self.effective_polar_opening_radius_m * 1.1: # Starting near pole
+        # For non-geodesic, alpha near pole with friction can be complex.
+        # A safe start might be a very small angle if truly starting at rho_pole.
+        current_sin_alpha = math.sin(math.radians(5)) # Small angle if starting at pole
+    else: # General case on dome
+        # Could estimate based on a geodesic to this point as a start
+        implied_c = self.R_cyl_m * math.sin(target_alpha_cyl_rad)
+        current_sin_alpha = np.clip(implied_c / current_rho, -1.0, 1.0) if current_rho > 1e-6 else math.sin(math.radians(5))
+
+    current_phi_rad = 0.0
+
+    # Add initial point
+    full_path_points.append({
+        'x_m': current_rho * math.cos(current_phi_rad), 'y_m': current_rho * math.sin(current_phi_rad),
+        'z_m': current_z, 'r_m': current_rho,
+        'alpha_meridian_rad': math.asin(current_sin_alpha), 'phi_rad': current_phi_rad, 'pass': 0
+    })
+
+    # Calculate advancement (simplified)
+    phi_advancement_rad = (self.dry_roving_width_m / math.cos(target_alpha_cyl_rad)) / self.R_cyl_m if self.R_cyl_m > 1e-6 else 0.05
+    print(f"Calculated phi_advancement_rad per pole turnaround: {math.degrees(phi_advancement_rad)} deg")
+
+
+    for pass_idx in range(number_of_circuits * 2): # Pole-to-pole passes
+        is_forward_pass = (pass_idx % 2 == 0) # True: z_min to z_max; False: z_max to z_min
+        
+        pass_start_z = self.profile_z_m_sorted[0] if is_forward_pass else self.profile_z_m_sorted[-1]
+        pass_end_z = self.profile_z_m_sorted[-1] if is_forward_pass else self.profile_z_m_sorted[0]
+
+        # Define z evaluation points for this pass
+        # Ensure the profile covers from pass_start_z to pass_end_z
+        if is_forward_pass:
+            z_eval_points_pass = np.linspace(pass_start_z, pass_end_z, points_per_meridian_pass_segment)
+            # Filter profile points relevant to this pass direction
+            relevant_profile_indices = np.where(self.profile_z_m_sorted >= pass_start_z -1e-6)[0]
+
+        else: # Reverse pass
+            z_eval_points_pass = np.linspace(pass_start_z, pass_end_z, points_per_meridian_pass_segment)
+            relevant_profile_indices = np.where(self.profile_z_m_sorted <= pass_start_z + 1e-6)[0]
+
+
+        if len(relevant_profile_indices) < 2:
+            print(f"Warning: Not enough profile points for pass {pass_idx+1} from z={pass_start_z} to z={pass_end_z}. Skipping.")
+            current_phi_rad += phi_advancement_rad # Still advance phi
+            continue
+
+        # Get the segment of the profile for this pass, ensuring correct order for derivative calculation
+        # The ODE solver needs rho(z) and its derivatives.
+        # The profile_r_m_interp, profile_z_m_interp must be sorted by Z for spline fitting for rho(z).
+        # `_solve_non_geodesic_sin_alpha_phi_segment_ode` needs the full sorted profile
+        # to create its internal interpolators for rho(z) and derivatives.
+
+        initial_conditions_ode = [current_sin_alpha, current_phi_rad]
+
+        # Solve for this pass
+        # This function needs to be robust and use the full sorted profile internally for interpolation
+        # but solve only over z_eval_points_pass for this specific segment.
+        segment_solution = self._solve_non_geodesic_sin_alpha_phi_segment_ode(
+            z_eval_points=z_eval_points_pass, # The z-points to get solutions at for this pass
+            initial_conditions=initial_conditions_ode, # [sin_alpha_start, phi_start]
+            profile_r_m_sorted_full=self.profile_r_m_sorted, # Full profile for interpolation
+            profile_z_m_sorted_full=self.profile_z_m_sorted,  # Full profile for interpolation
+            mu=self.mu_friction_coefficient
+        )
+
+        if segment_solution is None or segment_solution.sol is None:
+            print(f"Warning: ODE solution failed for pass {pass_idx+1}. Skipping pass.")
+            current_phi_rad += phi_advancement_rad # Still advance phi to attempt next circuit part
+            continue
+            
+        sin_alpha_values_pass = segment_solution.sol(z_eval_points_pass)[0]
+        phi_values_pass = segment_solution.sol(z_eval_points_pass)[1]
+
+        # Store points from this pass (excluding the first point if not the very first pass overall, as it's end of last)
+        start_index_for_storage = 1 if len(full_path_points) > 1 else 0
+        for i in range(start_index_for_storage, len(z_eval_points_pass)):
+            z_p = z_eval_points_pass[i]
+            # Interpolate rho at z_p from the full sorted profile
+            rho_p = np.interp(z_p, self.profile_z_m_sorted, self.profile_r_m_sorted)
+            sin_alpha_p = sin_alpha_values_pass[i]
+            alpha_p = math.asin(np.clip(sin_alpha_p, -1.0, 1.0))
+            phi_p = phi_values_pass[i]
+            
+            full_path_points.append({
+                'x_m': rho_p * math.cos(phi_p), 'y_m': rho_p * math.sin(phi_p),
+                'z_m': z_p, 'r_m': rho_p,
+                'alpha_meridian_rad': alpha_p, 'phi_rad': phi_p, 'pass': pass_idx + 1
+            })
+
+        # Update for next pass
+        current_sin_alpha = sin_alpha_values_pass[-1]
+        current_phi_rad = phi_values_pass[-1]
+        
+        # Apply advancement for the next pass
+        current_phi_rad += phi_advancement_rad
+        print(f"Pass {pass_idx+1} ended. Z={z_eval_points_pass[-1]:.3f}, SinAlpha={current_sin_alpha:.3f}, Phi={math.degrees(phi_values_pass[-1]):.1f} -> AdvPhi={math.degrees(current_phi_rad):.1f}")
+
+    # ... (return data) ...
+Key changes in this conceptual non-geodesic spiral generator:
+
+Explicit Phi Advancement: phi_advancement_rad is calculated and added to current_phi_rad after each pole-to-pole pass.
+ODE Solver per Pass: The _solve_non_geodesic_sin_alpha_phi_segment_ode is called for each distinct pole-to-pole segment.
+Continuity of sin_alpha and phi: The end state (sin_alpha, phi) of one pass becomes the initial state for the next pass (before phi_advancement is added for the global shift).
+_solve_non_geodesic_sin_alpha_phi_segment_ode Adaptation:
+This crucial helper function needs to be robust. It should internally create interpolators for ρ(z), dρ/dz, d 
+2
+ ρ/dz 
+2
+  from the full sorted profile.
+It then solves the Koussios DE (transformed to be d(sinα)/dz and dϕ/dz) over the specified z_eval_points for the current segment, using the provided initial_conditions.
+This is a significant architectural change to the "continuous spiral" concept, making the phi advancement explicit and ensuring the non-geodesic DE is solved piece-wise but continuously across the passes. The "abrupt angle changes" should reduce if current_sin_alpha is correctly carried over. The "gaps" will reduce if phi_advancement_rad is appropriate.
+
+I recommend you carefully adapt your generate_physical_continuous_spiral function in trajectories.py based on these principles. The calculation of phi_advancement_rad should ideally use the more rigorous Koussios pattern theory from calculate_koussios_pattern_parameters if you have that working for non-geodesic contexts, or start with the simplified version and refine.
