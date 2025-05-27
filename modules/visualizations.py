@@ -43,10 +43,10 @@ class VesselVisualizer:
                    transform=ax.transAxes, ha='center', va='center', fontsize=14)
             return fig
         
-        # Extract profile data
-        r_inner = vessel.profile_points['r_inner']
-        r_outer = vessel.profile_points['r_outer']
-        z = vessel.profile_points['z']
+        # Extract profile data using standardized keys
+        r_inner = vessel.profile_points['r_inner_mm']
+        r_outer = vessel.profile_points['r_outer_mm']
+        z = vessel.profile_points['z_mm']
         
         # Plot inner and outer walls
         ax.plot(z, r_inner, color=self.colors['inner_wall'], linewidth=2, label='Inner wall')
