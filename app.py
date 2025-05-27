@@ -535,8 +535,14 @@ def trajectory_planning_page():
                         st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
                         trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
                     elif pattern_mode == "Continuous Helical Physics":
-                        st.info(f"🌀 Calling CONTINUOUS HELICAL PHYSICS with target angle {target_angle}° and μ={friction_coefficient}")
-                        trajectory_data = planner.generate_continuous_helical_non_geodesic(target_angle, num_circuits)
+                        st.info(f"🌀 Calling SEAMLESS HELICAL PHYSICS with target angle {target_angle}° and μ={friction_coefficient}")
+                        from modules.seamless_helical import generate_seamless_helical_spiral
+                        trajectory_data = generate_seamless_helical_spiral(
+                            planner.vessel.get_profile_points(), 
+                            target_angle, 
+                            num_circuits, 
+                            friction_coefficient
+                        )
                     else:
                         st.info(f"🔥 Calling SINGLE-CIRCUIT function")
                         trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)

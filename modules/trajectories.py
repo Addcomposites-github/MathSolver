@@ -1005,39 +1005,28 @@ class TrajectoryPlanner:
         print(f"   Friction coefficient: {self.mu}")
         print(f"   Number of circuits: {number_of_circuits}")
         
-        # Physics-based continuous helical generation
+        # Generate seamless continuous helical spiral
         continuous_path_points = []
         all_x_points = []
         all_y_points = []
         all_z_points = []
         
-        # Calculate total phi span for continuous helical coverage
-        total_phi_span = 2 * math.pi * number_of_circuits
+        # High-resolution seamless spiral parameters
+        points_per_revolution = 100
+        total_points = number_of_circuits * points_per_revolution
         
-        # Generate continuous helical path with physics-based alpha calculation
-        num_points_per_circuit = 50
-        total_points = num_points_per_circuit * number_of_circuits
+        # Seamless phi progression
+        phi_increment = (2 * math.pi * number_of_circuits) / total_points
         
-        current_phi = 0.0
-        phi_increment = total_phi_span / total_points
-        
-        print(f"   Generating {total_points} continuous helical points...")
+        print(f"   Generating {total_points} seamless spiral points...")
         
         for point_idx in range(total_points):
-            # Calculate current position along vessel profile
-            # Helical progression from pole A to pole B and back
-            circuit_progress = (point_idx % num_points_per_circuit) / num_points_per_circuit
+            # Seamless global progression
+            t = point_idx / total_points
             
-            # Determine if we're on forward or return leg of current circuit
-            circuit_num = point_idx // num_points_per_circuit
-            is_return_leg = (circuit_num % 2) == 1
-            
-            if is_return_leg:
-                # Return leg: reverse the profile progression
-                profile_progress = 1.0 - circuit_progress
-            else:
-                # Forward leg: normal profile progression
-                profile_progress = circuit_progress
+            # Smooth helical oscillation between poles
+            profile_progress = 0.5 * (1.0 - math.cos(t * math.pi * number_of_circuits))
+            profile_progress = max(0.0, min(1.0, profile_progress))
                 
             # Interpolate along vessel profile
             profile_idx = profile_progress * (len(profile_r_m_calc) - 1)
