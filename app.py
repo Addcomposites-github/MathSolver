@@ -676,14 +676,10 @@ def trajectory_planning_page():
                         
                         # Add trajectory statistics
                         st.write("**Trajectory Statistics:**")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Points", st.session_state.trajectory_data.get('total_points', 'N/A'))
-                        with col2:
-                            st.metric("Total Circuits", st.session_state.trajectory_data.get('total_circuits_legs', 'N/A'))
-                        with col3:
-                            final_angle = st.session_state.trajectory_data.get('final_turn_around_angle_deg', 0)
-                            st.metric("Final Turn Angle", f"{final_angle:.1f}°" if final_angle else 'N/A')
+                        st.metric("Total Points", st.session_state.trajectory_data.get('total_points', 'N/A'))
+                        st.metric("Total Circuits", st.session_state.trajectory_data.get('total_circuits_legs', 'N/A'))
+                        final_angle = st.session_state.trajectory_data.get('final_turn_around_angle_deg', 0)
+                        st.metric("Final Turn Angle", f"{final_angle:.1f}°" if final_angle else 'N/A')
                     
                 else:
                     st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
