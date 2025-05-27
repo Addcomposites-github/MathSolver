@@ -1101,6 +1101,9 @@ class TrajectoryPlanner:
             # Skip first point on subsequent passes (already added)
             start_idx = 1 if pass_num > 0 else 0
             
+            # Validate pass can be completed before processing points
+            pass_failed = False
+            
             for i in range(start_idx, len(indices_this_pass)):
                 idx_curr = indices_this_pass[i]
                 idx_prev = indices_this_pass[i-1] if i > 0 else indices_this_pass[0]
@@ -1110,10 +1113,17 @@ class TrajectoryPlanner:
                 rho_prev = profile_r_m_sorted[idx_prev]
                 z_prev = profile_z_m_sorted[idx_prev]
                 
-                # Calculate meridional arc increment
+                # Calculate meridional arc increment with validation
                 ds_m = math.sqrt((rho_curr - rho_prev)**2 + (z_curr - z_prev)**2)
                 if ds_m < 1e-9:
                     continue
+                
+                # Validate step size is reasonable (prevent massive jumps)
+                if ds_m > 0.05:  # 50mm max step
+                    print(f"   ❌ CRITICAL: Step size too large ({ds_m*1000:.1f}mm) at pass {pass_num+1}, point {i}")
+                    print(f"      From z={z_prev:.4f}m to z={z_curr:.4f}m")
+                    pass_failed = True
+                    break
                 
                 current_s_m += ds_m
                 
@@ -1173,6 +1183,13 @@ class TrajectoryPlanner:
                     's_m': current_s_m,
                     'pass': pass_num + 1
                 })
+            
+            # Handle pass failure - abort generation to prevent discontinuities
+            if pass_failed:
+                print(f"   ❌ ERROR: Physics integration failed for pass {pass_num + 1}")
+                print(f"      Trajectory generation aborted to prevent 300mm gaps")
+                print(f"      Generated {len(full_path_points)} points before failure")
+                break
         
         # Verify perfect continuity
         gaps_over_1mm = 0

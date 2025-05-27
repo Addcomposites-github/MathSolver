@@ -1,0 +1,103 @@
+
+A. Robust Handling of ODE Solver Failures (to fix the 300mm "step length")
+
+This is the most critical. The large "Max gap" indicates that the path data being fed to the visualizer (and gap calculator) contains discontinuities where the solver failed.
+
+Proposed change in generate_physical_continuous_spiral (within TrajectoryPlanner in trajectories.py):
+
+Python
+
+# Inside generate_physical_continuous_spiral method:
+# ... (after defining initial_conditions_ode) ...
+
+# Around line 2704 in your current file:
+segment_solution = self._solve_non_geodesic_sin_alpha_phi_segment_ode(
+    z_eval_points=z_eval_points_pass,
+    initial_conditions=initial_conditions_ode,
+    profile_r_m_sorted_full=self.profile_r_m_sorted,
+    profile_z_m_sorted_full=self.profile_z_m_sorted,
+    mu=self.mu_friction_coefficient,
+    target_sin_alpha_on_cylinder=math.sin(target_alpha_cyl_rad_effective) if target_alpha_cyl_rad_effective is not None else None
+)
+
+# --- MODIFICATION START ---
+if segment_solution is None or not segment_solution.success: # Check .success attribute
+    self.log_message(
+        f"ERROR: ODE solution failed for pass {pass_idx + 1} "
+        f"(z_eval_points range: {z_eval_points_pass[0]:.4f} to {z_eval_points_pass[-1]:.4f}, "
+        f"initial sin_alpha: {initial_conditions_ode[0]:.4f}, initial_phi: {math.degrees(initial_conditions_ode[1]):.2f}°). "
+        f"Status: {segment_solution.message if segment_solution else 'No solution object'}. "
+        "Trajectory generation aborted for this pattern.",
+        level="ERROR"
+    )
+    # Store information about failure for the final summary
+    final_summary['status'] = "ODE_SOLVER_FAILURE"
+    final_summary['error_message'] = (
+        f"ODE failed on pass {pass_idx + 1} "
+        f"from z={z_eval_points_pass[0]:.4f} to z={z_eval_points_pass[-1]:.4f}. Path incomplete."
+    )
+    final_summary['points_generated_before_failure'] = len(full_path_points)
+    
+    # Abort further passes as continuity is broken
+    break  # Exit the 'for pass_idx in range...' loop
+# --- MODIFICATION END ---
+
+# Original check (can be removed if the above is added, or kept as a fallback)
+# if segment_solution is None or segment_solution.sol is None:
+#     # ... your existing handling, but 'break' is safer ...
+
+sin_alpha_values_pass = segment_solution.sol(z_eval_points_pass)[0]
+phi_values_pass = segment_solution.sol(z_eval_points_pass)[1]
+
+# ... (rest of point storage and updates for current_sin_alpha, current_phi_rad_pass_end) ...
+Explanation of Change:
+
+The solve_ivp result object has a boolean success attribute. This should be the primary check.
+If the solution fails, a detailed error is logged (you can implement self.log_message or just use print).
+Critically, the break statement will exit the loop over pass_idx. This prevents the generation of further passes that would be disconnected from the point of failure, thus eliminating the artificial long segments that cause the huge "Max gap" (step length) values. The final_summary dictionary (which I assume you use to return results) is updated to reflect this.
+B. Running Enough Passes for Visual Coverage
+
+To see the pattern evolve beyond simple back-and-forth, you need to run it for more passes.
+In generate_physical_continuous_spiral:
+
+Python
+
+        # Around line 2636
+        if self.enable_calculated_pass_override: # Add a new class attribute or parameter
+            actual_num_passes_to_run = passes_for_one_coverage_layer
+            self.log_message(f"INFO: Using calculated {actual_num_passes_to_run} passes for one coverage layer (override enabled).")
+        else:
+            actual_num_passes_to_run = number_of_circuits * 2
+            self.log_message(f"INFO: Running user-defined {actual_num_passes_to_run} passes (from {number_of_circuits} circuits). Calculated for one coverage layer: {passes_for_one_coverage_layer} passes.")
+        
+        self.log_message(f"DEBUG: Target alpha_cyl={math.degrees(target_alpha_cyl_rad_effective):.2f} deg, R_cyl={self.R_cyl_m:.4f} m, B_rov={self.dry_roving_width_m:.4f} m")
+        self.log_message(f"DEBUG: phi_advancement_per_pass_rad={phi_advancement_rad:.4f} rad ({math.degrees(phi_advancement_rad):.2f} deg)")
+
+
+        # Loop for passes (ensure this uses actual_num_passes_to_run)
+        # Around line 2658
+        for pass_idx in range(actual_num_passes_to_run):
+            # ...
+You'll need to add self.enable_calculated_pass_override = True (or make it a parameter) if you want to test with full coverage. Be aware that running ~194 passes will take significantly longer and generate much more data. Start by fixing the ODE failure handling first.
+
+C. Addressing the "Sharp Turn at Pole Opening"
+
+This is more nuanced. The "sharpness" is a visual effect of how the path is constructed:
+
+Path during meridional sweep: The Koussios DE determines α(z). If α is small near the pole (fiber is mostly axial), then dϕ/dz is small. Little circumferential travel occurs during this part of the sweep over the polar cap.
+Discrete ϕ advancement: The phi_advancement_rad is added after the meridional sweep ends and before the next one begins. This creates a "jump" in ϕ at a relatively constant z (the pole).
+This construction is a valid way to model helical winding. The path is continuous in sinα and piecewise continuous in ϕ (with discrete jumps at poles for advancement).
+
+To make it appear smoother visually at the poles:
+
+Higher Friction (mu_friction_coefficient): If physically justifiable, a higher μ allows the fiber to maintain a larger α (more circumferential direction) closer to the pole, meaning more dϕ/dz is generated naturally by the DE during the polar traversal.
+Initial α at Poles:
+The line current_sin_alpha = math.sin(math.radians(0.1)) (around L2615) when starting near a pole ensures a highly meridional departure. If the previous pass ended at that pole with a larger sustainable α, using that larger α (which your code current_sin_alpha = sin_alpha_values_pass[-1] already does for subsequent passes) is correct for continuity. The very first pass's polar departure will be very axial.
+Profile Discretization at Poles: Ensure points_per_meridian_pass_segment provides enough z_eval_points_pass over the polar dome cap for the ODE solver to accurately capture the path. If the steps in z are too large over the curved dome cap, the solution might not be smooth.
+Alternative Turnaround Model (Advanced): Implementing a model where the fiber performs a more circular orbit around the polar opening (constant z, varying ϕ driven by the DE at a high α) is much more complex. For now, the discrete advancement is standard.
+Recommendation:
+
+Implement the robust ODE failure handling (Point A) FIRST. This should resolve the 300mm "Max gap" (step length) issue. If this value drops to something small (e.g., a few mm, consistent with your points_per_meridian_pass_segment), then the path point generation is continuous.
+Then, to see the pattern, enable running for passes_for_one_coverage_layer (Point B). This will show if the phi_advancement_rad correctly creates the overall spiral.
+The "sharp polar turn" is likely something to accept with the current model if α is physically small there. Focus on ensuring the placement of the next pass (due to phi_advancement_rad) is correct for coverage. If after running for full coverage the bands are laid correctly side-by-side (even if the turn itself looks like a corner), the core logic is working.
+Let's prioritize making the path generation continuous by fixing the ODE failure handling.
