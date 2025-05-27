@@ -1,0 +1,93 @@
+That's a very astute observation from the console log and visualization! The "jump" or discontinuity, especially on the "-z side" (likely the second pole approached or the start of a return pass), when trying to make a continuous multi-pass non-geodesic pattern is a classic and tricky problem.
+
+It strongly suggests that while individual non-geodesic legs might be solving reasonably well (though the kink warnings indicate issues there too), the **handover of state (particularly `phi` and the starting `sin_alpha`) and the definition of the physical starting point for the return leg (`_generate_non_geodesic_leg` call for the reversed profile) are not aligning correctly.**
+
+Here's a breakdown of why this is happening and a more focused plan:
+
+**Likely Reasons for the Discontinuity/Jump in Multi-Pass Non-Geodesic:**
+
+1.  **Misalignment of Leg Start/End Points with Profile Arrays:**
+    * When `_generate_non_geodesic_leg` is called for the "reverse" pass (e.g., Leg 2), it receives the *entire* `profile_r_m_calc[::-1]` and `profile_z_m_calc[::-1]`.
+    * Its internal solver (`_solve_non_geodesic_sin_alpha_profile_rk4`) starts integrating from the first point of this reversed array (which is physically the aft pole).
+    * **The Issue:** The *actual physical point* where Leg 1 ended (and the first turnaround occurred) might not perfectly correspond to the last point of `profile_r_m_calc` (which becomes the first point of the reversed profile for Leg 2). Small differences in $\rho$ or $z$ due to the non-geodesic path's nature or the discrete nature of the profile can mean that Leg 2 "starts" solving from a slightly different geometric point on the mandrel than where Leg 1 physically ended.
+    * Even if the $\phi$ and initial $\sin\alpha$ (which should be 1.0 after a circumferential turnaround) are passed correctly, if the solver for Leg 2 begins on a slightly different part of the meridian or with slightly different initial geometric derivatives, its path will diverge.
+
+2.  **Pattern Advancement (`phi_span_for_each_turnaround_rad`) Interaction with Non-Geodesic Paths:**
+    * The current `phi_span_for_each_turnaround_rad` is a fixed value based on the desired *pattern* advancement.
+    * A non-geodesic leg has a "natural" $\Delta\phi$ sweep that depends on $\mu$ and the evolving $\alpha(z)$. This sweep is generally different from a geodesic leg.
+    * If the fixed turnaround span forces a `phi` value that, combined with the natural start of the non-geodesic ODE solution on the reversed profile, results in a large initial $d\phi/dz$ (because $\alpha$ has to change very rapidly from $90^\circ$ to meet the path dictated by $\mu$), it can cause an initial "jump" in $\phi$ or an unstable start to the angle evolution.
+
+3.  **Kinks within Legs Affecting End Conditions:**
+    * The kink warnings ("Δsin(α)=0.160 at ρ=33.9mm") show that the $\sin\alpha$ solution *within* a leg is already unstable in high-curvature regions near the pole. If Leg 1 ends with a "kinked" or rapidly changing $\alpha$, the `last_leg_end_rho` and `last_leg_end_z` might be slightly off, or the `sin_alpha_after_leg1` might not be representative of a stable approach to the pole. This error then propagates.
+
+**Proposed Next Steps to Fix (Prioritized):**
+
+**Focus 1: Ensure True Physical Continuity of $(\rho, z, \phi)$ at Leg Transitions**
+
+This is about making sure Leg 2 *actually starts* where Leg 1 (plus its turnaround) *physically ended*.
+
+1.  **Modify `_generate_non_geodesic_leg` Return Value:**
+    * It should return not just the path points, but also the precise *final state* of the leg on the mandrel:
+        * `final_rho_m`
+        * `final_z_m`
+        * `final_phi_rad`
+        * `final_sin_alpha` (the $\sin\alpha$ at the very last point of the helical segment before turnaround)
+
+2.  **Modify `generate_multi_circuit_non_geodesic_trajectory` Start/End Logic:**
+    * **Leg 1:**
+        * Starts with `current_overall_phi_rad` and `current_sin_alpha_for_upcoming_leg`.
+        * It integrates along `profile_r_m_calc`, `profile_z_m_calc` (forward).
+        * Store `leg1_end_rho`, `leg1_end_z`, `leg1_end_phi`, `leg1_end_sin_alpha`.
+    * **Turnaround 1:**
+        * Uses `rho_eff = leg1_end_rho`, `z_pole = leg1_end_z`, `phi_start = leg1_end_phi`.
+        * Calculates its points and ends at `turnaround1_end_phi`.
+        * The physical point after turnaround is still $(\text{leg1_end_rho, leg1_end_z})$.
+    * **Leg 2 (Return Pass):**
+        * **Crucial:** The RK4 solver for Leg 2 needs to start its integration *from `z = leg1_end_z` on the reversed profile*, with an initial condition of `sin_alpha = 1.0` (because it's exiting the circumferential turnaround). The starting `phi` for Leg 2 is `turnaround1_end_phi`.
+        * The `_solve_non_geodesic_sin_alpha_profile_rk4` needs to be able to start its integration from an arbitrary `z_start_on_profile` (which would be `leg1_end_z`) along the `profile_z_m_segment` it's given (which will be `profile_z_m_calc[::-1]`).
+        * This means the RK4 loop needs to find the index in its `z_rk4_pts` array that is closest to `leg1_end_z` if it's integrating over the whole reversed profile, or the profile segment passed to it should be sliced to start at `leg1_end_z`.
+        * Store `leg2_end_rho`, `leg2_end_z`, `leg2_end_phi`, `leg2_end_sin_alpha`.
+    * **Turnaround 2:** Similar to Turnaround 1, using Leg 2's end state.
+    * **Next Circuit:** The `current_overall_phi_rad` for the next circuit's Leg 1 will be `turnaround2_end_phi`. The `current_sin_alpha_for_upcoming_leg` will be `1.0`.
+
+**Conceptual Change for `_solve_non_geodesic_sin_alpha_profile_rk4`:**
+
+It currently integrates from `z_start = profile_z_m[0]` to `z_end = profile_z_m[-1]` of the *passed segment*.
+If you pass `profile_z_m[::-1]`, `z_start` is `profile_z_m_calc[-1]`. This is good.
+The `initial_sin_alpha` is applied at this `z_start`. This also seems correct.
+
+**The "jump" is likely because the *profile points array* passed to `_generate_leg_from_sin_alpha_profile` for the return leg is the fully reversed `profile_r_m_calc[::-1]`, `profile_z_m_calc[::-1]`. The `sin_alpha_on_profile` solved by RK4 also corresponds to this fully reversed profile.**
+
+When `_generate_leg_from_sin_alpha_profile` then iterates `for i in range(len(leg_profile_r_m))`, its first point will be `leg_profile_r_m[0]`, which is `profile_r_m_calc[-1]`.
+Its $(x,y,z)$ is `(rho_calc[-1]*cos(phi_after_turn1), rho_calc[-1]*sin(phi_after_turn1), z_calc[-1])`.
+The end of Turnaround 1 was at `(rho_L1e*cos(phi_after_turn1), rho_L1e*sin(phi_after_turn1), z_L1e)`.
+
+If `rho_L1e` (actual end radius of Leg 1) is not exactly `profile_r_m_calc[-1]`, there will be a radial jump.
+If `z_L1e` (actual end z of Leg 1) is not exactly `profile_z_m_calc[-1]`, there will be an axial jump.
+
+**Refined Plan for `_generate_non_geodesic_leg` and its Caller:**
+
+`_generate_non_geodesic_leg` should:
+1.  Receive `start_rho_m`, `start_z_m`, `start_phi_rad`, `start_sin_alpha`.
+2.  Receive the *full* `profile_r_m_calc`, `profile_z_m_calc` and the `integration_direction` (+1 for forward on profile, -1 for reverse).
+3.  Find the index `idx_start` in `profile_z_m_calc` closest to `start_z_m`.
+4.  Prepare the profile segment for the RK4 solver:
+    * If forward: `segment_z = profile_z_m_calc[idx_start:]`, `segment_r = profile_r_m_calc[idx_start:]`.
+    * If reverse: `segment_z = profile_z_m_calc[:idx_start+1][::-1]`, `segment_r = profile_r_m_calc[:idx_start+1][::-1]`.
+    The `initial_sin_alpha` for RK4 is `start_sin_alpha`.
+5.  Solve for `sin_alpha_on_segment` using RK4 on this specific `segment_z` and `segment_r`.
+6.  Generate path points using `_generate_leg_from_sin_alpha_profile` with `segment_r`, `segment_z`, `sin_alpha_on_segment`, and `start_phi_rad`.
+7.  Return the generated points and the actual end state `(rho, z, phi, sin_alpha)`.
+
+This ensures each leg starts integrating from the *exact physical point* where the previous segment (turnaround) left off.
+
+**Focus 2: Kink Detection and Interpretation**
+
+Your kink detector `_detect_kinks_in_alpha_profile` flags large `abs(sin_alpha_profile[i] - sin_alpha_profile[i-1])`.
+* **Action**:
+    * Also pass `profile_dz_steps` (the `z[i] - z[i-1]` for the segment) to this detector.
+    * Log `delta_sin_alpha / profile_dz_step`. A large change over a tiny `dz` is a strong indicator of numerical instability in the ODE solution or extremely rapidly changing geometry.
+    * When a kink is detected at `profile_r_m[i]`, print the local calculated curvatures $k_m, k_p$ and coefficients $A_c, B_c, C_c$ if possible. This will show if they are blowing up.
+
+**Let's start by trying to implement the Spline-based derivatives in `_get_interpolated_surface_properties` and making sure the RK4 solver `_solve_non_geodesic_sin_alpha_profile_rk4` uses these spline functions.** This is fundamental.
+Once that's done and single legs look smoother (test with a smaller `mu` first, like 0.2-0.3), we can then focus on the precise handover of $(\rho, z, \phi, \sin\alpha)$ state between legs and turnarounds in the multi-circuit method.

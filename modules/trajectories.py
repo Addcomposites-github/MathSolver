@@ -725,28 +725,41 @@ class TrajectoryPlanner:
         print(f"   Target circuits: {number_of_circuits}")
         print(f"   Each circuit = forward pass + return pass")
         
+        # Track precise physical state for continuity
+        last_physical_rho = None
+        last_physical_z = None
+        last_physical_phi = None
+        
         # Create alternating forward and reverse passes for true continuous winding
         for circuit_idx in range(number_of_circuits):
             print(f"\n🔬 CIRCUIT {circuit_idx + 1}/{number_of_circuits}")
             
             # Forward pass (pole A to pole B)
             print(f"   Forward pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
-            for i in range(len(profile_r_m_calc)):
+            
+            # Start from exact last position if continuing
+            start_idx = 0
+            if last_physical_rho is not None:
+                # Find closest profile index to last physical position
+                z_diffs = [abs(z - last_physical_z) for z in profile_z_m_calc]
+                start_idx = min(range(len(z_diffs)), key=z_diffs.__getitem__)
+                print(f"   Continuing from profile index {start_idx} (z={profile_z_m_calc[start_idx]:.3f}m)")
+            
+            for i in range(start_idx, len(profile_r_m_calc)):
                 rho = profile_r_m_calc[i]
                 z = profile_z_m_calc[i]
                 sin_alpha = sin_alpha_profile[i]
                 alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                # Calculate continuous phi progression (no reset between passes)
-                if i > 0 or (circuit_idx > 0 and len(continuous_path_points) > 0):
-                    if i > 0:
+                # Calculate phi progression from exact last physical point
+                if i > start_idx or (last_physical_rho is not None):
+                    if i > start_idx:
                         prev_rho = profile_r_m_calc[i-1]
                         prev_z = profile_z_m_calc[i-1]
                     else:
-                        # Continue from last point of previous circuit
-                        prev_point = continuous_path_points[-1]
-                        prev_rho = prev_point['rho']
-                        prev_z = prev_point['z']
+                        # Use exact last physical position
+                        prev_rho = last_physical_rho
+                        prev_z = last_physical_z
                     
                     ds = math.sqrt((rho - prev_rho)**2 + (z - prev_z)**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
@@ -767,6 +780,11 @@ class TrajectoryPlanner:
                 all_x_points.append(x)
                 all_y_points.append(y)
                 all_z_points.append(z)
+            
+            # Store exact end state of forward pass
+            last_physical_rho = profile_r_m_calc[-1]
+            last_physical_z = profile_z_m_calc[-1]
+            last_physical_phi = current_phi_continuous
             
             # Add turnaround at pole B before return pass
             pole_b_rho = profile_r_m_calc[-1]  # Last point of forward pass
@@ -798,20 +816,33 @@ class TrajectoryPlanner:
             
             # Return pass (pole B to pole A) - reversed profile
             print(f"   Return pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
-            for idx, i in enumerate(range(len(profile_r_m_calc)-1, -1, -1)):
+            
+            # Start return pass from exact turnaround end position
+            reversed_indices = list(range(len(profile_r_m_calc)-1, -1, -1))
+            start_return_idx = 0
+            
+            # Find starting index in reversed profile from turnaround end position
+            if len(continuous_path_points) > 0:
+                turnaround_end_z = continuous_path_points[-1]['z']
+                z_diffs = [abs(profile_z_m_calc[i] - turnaround_end_z) for i in reversed_indices]
+                start_return_idx = min(range(len(z_diffs)), key=z_diffs.__getitem__)
+                print(f"   Return starting from reversed index {start_return_idx} (z={profile_z_m_calc[reversed_indices[start_return_idx]]:.3f}m)")
+            
+            for idx in range(start_return_idx, len(reversed_indices)):
+                i = reversed_indices[idx]
                 rho = profile_r_m_calc[i]
                 z = profile_z_m_calc[i]
                 sin_alpha = sin_alpha_profile[i]
                 alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                # Calculate continuous phi progression from previous point
-                if idx > 0 or len(continuous_path_points) > 0:
-                    if idx > 0:
-                        prev_i = list(range(len(profile_r_m_calc)-1, -1, -1))[idx-1]
+                # Calculate phi progression from exact previous point
+                if idx > start_return_idx or len(continuous_path_points) > 0:
+                    if idx > start_return_idx:
+                        prev_i = reversed_indices[idx-1]
                         prev_rho = profile_r_m_calc[prev_i]
                         prev_z = profile_z_m_calc[prev_i]
                     else:
-                        # Continue from last point (end of turnaround)
+                        # Continue from exact turnaround end position
                         prev_point = continuous_path_points[-1]
                         prev_rho = prev_point['rho']
                         prev_z = prev_point['z']
@@ -835,6 +866,11 @@ class TrajectoryPlanner:
                 all_x_points.append(x)
                 all_y_points.append(y)
                 all_z_points.append(z)
+            
+            # Store exact end state of return pass
+            last_physical_rho = profile_r_m_calc[0]  # End of return pass
+            last_physical_z = profile_z_m_calc[0]
+            last_physical_phi = current_phi_continuous
             
             # Add turnaround at pole A after return pass (except for last circuit)
             if circuit_idx < number_of_circuits - 1:  # Don't add turnaround after the last circuit
