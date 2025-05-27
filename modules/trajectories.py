@@ -773,6 +773,18 @@ class TrajectoryPlanner:
                 all_y_points.append(y)
                 all_z_points.append(z)
             
+            # Enhanced smooth transition at pass boundaries
+            if pass_idx < number_of_circuits - 1:  # Not the last pass
+                # Add interpolated transition points for smoother handover
+                transition_points = self._generate_smooth_pass_transition(
+                    pass_points[-1], profile_r_pass[0], profile_z_pass[0], 
+                    current_phi_continuous, phi_advance_per_pass
+                )
+                continuous_path_points.extend(transition_points)
+                all_x_points.extend([p['x'] for p in transition_points])
+                all_y_points.extend([p['y'] for p in transition_points])
+                all_z_points.extend([p['z'] for p in transition_points])
+            
             # Add systematic advancement for pattern closure
             current_phi_continuous += phi_advance_per_pass
             
