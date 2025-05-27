@@ -534,18 +534,31 @@ def trajectory_planning_page():
                     if pattern_mode == "Multi-Circuit Pattern":
                         st.info(f"🔥 Calling MULTI-CIRCUIT function with {num_circuits} circuits")
                         trajectory_data = planner.generate_multi_circuit_non_geodesic_pattern(dome_points, cylinder_points, num_circuits)
+                    elif pattern_mode == "Continuous Helical Physics":
+                        st.info(f"🌀 Calling CONTINUOUS HELICAL PHYSICS with target angle {target_angle}° and μ={friction_coefficient}")
+                        trajectory_data = planner.generate_continuous_helical_non_geodesic(target_angle, num_circuits)
                     else:
                         st.info(f"🔥 Calling SINGLE-CIRCUIT function")
                         trajectory_data = planner.generate_non_geodesic_trajectory(dome_points, cylinder_points)
                     
-                    if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                    # Handle different trajectory data formats
+                    trajectory_points = trajectory_data.get('trajectory_points', trajectory_data.get('path_points', []))
+                    
+                    if trajectory_data and len(trajectory_points) > 0:
                         st.session_state.trajectory_data = trajectory_data
                         if pattern_mode == "Multi-Circuit Pattern":
-                            st.success(f"🎯 **Multi-circuit non-geodesic pattern generated!** {num_circuits} circuits with {len(trajectory_data['path_points'])} total points")
+                            st.success(f"🎯 **Multi-circuit non-geodesic pattern generated!** {num_circuits} circuits with {len(trajectory_points)} total points")
                             if trajectory_data.get('total_kinks', 0) > 0:
                                 st.warning(f"⚠️ **{trajectory_data['total_kinks']} kinks detected** across all circuits")
+                        elif pattern_mode == "Continuous Helical Physics":
+                            st.success(f"🌀 **Continuous helical physics trajectory generated!** {len(trajectory_points)} points")
+                            st.info(f"🎯 Target angle: {trajectory_data.get('target_angle_deg', target_angle)}° | Friction: μ={trajectory_data.get('friction_coefficient', friction_coefficient)}")
+                            if trajectory_data.get('gaps_over_1mm', 0) == 0:
+                                st.success(f"✅ **Perfect continuity achieved!** Max gap: {trajectory_data.get('max_gap_mm', 0):.3f}mm")
+                            else:
+                                st.warning(f"⚠️ {trajectory_data.get('gaps_over_1mm', 0)} gaps > 1mm detected (max: {trajectory_data.get('max_gap_mm', 0):.2f}mm)")
                         else:
-                            st.success(f"🎯 **Non-geodesic trajectory generated!** {len(trajectory_data['path_points'])} points with advanced physics")
+                            st.success(f"🎯 **Non-geodesic trajectory generated!** {len(trajectory_points)} points with advanced physics")
                         
                         # Show friction physics insights
                         st.markdown("### 🔬 Non-Geodesic Physics Analysis")
