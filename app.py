@@ -5,6 +5,8 @@ import pandas as pd
 import math
 from modules.geometry import VesselGeometry
 from modules.trajectories import TrajectoryPlanner
+from modules.trajectories_refactored import TrajectoryPlannerRefactored
+from modules.pattern_manager_refactored import PatternManagerRefactored
 from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
@@ -780,6 +782,77 @@ def trajectory_planning_page():
                 
             except Exception as e:
                 st.error(f"Error calculating trajectory: {str(e)}")
+                
+        elif pattern_type == "🔬 Refactored Engine (Test)":
+            # Handle the refactored engine pattern
+            st.markdown("### 🔬 Refactored Engine Parameters")
+            
+            # Get parameters from session state or use defaults
+            roving_width = st.number_input("Roving Width (mm)", min_value=0.1, max_value=10.0, value=3.0, step=0.1)
+            roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.01, max_value=1.0, value=0.2, step=0.01)
+            polar_eccentricity = st.number_input("Polar Eccentricity (mm)", min_value=0.0, max_value=5.0, value=0.0, step=0.1)
+            target_angle = st.number_input("Target Angle (°)", min_value=0.0, max_value=90.0, value=45.0, step=1.0)
+            
+            # Pattern selection for refactored engine
+            refactored_pattern = st.selectbox("Pattern Type", 
+                                            ["geodesic_spiral", "non_geodesic_spiral", "helical", "polar", "hoop"],
+                                            index=0)
+            
+            coverage_option = st.selectbox("Coverage Strategy",
+                                         ["single_circuit", "full_coverage", "user_defined"],
+                                         index=0)
+            
+            if coverage_option == "user_defined":
+                user_circuits = st.number_input("Number of Circuits", min_value=1, max_value=20, value=2, step=1)
+            else:
+                user_circuits = 1
+                
+            if st.button("🚀 Generate Refactored Trajectory", type="primary"):
+                with st.spinner("Generating trajectory with refactored engine..."):
+                    try:
+                        # Create refactored planner
+                        planner_refactored = TrajectoryPlannerRefactored(
+                            vessel_geometry=st.session_state.vessel_geometry,
+                            dry_roving_width_m=roving_width * 1e-3,
+                            dry_roving_thickness_m=roving_thickness * 1e-3,
+                            roving_eccentricity_at_pole_m=polar_eccentricity * 1e-3,
+                            target_cylinder_angle_deg=target_angle,
+                            mu_friction_coefficient=0.0 if refactored_pattern == "geodesic_spiral" else 0.3
+                        )
+                        
+                        # Show validation results
+                        validation = planner_refactored.get_validation_results()
+                        if validation['is_valid']:
+                            st.success(f"✅ Validation passed! C = {validation['clairaut_constant_mm']:.2f}mm")
+                        else:
+                            st.warning(f"⚠️ {validation['error_message']}")
+                        
+                        # Generate trajectory
+                        trajectory_data = planner_refactored.generate_trajectory(
+                            pattern_name=refactored_pattern,
+                            coverage_option=coverage_option,
+                            user_circuits=user_circuits
+                        )
+                        
+                        if trajectory_data and trajectory_data.get('success'):
+                            st.success(f"🎉 Generated {trajectory_data['total_points']} points!")
+                            st.session_state.trajectory_data = trajectory_data
+                            
+                            # Show metrics
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Points", trajectory_data['total_points'])
+                            with col2:
+                                st.metric("Passes", trajectory_data['total_circuits_legs'])
+                            with col3:
+                                st.metric("Final φ", f"{trajectory_data['final_turn_around_angle_deg']:.1f}°")
+                            
+                            st.rerun()
+                        else:
+                            st.error("❌ Generation failed")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
     
     with col2:
         st.subheader("Trajectory Controls")

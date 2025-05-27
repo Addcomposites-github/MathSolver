@@ -199,18 +199,18 @@ class TrajectoryPlannerRefactored:
         --------
         Dict containing trajectory data or None if generation fails
         """
-        self.logger.info(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}")
+        print(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}")
         
         # Validate inputs
         valid_patterns = ['geodesic_spiral', 'non_geodesic_spiral', 'helical', 'polar', 'hoop']
         valid_coverage = ['single_circuit', 'full_coverage', 'user_defined']
         
         if pattern_name not in valid_patterns:
-            self.logger.error(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}")
+            print(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}")
             return None
             
         if coverage_option not in valid_coverage:
-            self.logger.error(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}")
+            print(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}")
             return None
             
         # Calculate number of passes based on coverage option
