@@ -245,7 +245,7 @@ class TrajectoryPlannerRefactored:
         - Smooth pattern advancement between passes
         - Robust ODE integration with error handling
         """
-        self.logger.info(f"Geodesic engine: Generating {num_passes} passes")
+        print(f"Geodesic engine: Generating {num_passes} passes")
         
         # Get vessel profile for trajectory calculation
         profile_data = self._prepare_profile_data()
@@ -260,7 +260,7 @@ class TrajectoryPlannerRefactored:
         for pass_idx in range(num_passes):
             is_forward = (pass_idx % 2 == 0)
             
-            self.logger.debug(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})")
+            print(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})")
             
             # Generate helical segment
             segment_result = self._solve_geodesic_segment(
