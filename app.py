@@ -512,12 +512,25 @@ def trajectory_planning_page():
                             planner._kink_warnings = []  # Clear for next calculation
                 
                 elif pattern_type == "Non-Geodesic":
-                    st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
-                    
-                    # Use the pattern mode from the earlier section
+                    # Ensure all required variables are defined
+                    if 'roving_width' not in locals():
+                        roving_width = 3.0  # Default 3mm
+                    if 'roving_thickness' not in locals():
+                        roving_thickness = 0.2  # Default 0.2mm
+                    if 'polar_eccentricity' not in locals():
+                        polar_eccentricity = 0.0  # Default 0mm
+                    if 'target_angle' not in locals():
+                        target_angle = 45.0  # Default 45°
+                    if 'dome_points' not in locals():
+                        dome_points = 50  # Default dome density
+                    if 'cylinder_points' not in locals():
+                        cylinder_points = 10  # Default cylinder density
                     if 'pattern_mode' not in locals():
                         pattern_mode = "Single Circuit"
-                        num_circuits = 1
+                    if 'num_circuits' not in locals():
+                        num_circuits = 2  # Default 2 circuits
+                    
+                    st.info(f"🚀 **Non-Geodesic Mode**: Generating extreme angle trajectory with μ = {friction_coefficient:.2f}")
                     
                     # Create planner with NO validation - allows any angle
                     planner = TrajectoryPlanner(
