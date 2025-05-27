@@ -142,16 +142,16 @@ class TrajectoryPlannerRefactored:
             # Validate against physical minimum
             if (self.clairauts_constant_for_path_m and self.effective_polar_opening_radius_m and 
                 self.clairauts_constant_for_path_m < self.effective_polar_opening_radius_m):
-                print(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
-                print(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm"
-                print("Using geometric limit instead"
+                print(f"Target angle {self.target_cylinder_angle_deg}° gives C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+                print(f"This is below physical minimum {self.effective_polar_opening_radius_m*1000:.2f}mm")
+                print("Using geometric limit instead")
                 self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
             else:
-                print(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
+                print(f"Target angle {self.target_cylinder_angle_deg}° validated, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
         else:
             # Use geometric limit (minimum physically possible)
             self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
-            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm"
+            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
             
     def _calculate_pattern_advancement(self):
         """
@@ -174,9 +174,9 @@ class TrajectoryPlannerRefactored:
                 self.dry_roving_width_m / math.cos(target_alpha_rad)
             ) / self.R_cyl_m
             
-            print(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass"
+            print(f"Pattern advancement: {math.degrees(self.phi_advancement_rad_per_pass):.3f}° per pass")
         except Exception as e:
-            print(f"Error calculating pattern advancement: {e}"
+            print(f"Error calculating pattern advancement: {e}")
             self.phi_advancement_rad_per_pass = 0.05  # Safe default
         
     def generate_trajectory(self, 
@@ -199,18 +199,18 @@ class TrajectoryPlannerRefactored:
         --------
         Dict containing trajectory data or None if generation fails
         """
-        print(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}"
+        print(f"Generating trajectory: {pattern_name}, coverage: {coverage_option}, circuits: {user_circuits}")
         
         # Validate inputs
         valid_patterns = ['geodesic_spiral', 'non_geodesic_spiral', 'helical', 'polar', 'hoop']
         valid_coverage = ['single_circuit', 'full_coverage', 'user_defined']
         
         if pattern_name not in valid_patterns:
-            print(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}"
+            print(f"Invalid pattern_name: {pattern_name}. Must be one of {valid_patterns}")
             return None
             
         if coverage_option not in valid_coverage:
-            print(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}"
+            print(f"Invalid coverage_option: {coverage_option}. Must be one of {valid_coverage}")
             return None
             
         # Calculate number of passes based on coverage option

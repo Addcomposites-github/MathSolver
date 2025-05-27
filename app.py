@@ -5,8 +5,9 @@ import pandas as pd
 import math
 from modules.geometry import VesselGeometry
 from modules.trajectories import TrajectoryPlanner
-from modules.trajectories_refactored import TrajectoryPlannerRefactored
-from modules.pattern_manager_refactored import PatternManagerRefactored
+# Temporarily disabled while fixing syntax issues
+# from modules.trajectories_refactored import TrajectoryPlannerRefactored
+# from modules.pattern_manager_refactored import PatternManagerRefactored
 from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
