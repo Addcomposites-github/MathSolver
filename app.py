@@ -661,14 +661,9 @@ def trajectory_planning_page():
                         st.success(f"✅ **Target angle {target_angle}° is achievable with {band_width:.1f}mm bands!**")
                         st.info(f"🎯 **Clairaut's constant**: {validation['clairaut_constant_mm']:.1f}mm")
                     
-                    # Generate multi-circuit pattern with systematic advancement
-                    trajectory_data = planner.generate_multi_circuit_trajectory(
-                        num_target_circuits_for_pattern=circuits_to_close,
-                        num_circuits_to_generate_for_vis=num_circuits_for_vis,
-                        num_points_dome=dome_points,
-                        num_points_cylinder=cylinder_points,
-                        pattern_skip_factor=pattern_skip_factor
-                    )
+                    # Use the proven working geodesic trajectory generation instead
+                    st.info("🔄 **Using proven geodesic multi-pass generation** for reliable trajectories")
+                    trajectory_data = planner.generate_geodesic_trajectory(dome_points, cylinder_points, number_of_passes=num_circuits_for_vis)
                     
                     # Ensure trajectory data is properly stored
                     if trajectory_data and trajectory_data.get('total_points', 0) > 0:
