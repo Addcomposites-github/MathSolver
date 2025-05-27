@@ -984,53 +984,6 @@ class TrajectoryPlanner:
             'y_points_m': all_y_points,
             'z_points_m': all_z_points
         }
-            last_physical_phi = current_phi_continuous
-            
-            # Add turnaround at pole A after return pass (except for last circuit)
-            if circuit_idx < number_of_circuits - 1:  # Don't add turnaround after the last circuit
-                pole_a_rho = profile_r_m_calc[0]  # First point of profile (pole A)
-                pole_a_z = profile_z_m_calc[0]
-                turnaround_start_phi = current_phi_continuous
-                
-                # Generate turnaround points at pole A
-                for turnaround_i in range(num_turnaround_points):
-                    turnaround_phi = turnaround_start_phi + (turnaround_i / (num_turnaround_points - 1)) * phi_advance_per_pass
-                    
-                    x_turn = pole_a_rho * math.cos(turnaround_phi)
-                    y_turn = pole_a_rho * math.sin(turnaround_phi)
-                    
-                    turnaround_point = {
-                        'x': x_turn, 'y': y_turn, 'z': pole_a_z,
-                        'rho': pole_a_rho, 'alpha': math.pi/2, 'phi': turnaround_phi,
-                        'circuit': circuit_idx, 'pass': 'turnaround_A',
-                        'direction': 'Turnaround',
-                        'winding_angle': 90.0
-                    }
-                    continuous_path_points.append(turnaround_point)
-                    all_x_points.append(x_turn)
-                    all_y_points.append(y_turn)
-                    all_z_points.append(pole_a_z)
-            
-            # Add pattern advancement after return pass
-            current_phi_continuous += phi_advance_per_pass
-            
-            print(f"   Circuit {circuit_idx + 1} complete: phi = {math.degrees(current_phi_continuous):.1f}°")
-        
-        print(f"   True helical spiral generated: {len(continuous_path_points)} points")
-        print(f"   Final phi: {math.degrees(current_phi_continuous):.1f}°")
-        
-        # Add continuity verification
-        print(f"\n🔬 CONTINUITY VERIFICATION:")
-        total_gaps = 0
-        max_gap = 0.0
-        for i in range(1, len(continuous_path_points)):
-            prev_point = continuous_path_points[i-1]
-            curr_point = continuous_path_points[i]
-            gap = math.sqrt((curr_point['x'] - prev_point['x'])**2 + 
-                           (curr_point['y'] - prev_point['y'])**2 + 
-                           (curr_point['z'] - prev_point['z'])**2)
-            if gap > 0.001:  # 1mm threshold
-                total_gaps += 1
                 max_gap = max(max_gap, gap)
         
         print(f"   Gaps > 1mm: {total_gaps}")
