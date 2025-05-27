@@ -1981,7 +1981,7 @@ class TrajectoryPlanner:
         number_of_passes : int
             Number of full pole-to-pole-to-pole circuits to generate.
         """
-        if self.vessel.profile_points is None or 'r_inner' not in self.vessel.profile_points:
+        if self.vessel.profile_points is None or 'r_inner_mm' not in self.vessel.profile_points:
             print("Error: Vessel profile not generated. Call vessel.generate_profile() first.")
             return None
         if self.effective_polar_opening_radius_m is None:
@@ -2002,8 +2002,8 @@ class TrajectoryPlanner:
         print(f"DEBUG: Adaptive sampling - Dome points: {num_points_dome}, Cylinder points: {num_points_cylinder}")
         print(f"DEBUG: Roving parameters - width: {self.dry_roving_width_m*1000:.1f}mm, thickness: {self.dry_roving_thickness_m*1000:.1f}mm")
 
-        profile_r_m_orig = self.vessel.profile_points['r_inner'] * 1e-3
-        profile_z_m_orig = self.vessel.profile_points['z'] * 1e-3
+        profile_r_m_orig = self.vessel.profile_points['r_inner_mm'] * 1e-3
+        profile_z_m_orig = self.vessel.profile_points['z_mm'] * 1e-3
 
         segments = self._identify_vessel_segments(profile_r_m_orig, profile_z_m_orig)
         
