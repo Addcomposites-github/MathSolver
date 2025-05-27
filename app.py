@@ -458,6 +458,9 @@ def trajectory_planning_page():
         
         if st.button("Calculate Trajectory", type="primary"):
             try:
+                # Default friction coefficient for geodesic patterns
+                friction_coefficient = 0.0  # Geodesic patterns don't use friction
+                
                 if pattern_type == "Geodesic":
                     planner = TrajectoryPlanner(
                         st.session_state.vessel_geometry,
