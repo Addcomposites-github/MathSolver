@@ -645,42 +645,49 @@ def trajectory_planning_page():
         
         visualizer = VesselVisualizer()
         
-        st.write("**2D Trajectory View**")
-        # Plot trajectory - 2D view
-        fig = visualizer.plot_winding_trajectory(
-            st.session_state.vessel_geometry,
-            st.session_state.trajectory_data
-        )
-        st.pyplot(fig)
+        # Create side-by-side visualization layout
+        vis_col1, vis_col2 = st.columns(2)
         
-        # Add 3D visualization for all trajectory types
-        if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern', 'Continuous Non-Geodesic Helical', 'Multi-Circuit Non-Geodesic']:
-            st.write("**3D Trajectory View**")
-            
-            # Check if we have the required 3D coordinate data
-            has_3d_data = ('x_points_m' in st.session_state.trajectory_data and 
-                          'y_points_m' in st.session_state.trajectory_data and 
-                          'z_points_m' in st.session_state.trajectory_data)
-            
-            if has_3d_data:
-                # Prepare vessel profile data for 3D visualization
-                vessel_profile_for_plot = {
-                    'r_m': st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3, # Convert to meters
-                    'z_m': st.session_state.vessel_geometry.profile_points['z'] * 1e-3    # Convert to meters
-                }
+        with vis_col1:
+            st.write("**2D Trajectory View**")
+            # Plot trajectory - 2D view
+            fig = visualizer.plot_winding_trajectory(
+                st.session_state.vessel_geometry,
+                st.session_state.trajectory_data
+            )
+            st.pyplot(fig)
+        
+        with vis_col2:
+            # Add 3D visualization for all trajectory types
+            if st.session_state.trajectory_data.get('pattern_type') in ['Geodesic', 'Multi-Circuit Geodesic', 'Geodesic_MultiPass', 'Multi-Circuit Pattern', 'Continuous Non-Geodesic Helical', 'Multi-Circuit Non-Geodesic']:
+                st.write("**3D Trajectory View**")
                 
-                # Create 3D trajectory plot using the enhanced visualization function
-                fig_3d = visualizer.plot_3d_trajectory(
-                    trajectory_data=st.session_state.trajectory_data,
-                    vessel_profile_data=vessel_profile_for_plot,
-                    title=f"3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory"
-                )
+                # Check if we have the required 3D coordinate data
+                has_3d_data = ('x_points_m' in st.session_state.trajectory_data and 
+                              'y_points_m' in st.session_state.trajectory_data and 
+                              'z_points_m' in st.session_state.trajectory_data)
                 
-                if fig_3d:
-                    st.pyplot(fig_3d)
-                
+                if has_3d_data:
+                    # Prepare vessel profile data for 3D visualization
+                    vessel_profile_for_plot = {
+                        'r_m': st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3, # Convert to meters
+                        'z_m': st.session_state.vessel_geometry.profile_points['z'] * 1e-3    # Convert to meters
+                    }
+                    
+                    # Create 3D trajectory plot using the enhanced visualization function
+                    fig_3d = visualizer.plot_3d_trajectory(
+                        trajectory_data=st.session_state.trajectory_data,
+                        vessel_profile_data=vessel_profile_for_plot,
+                        title=f"3D {st.session_state.trajectory_data.get('pattern_type', 'Geodesic')} Trajectory"
+                    )
+                    
+                    if fig_3d:
+                        st.pyplot(fig_3d)
+                    
+                else:
+                    st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
             else:
-                st.info("3D visualization requires x_points_m, y_points_m, and z_points_m data from the trajectory generation.")
+                st.info("Select a trajectory pattern to see 3D visualization")
         
     # Add trajectory statistics outside the data check
     if st.session_state.trajectory_data is not None:
