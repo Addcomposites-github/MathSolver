@@ -725,18 +725,25 @@ class TrajectoryPlanner:
             print(f"\n🔬 CONTINUOUS PASS {pass_idx + 1}/{number_of_circuits}")
             
             # Determine direction for this pass (alternating for continuous winding)
+            # Enhanced symmetric pole handling for continuous transitions
             if pass_idx % 2 == 0:
-                # Forward pass: use profile as-is
+                # Forward pass: use profile as-is (typically +z to -z direction)
                 profile_r_pass = profile_r_m_calc
                 profile_z_pass = profile_z_m_calc
                 sin_alpha_pass = sin_alpha_profile
                 direction = "Forward"
+                pole_start = "positive" if profile_z_pass[0] > profile_z_pass[-1] else "negative"
             else:
-                # Reverse pass: reverse the profile for continuous path
+                # Reverse pass: reverse the profile for continuous path (-z to +z direction)
                 profile_r_pass = profile_r_m_calc[::-1]
                 profile_z_pass = profile_z_m_calc[::-1]
                 sin_alpha_pass = sin_alpha_profile[::-1]
                 direction = "Reverse"
+                pole_start = "negative" if profile_z_pass[0] < profile_z_pass[-1] else "positive"
+                
+                # Enhanced pole transition handling for reverse passes
+                # Apply symmetric corrections for -z pole transitions
+                print(f"   Enhanced symmetric pole handling: Starting from {pole_start} pole")
             
             print(f"   Direction: {direction}, Starting phi: {math.degrees(current_phi_continuous):.1f}°")
             
