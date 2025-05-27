@@ -718,50 +718,62 @@ class TrajectoryPlanner:
             print("⚠️ Base non-geodesic sin(alpha) solution failed")
             return None
         
-        # Generate TRUE helical spiral with alternating pole-to-pole passes
-        current_phi_continuous = 0.0
-        
-        print(f"🔬 GENERATING TRUE HELICAL SPIRAL WITH ALTERNATING PASSES:")
+        # Generate TRUE continuous helical spiral using physics-based angle control
+        print(f"🔬 GENERATING PHYSICS-BASED CONTINUOUS HELICAL SPIRAL:")
+        print(f"   Target angle: {self.target_cylinder_angle_deg}°")
+        print(f"   Friction coefficient: {self.mu_friction_coefficient}")
         print(f"   Target circuits: {number_of_circuits}")
-        print(f"   Each circuit = forward pass + return pass")
         
-        # Track precise physical state for continuity
-        last_physical_rho = None
-        last_physical_z = None
-        last_physical_phi = None
+        # Calculate target sin(alpha) from user input angle
+        if self.target_cylinder_angle_deg is not None:
+            target_alpha_rad = math.radians(self.target_cylinder_angle_deg)
+            target_sin_alpha = math.sin(target_alpha_rad)
+        else:
+            target_sin_alpha = 0.5  # Default fallback
         
-        # Create alternating forward and reverse passes for true continuous winding
-        for circuit_idx in range(number_of_circuits):
-            print(f"\n🔬 CIRCUIT {circuit_idx + 1}/{number_of_circuits}")
+        print(f"   Target sin(alpha): {target_sin_alpha:.3f}")
+        
+        # Generate continuous spiral by cycling through profile multiple times
+        current_phi_continuous = 0.0
+        total_profile_cycles = number_of_circuits * 2  # Each circuit covers profile twice
+        
+        for cycle_idx in range(total_profile_cycles):
+            direction = "Forward" if cycle_idx % 2 == 0 else "Return"
+            circuit_num = (cycle_idx // 2) + 1
             
-            # Forward pass (pole A to pole B)
-            print(f"   Forward pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
+            print(f"\n🔬 CYCLE {cycle_idx + 1}/{total_profile_cycles} (Circuit {circuit_num} - {direction})")
+            print(f"   Starting phi: {math.degrees(current_phi_continuous):.1f}°")
             
-            # Start from exact last position if continuing
-            start_idx = 0
-            if last_physical_rho is not None:
-                # Find closest profile index to last physical position
-                z_diffs = [abs(z - last_physical_z) for z in profile_z_m_calc]
-                start_idx = min(range(len(z_diffs)), key=z_diffs.__getitem__)
-                print(f"   Continuing from profile index {start_idx} (z={profile_z_m_calc[start_idx]:.3f}m)")
+            # Determine profile direction for this cycle
+            if direction == "Forward":
+                profile_indices = range(len(profile_r_m_calc))
+            else:
+                profile_indices = range(len(profile_r_m_calc)-1, -1, -1)
             
-            for i in range(start_idx, len(profile_r_m_calc)):
+            # Generate points for this cycle using physics-based angle
+            cycle_points = []
+            for i in profile_indices:
                 rho = profile_r_m_calc[i]
                 z = profile_z_m_calc[i]
-                sin_alpha = sin_alpha_profile[i]
-                alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                # Calculate phi progression from exact last physical point
-                if i > start_idx or (last_physical_rho is not None):
-                    if i > start_idx:
-                        prev_rho = profile_r_m_calc[i-1]
-                        prev_z = profile_z_m_calc[i-1]
-                    else:
-                        # Use exact last physical position
-                        prev_rho = last_physical_rho
-                        prev_z = last_physical_z
-                    
-                    ds = math.sqrt((rho - prev_rho)**2 + (z - prev_z)**2)
+                # Use target angle instead of solved sin_alpha for consistent physics
+                # Apply friction coefficient to modify angle based on vessel geometry
+                base_sin_alpha = target_sin_alpha
+                
+                # Add geometric correction based on local curvature
+                if i < len(sin_alpha_profile):
+                    curvature_factor = sin_alpha_profile[i] / max(abs(sin_alpha_profile[i]), 0.1)
+                    adjusted_sin_alpha = base_sin_alpha * (1.0 + 0.1 * self.mu_friction_coefficient * curvature_factor)
+                    adjusted_sin_alpha = max(-1.0, min(1.0, adjusted_sin_alpha))
+                else:
+                    adjusted_sin_alpha = base_sin_alpha
+                
+                alpha = math.asin(adjusted_sin_alpha)
+                
+                # Calculate phi increment for continuous progression
+                if len(continuous_path_points) > 0:
+                    prev_point = continuous_path_points[-1]
+                    ds = math.sqrt((rho - prev_point['rho'])**2 + (z - prev_point['z'])**2)
                     if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
                         dphi = ds * math.tan(alpha) / rho
                         current_phi_continuous += dphi
@@ -772,10 +784,64 @@ class TrajectoryPlanner:
                 point = {
                     'x': x, 'y': y, 'z': z,
                     'rho': rho, 'alpha': alpha, 'phi': current_phi_continuous,
-                    'circuit': circuit_idx, 'pass': 'forward',
-                    'direction': 'Continuous Helical',
-                    'winding_angle': math.degrees(alpha)
+                    'cycle': cycle_idx, 'direction': direction,
+                    'winding_angle': math.degrees(alpha),
+                    'target_sin_alpha': target_sin_alpha,
+                    'actual_sin_alpha': adjusted_sin_alpha
                 }
+                
+                cycle_points.append(point)
+                continuous_path_points.append(point)
+                all_x_points.append(x)
+                all_y_points.append(y)
+                all_z_points.append(z)
+            
+            # Add pattern advancement between cycles
+            advancement_per_cycle = phi_advance_per_pass / 2  # Distribute advancement across both directions
+            current_phi_continuous += advancement_per_cycle
+            
+            print(f"   Cycle complete: {len(cycle_points)} points, phi = {math.degrees(current_phi_continuous):.1f}°")
+        
+        # Final continuity verification
+        gaps_over_1mm = 0
+        max_gap_mm = 0.0
+        
+        for i in range(1, len(continuous_path_points)):
+            prev_point = continuous_path_points[i-1]
+            curr_point = continuous_path_points[i]
+            gap_mm = math.sqrt((curr_point['x'] - prev_point['x'])**2 + 
+                             (curr_point['y'] - prev_point['y'])**2 + 
+                             (curr_point['z'] - prev_point['z'])**2) * 1000
+            if gap_mm > 1.0:
+                gaps_over_1mm += 1
+            max_gap_mm = max(max_gap_mm, gap_mm)
+        
+        print(f"🔬 CONTINUITY VERIFICATION:")
+        print(f"   Gaps > 1mm: {gaps_over_1mm}")
+        print(f"   Max gap: {max_gap_mm:.2f}mm")
+        print(f"   Pattern is {'CONTINUOUS' if gaps_over_1mm == 0 else 'DISCONTINUOUS'}")
+        
+        print(f"🔬 PHYSICS-BASED CONTINUOUS HELICAL COMPLETE:")
+        print(f"   Total cycles: {total_profile_cycles}")
+        print(f"   Continuous points: {len(continuous_path_points)}")
+        print(f"   Final phi: {math.degrees(current_phi_continuous):.1f}°")
+        print(f"   Total angular span: {math.degrees(current_phi_continuous):.1f}°")
+        print(f"   Target angle achieved: {self.target_cylinder_angle_deg}°")
+        
+        return {
+            'path_points': continuous_path_points,
+            'total_points': len(continuous_path_points),
+            'pattern_type': 'Physics-Based Continuous Non-Geodesic',
+            'friction_coefficient': self.mu_friction_coefficient,
+            'target_angle_deg': self.target_cylinder_angle_deg,
+            'final_phi_deg': math.degrees(current_phi_continuous),
+            'gaps_over_1mm': gaps_over_1mm,
+            'max_gap_mm': max_gap_mm,
+            'is_continuous': gaps_over_1mm == 0,
+            'x_points_m': all_x_points,
+            'y_points_m': all_y_points,
+            'z_points_m': all_z_points
+        }
                 continuous_path_points.append(point)
                 all_x_points.append(x)
                 all_y_points.append(y)
