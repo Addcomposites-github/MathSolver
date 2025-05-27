@@ -2026,7 +2026,6 @@ class TrajectoryPlanner:
                 'drho_ds': drho_ds, 'dz_ds': dz_ds, 'dphi_ds': dphi_ds
             })
         return turnaround_points
-        print(f"DEBUG: Vessel segments identified - Has cylinder: {segments['has_cylinder']}")
 
         # Build adaptive profile with different point densities
         adaptive_r_segments = []

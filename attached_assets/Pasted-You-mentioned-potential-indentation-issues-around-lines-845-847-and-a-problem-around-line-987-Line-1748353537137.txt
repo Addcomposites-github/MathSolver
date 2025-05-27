@@ -1,0 +1,51 @@
+You mentioned potential indentation issues around lines 845-847 and a problem around line 987.
+
+Lines 845-847:
+Looking at the provided trajectories.py file:
+
+Python
+
+# Around line 845 in trajectories.py
+            # ... (previous code) ...
+            # Generate return helical path
+            for ret_idx, ret_i in enumerate(return_profile_range): # Line 845
+                ret_rho_i_m = profile_r_m_calc[ret_i] # Line 846
+                ret_z_i_m = profile_z_m_calc[ret_i] # Line 847
+                # ... (rest of the loop) ...
+The indentation for lines 845-847 appears correct in the version of the file you've provided. The for loop starts a new block, and the subsequent lines are properly indented. If you were experiencing IndentationError in your local version, please ensure that the indentation matches this structure (typically 4 spaces for each level of indentation).
+
+Line 987 (and 988):
+
+Python
+
+# Around line 987 in trajectories.py (within _generate_polar_turnaround_segment_fixed_phi_advance)
+            # ... (previous code in the loop) ...
+            turnaround_points.append({
+                'rho': rho_turn, 'z': z_turn, 'alpha': alpha_turn, 'phi': phi_turn,
+                'x': rho_turn * math.cos(phi_turn), 'y': rho_turn * math.sin(phi_turn),
+                'drho_ds': drho_ds, 'dz_ds': dz_ds, 'dphi_ds': dphi_ds
+            })
+        return turnaround_points # Line 987
+        print(f"DEBUG: Vessel segments identified - Has cylinder: {segments['has_cylinder']}") # Line 988
+Line 987 return turnaround_points: This line is syntactically correct.
+Line 988 print(...): This line constitutes unreachable code. Because it immediately follows a return statement within the same indentation block, this print statement will never be executed.
+Solution: If this print statement is intended for debugging and needs to run, it must be moved before the return turnaround_points statement. If it's a leftover debug statement and no longer needed, it can be removed to avoid confusion.
+Corrected snippet for Line 987-988 (if print is needed):
+
+Python
+
+            # ... (previous code in the loop) ...
+            turnaround_points.append({
+                'rho': rho_turn, 'z': z_turn, 'alpha': alpha_turn, 'phi': phi_turn,
+                'x': rho_turn * math.cos(phi_turn), 'y': rho_turn * math.sin(phi_turn),
+                'drho_ds': drho_ds, 'dz_ds': dz_ds, 'dphi_ds': dphi_ds
+            })
+        # Moved print before return if it's needed
+        # print(f"DEBUG: Vessel segments identified - Has cylinder: {segments['has_cylinder']}") # Ensure 'segments' is defined in this scope if used
+        return turnaround_points
+Note on segments variable: If you move the print statement before the return, ensure that the segments variable is defined and accessible in the scope of the _generate_polar_turnaround_segment_fixed_phi_advance method. Based on the trajectories.py file provided, segments is defined in other methods like generate_geodesic_trajectory and generate_non_geodesic_trajectory but not directly within _generate_polar_turnaround_segment_fixed_phi_advance. If this print is indeed needed here, segments would need to be passed as an argument or accessed differently.
+
+Recommendation:
+Please verify if the indentation issues you were seeing locally at lines 845-847 are still present or if they match the (correctly indented) version you uploaded. Address the unreachable code at line 988.
+
+Once these syntax/logical errors are resolved, we can move on to the more complex "Gap Problem".
