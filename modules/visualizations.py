@@ -180,9 +180,9 @@ class VesselVisualizer:
         
         # First plot vessel outline
         if vessel.profile_points:
-            r_inner = vessel.profile_points['r_inner']
-            r_outer = vessel.profile_points['r_outer']
-            z = vessel.profile_points['z']
+            r_inner = vessel.profile_points['r_inner_mm']
+            r_outer = vessel.profile_points['r_outer_mm']
+            z = vessel.profile_points['z_mm']
             
             # Plot vessel outline
             ax.plot(z, r_inner, 'k-', linewidth=1, alpha=0.5, label='Vessel outline')
