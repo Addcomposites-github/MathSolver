@@ -718,68 +718,84 @@ class TrajectoryPlanner:
             print("⚠️ Base non-geodesic sin(alpha) solution failed")
             return None
         
-        # Generate single continuous helical spiral that wraps around the vessel
+        # Generate TRUE helical spiral with alternating pole-to-pole passes
         current_phi_continuous = 0.0
         
-        print(f"🔬 GENERATING SINGLE CONTINUOUS HELICAL SPIRAL:")
-        print(f"   Target rotations: {number_of_circuits}")
-        print(f"   Pattern advancement: {math.degrees(phi_advance_per_pass):.1f}° per rotation")
+        print(f"🔬 GENERATING TRUE HELICAL SPIRAL WITH ALTERNATING PASSES:")
+        print(f"   Target circuits: {number_of_circuits}")
+        print(f"   Each circuit = forward pass + return pass")
         
-        # Calculate total phi span needed for the complete pattern
-        total_phi_needed = number_of_circuits * (2 * math.pi + phi_advance_per_pass)
-        
-        # Create a single long trajectory that spirals continuously
-        total_points_needed = len(profile_r_m_calc) * number_of_circuits
-        
-        print(f"   Total phi span: {math.degrees(total_phi_needed):.1f}°")
-        print(f"   Generating {total_points_needed} continuous points...")
-        
-        # Generate the continuous spiral path
-        for point_idx in range(total_points_needed):
-            # Map point index to profile position (cycling through the profile)
-            profile_idx = point_idx % len(profile_r_m_calc)
-            rotation_num = point_idx // len(profile_r_m_calc)
+        # Create alternating forward and reverse passes for true continuous winding
+        for circuit_idx in range(number_of_circuits):
+            print(f"\n🔬 CIRCUIT {circuit_idx + 1}/{number_of_circuits}")
             
-            rho = profile_r_m_calc[profile_idx]
-            z = profile_z_m_calc[profile_idx]
-            sin_alpha = sin_alpha_profile[profile_idx]
-            alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
-            
-            # Calculate phi increment for continuous helical path
-            if point_idx > 0:
-                # Get previous point for ds calculation
-                prev_profile_idx = (point_idx - 1) % len(profile_r_m_calc)
-                prev_rho = profile_r_m_calc[prev_profile_idx]
-                prev_z = profile_z_m_calc[prev_profile_idx]
+            # Forward pass (pole A to pole B)
+            print(f"   Forward pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
+            for i in range(len(profile_r_m_calc)):
+                rho = profile_r_m_calc[i]
+                z = profile_z_m_calc[i]
+                sin_alpha = sin_alpha_profile[i]
+                alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
                 
-                ds = math.sqrt((rho - prev_rho)**2 + (z - prev_z)**2)
-                if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
-                    dphi = ds * math.tan(alpha) / rho
-                    current_phi_continuous += dphi
+                if i > 0:
+                    ds = math.sqrt((rho - profile_r_m_calc[i-1])**2 + (z - profile_z_m_calc[i-1])**2)
+                    if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
+                        dphi = ds * math.tan(alpha) / rho
+                        current_phi_continuous += dphi
                 
-                # Add systematic pattern advancement at profile boundaries
-                if profile_idx == 0 and point_idx > 0:  # Starting new rotation
-                    current_phi_continuous += phi_advance_per_pass
+                x = rho * math.cos(current_phi_continuous)
+                y = rho * math.sin(current_phi_continuous)
+                
+                point = {
+                    'x': x, 'y': y, 'z': z,
+                    'rho': rho, 'alpha': alpha, 'phi': current_phi_continuous,
+                    'circuit': circuit_idx, 'pass': 'forward',
+                    'direction': 'Continuous Helical',
+                    'winding_angle': math.degrees(alpha)
+                }
+                continuous_path_points.append(point)
+                all_x_points.append(x)
+                all_y_points.append(y)
+                all_z_points.append(z)
             
-            x = rho * math.cos(current_phi_continuous)
-            y = rho * math.sin(current_phi_continuous)
+            # Add pattern advancement after forward pass
+            current_phi_continuous += phi_advance_per_pass
             
-            point = {
-                'x': x, 'y': y, 'z': z,
-                'rho': rho, 'alpha': alpha, 'phi': current_phi_continuous,
-                'rotation': rotation_num,
-                'profile_pos': profile_idx,
-                'direction': 'Continuous Helical',
-                'winding_angle': math.degrees(alpha)
-            }
-            continuous_path_points.append(point)
+            # Return pass (pole B to pole A) - reversed profile
+            print(f"   Return pass: Starting phi {math.degrees(current_phi_continuous):.1f}°")
+            for i in range(len(profile_r_m_calc)-1, -1, -1):
+                rho = profile_r_m_calc[i]
+                z = profile_z_m_calc[i]
+                sin_alpha = sin_alpha_profile[i]
+                alpha = math.asin(max(-1.0, min(1.0, sin_alpha)))
+                
+                if i < len(profile_r_m_calc)-1:
+                    ds = math.sqrt((rho - profile_r_m_calc[i+1])**2 + (z - profile_z_m_calc[i+1])**2)
+                    if rho > 1e-6 and abs(math.cos(alpha)) > 1e-6:
+                        dphi = ds * math.tan(alpha) / rho
+                        current_phi_continuous += dphi
+                
+                x = rho * math.cos(current_phi_continuous)
+                y = rho * math.sin(current_phi_continuous)
+                
+                point = {
+                    'x': x, 'y': y, 'z': z,
+                    'rho': rho, 'alpha': alpha, 'phi': current_phi_continuous,
+                    'circuit': circuit_idx, 'pass': 'return',
+                    'direction': 'Continuous Helical',
+                    'winding_angle': math.degrees(alpha)
+                }
+                continuous_path_points.append(point)
+                all_x_points.append(x)
+                all_y_points.append(y)
+                all_z_points.append(z)
             
-            # Add to global collections
-            all_x_points.append(x)
-            all_y_points.append(y)
-            all_z_points.append(z)
+            # Add pattern advancement after return pass
+            current_phi_continuous += phi_advance_per_pass
+            
+            print(f"   Circuit {circuit_idx + 1} complete: phi = {math.degrees(current_phi_continuous):.1f}°")
         
-        print(f"   Continuous spiral generated: {len(continuous_path_points)} points")
+        print(f"   True helical spiral generated: {len(continuous_path_points)} points")
         print(f"   Final phi: {math.degrees(current_phi_continuous):.1f}°")
         
         print(f"\n🔬 CONTINUOUS NON-GEODESIC COMPLETE:")
