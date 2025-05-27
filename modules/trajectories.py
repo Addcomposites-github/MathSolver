@@ -68,12 +68,12 @@ class TrajectoryPlanner:
         print(f"  self.vessel.profile_points type: {type(self.vessel.profile_points)}")
         if isinstance(self.vessel.profile_points, dict):
             print(f"  Keys in self.vessel.profile_points: {list(self.vessel.profile_points.keys())}")
-            if 'r_inner' not in self.vessel.profile_points:
-                print("  CRITICAL DEBUG trajectories.py: 'r_inner' key IS MISSING from self.vessel.profile_points dict HERE!")
-            elif not hasattr(self.vessel.profile_points['r_inner'], '__len__') or len(self.vessel.profile_points['r_inner']) == 0:
-                print("  CRITICAL DEBUG trajectories.py: 'r_inner' IS EMPTY or not array-like in self.vessel.profile_points!")
+            if 'r_inner_mm' not in self.vessel.profile_points:
+                print("  CRITICAL DEBUG trajectories.py: 'r_inner_mm' key IS MISSING from self.vessel.profile_points dict HERE!")
+            elif not hasattr(self.vessel.profile_points['r_inner_mm'], '__len__') or len(self.vessel.profile_points['r_inner_mm']) == 0:
+                print("  CRITICAL DEBUG trajectories.py: 'r_inner_mm' IS EMPTY or not array-like in self.vessel.profile_points!")
             else:
-                print(f"  'r_inner' key FOUND. Length: {len(self.vessel.profile_points['r_inner'])}")
+                print(f"  'r_inner_mm' key FOUND. Length: {len(self.vessel.profile_points['r_inner_mm'])}")
         else:
             print(f"  CRITICAL DEBUG trajectories.py: self.vessel.profile_points is NOT a dict HERE! It is: {self.vessel.profile_points}")
             raise TypeError("Vessel profile_points is not a dictionary as expected in TrajectoryPlanner.")
@@ -219,17 +219,17 @@ class TrajectoryPlanner:
         print(f"  Type of self.vessel.profile_points at this point: {type(self.vessel.profile_points)}")
         if isinstance(self.vessel.profile_points, dict):
             print(f"  Keys in self.vessel.profile_points at this point: {list(self.vessel.profile_points.keys())}")
-            if 'r_inner' not in self.vessel.profile_points:
-                print("  CRITICAL ERROR: 'r_inner' IS MISSING when _get_slope_dz_drho_at_rho is entered!")
+            if 'r_inner_mm' not in self.vessel.profile_points:
+                print("  CRITICAL ERROR: 'r_inner_mm' IS MISSING when _get_slope_dz_drho_at_rho is entered!")
             else:
-                print(f"  'r_inner' IS PRESENT. Length: {len(self.vessel.profile_points['r_inner'])}")
+                print(f"  'r_inner_mm' IS PRESENT. Length: {len(self.vessel.profile_points['r_inner_mm'])}")
         else:
             print(f"  CRITICAL ERROR: self.vessel.profile_points is NOT a dict here! It is: {self.vessel.profile_points}")
 
         try:
-            # Ensure units are consistent. If VesselGeometry stores in mm and planner uses m:
-            rho_profile_m = self.vessel.profile_points['r_inner'] * 1e-3  # Error likely here if key missing
-            z_profile_m = self.vessel.profile_points['z'] * 1e-3
+            # Ensure units are consistent. Convert from mm to meters for internal calculations:
+            rho_profile_m = self.vessel.profile_points['r_inner_mm'] * 1e-3  # Convert mm to m
+            z_profile_m = self.vessel.profile_points['z_mm'] * 1e-3  # Convert mm to m
             print(f"  Successfully accessed profile data: {len(rho_profile_m)} points")
         except KeyError as e:
             print(f"CRITICAL DEBUG _get_slope_dz_drho_at_rho: KeyError '{e}' accessing profile_points.")

@@ -1,0 +1,58 @@
+Data Structure Inconsistency
+This is strongly related to the visualization issue.
+
+Proposed Solution:
+
+Standardize VesselGeometry.profile_points:
+The VesselGeometry.generate_profile() method should consistently produce a dictionary, for example:
+Python
+
+self.profile_points = {
+    'z_mm': np.array([...]),      # Axial coordinates in mm
+    'r_inner_mm': np.array([...]), # Inner radius in mm
+    'r_outer_mm': np.array([...])  # Outer radius in mm
+}
+Update TrajectoryPlanner:
+When accessing profile points (e.g., in _calculate_effective_polar_opening, _solve_geodesic_path_leg), use these standardized keys and convert to meters for internal calculations:
+Python
+
+profile_r_m = np.array(self.vessel.profile_points['r_inner_mm']) * 1e-3
+profile_z_m = np.array(self.vessel.profile_points['z_mm']) * 1e-3
+Update seamless_helical.py (or its integrated version):
+If it takes vessel_profile as an argument, ensure it receives it in the standardized format (e.g., a dictionary of arrays in meters) or adapt its internal logic to handle the standardized VesselGeometry.profile_points object. The current seamless_helical.py expects profile_r = [point.get('r', 0) for point in vessel_profile], implying vessel_profile is a list of dicts. This should be changed.
+Update visualizations.py:
+plot_vessel_profile: Should expect the standardized VesselGeometry.profile_points (e.g., r_inner_mm, z_mm).
+plot_3d_trajectory: The vessel_profile_data argument should be prepared by app.py from the standardized VesselGeometry.profile_points into {'r_m': ..., 'z_m': ...} format (arrays in meters).
+Update app.py:
+Ensure all calls to trajectory methods and visualization methods use and expect data in the standardized formats.
+Trajectory Data Output Standardization:
+All trajectory generation methods in TrajectoryPlanner should aim to return a dictionary with at least these common keys for path points, even if some are None or empty for certain pattern types:
+
+Python
+
+{
+    'path_points': [ # List of dictionaries for each point
+        {'x_m': ..., 'y_m': ..., 'z_m': ..., # Cartesian on mandrel (meters)
+         'r_m': ..., 'phi_rad': ..., 'alpha_meridian_rad': ..., # Cylindrical + winding angle
+         'circuit_num': ...}, 
+        ...
+    ],
+    'x_points_m': np.array(...), # For quick plotting
+    'y_points_m': np.array(...),
+    'z_points_m': np.array(...),
+    'pattern_type': "SpecificPatternName",
+    # ... other relevant summary data
+}
+And for feed-eye data (once implemented):
+
+Python
+
+    'feed_eye_path': [
+        {'machine_X_mandrel_rotation_rad': ..., 
+         'machine_Y_carriage_axial_mm': ...,
+         # ... etc. },
+         ...
+    ]
+By addressing these points, starting with syntax errors and then focusing on a physically sound continuous spiral implementation and data consistency, your COPV design tool will become much more robust.
+
+I suggest we start with the syntax errors. If you provide the relevant code snippets from your trajectories.py, I can help fix them. After that, we can move to the continuous spiral implementation.

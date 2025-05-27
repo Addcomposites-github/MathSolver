@@ -105,11 +105,12 @@ class VesselGeometry:
         profile_r_inner.extend(local_dome_pts[::-1,0])
         profile_z_values.extend(-self.cylindrical_length / 2.0 - local_dome_pts[::-1,1])
 
+        # Standardized profile_points structure (all dimensions in mm)
         self.profile_points = {
-            'r_inner': np.array(profile_r_inner),
-            'z': np.array(profile_z_values),
-            'r_outer': np.array(profile_r_inner) + self.wall_thickness,
-            'dome_height': self.dome_height
+            'r_inner_mm': np.array(profile_r_inner),
+            'z_mm': np.array(profile_z_values), 
+            'r_outer_mm': np.array(profile_r_inner) + self.wall_thickness,
+            'dome_height_mm': self.dome_height
         }
         
         print(f"DEBUG geometry.py, generate_profile(): self.profile_points JUST ASSIGNED.")
@@ -538,9 +539,9 @@ class VesselGeometry:
             return {}
             
         return {
-            'r_inner_mm': self.profile_points['r_inner'],
-            'r_outer_mm': self.profile_points['r_outer'],
-            'z_mm': self.profile_points['z']
+            'r_inner_mm': self.profile_points['r_inner_mm'],
+            'r_outer_mm': self.profile_points['r_outer_mm'], 
+            'z_mm': self.profile_points['z_mm']
         }
         
     def get_dome_contour_equation(self) -> str:

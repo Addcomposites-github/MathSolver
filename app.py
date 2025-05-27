@@ -692,8 +692,8 @@ def trajectory_planning_page():
                 if has_3d_data:
                     # Prepare vessel profile data for 3D visualization
                     vessel_profile_for_plot = {
-                        'r_m': st.session_state.vessel_geometry.profile_points['r_inner'] * 1e-3, # Convert to meters
-                        'z_m': st.session_state.vessel_geometry.profile_points['z'] * 1e-3    # Convert to meters
+                        'r_m': st.session_state.vessel_geometry.profile_points['r_inner_mm'] * 1e-3, # Convert mm to meters
+                        'z_m': st.session_state.vessel_geometry.profile_points['z_mm'] * 1e-3    # Convert mm to meters
                     }
                     
                     # Create 3D trajectory plot using the enhanced visualization function
