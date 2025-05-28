@@ -38,8 +38,7 @@ class UnifiedTrajectoryHandler:
             payout_length_m=0.5,  # Default 500mm payout
             default_friction_coeff=0.1
         )
-        # Legacy adapter removed - using direct unified interface
-        self.adapter = None
+        self.adapter = LegacyTrajectoryAdapter(self.planner)
         
         # Enable intelligent caching for better performance
         cache_enabled = st.session_state.get('caching_enabled', True)

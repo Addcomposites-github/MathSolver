@@ -8,7 +8,7 @@ import numpy as np
 import streamlit as st
 from typing import Dict, List, Tuple, Optional
 from modules.geometry import VesselGeometry
-from modules.winding_patterns import WindingPatternCalculator
+from modules.unified_pattern_calculator import PatternCalculator
 from modules.trajectory_visualization import create_3d_trajectory_visualization
 
 # Import unified trajectory system
@@ -31,7 +31,7 @@ class MultiLayerTrajectoryOrchestrator:
     def __init__(self, layer_manager):
         """Initialize with LayerStackManager instance"""
         self.layer_manager = layer_manager
-        self.pattern_calculator = WindingPatternCalculator()
+        self.pattern_calculator = PatternCalculator(vessel_geometry=None, roving_width_m=0.003)
         self.generated_trajectories = []
         
         # Initialize unified trajectory system if available
@@ -249,7 +249,8 @@ class MultiLayerTrajectoryOrchestrator:
         """Fallback trajectory generation using legacy system"""
         
         # Set up trajectory planner for this specific layer
-        layer_planner = StreamlinedTrajectoryPlanner(
+        # Use unified trajectory planner instead of streamlined
+        layer_planner = UnifiedTrajectoryPlanner(
             vessel_geometry=temp_vessel,
             dry_roving_width_m=roving_width_mm / 1000.0,
             dry_roving_thickness_m=layer_def.single_ply_thickness_mm / 1000.0,
