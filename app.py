@@ -807,6 +807,7 @@ def layer_by_layer_planning(layer_manager):
     
     # Show layer stack details
     st.markdown("### 📋 Layers to Process")
+    stack_summary = layer_manager.get_layer_stack_summary()
     layer_data = []
     for i, layer in enumerate(layer_manager.layer_stack):
         layer_data.append({
@@ -814,7 +815,7 @@ def layer_by_layer_planning(layer_manager):
             "Type": layer.layer_type,
             "Angle": f"{layer.winding_angle_deg}°",
             "Thickness": f"{layer.calculated_set_thickness_mm:.2f}mm",
-            "Status": "✅ Ready" if i < layer_manager.layers_applied_to_mandrel else "⏳ Pending"
+            "Status": "✅ Ready" if i < stack_summary['layers_applied_to_mandrel'] else "⏳ Pending"
         })
     
     st.dataframe(layer_data, use_container_width=True, hide_index=True)
@@ -868,7 +869,7 @@ def single_layer_override_planning(layer_manager):
     st.markdown("### ⚙️ Override Parameters")
     col1, col2 = st.columns(2)
     with col1:
-        override_angle = st.number_input("Override Angle (deg)", min_value=10.0, max_value=80.0, value=float(selected_layer.winding_angle_deg))
+        override_angle = st.number_input("Override Angle (deg)", min_value=10.0, max_value=90.0, value=float(selected_layer.winding_angle_deg))
         roving_width = st.number_input("Roving Width (mm)", min_value=1.0, max_value=10.0, value=3.0, step=0.1)
     with col2:
         dome_points = st.number_input("Dome Points", min_value=50, max_value=200, value=150, step=10)
