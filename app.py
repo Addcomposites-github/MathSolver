@@ -835,8 +835,8 @@ def layer_by_layer_planning(layer_manager):
                     "Layer": f"Layer {traj['layer_id']}",
                     "Type": traj['layer_type'],
                     "Angle": f"{traj['winding_angle']}°",
-                    "Points": len(traj['path_points']),
-                    "Status": traj['status']
+                    "Points": len(traj['trajectory_data']['path_points']),
+                    "Status": traj['trajectory_data']['status']
                 })
             
             st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)

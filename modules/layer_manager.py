@@ -287,6 +287,11 @@ class LayerStackManager:
             'equatorial_radius_mm': self.mandrel.get_current_equatorial_radius_mm()
         }
     
+    @property
+    def total_thickness_mm(self) -> float:
+        """Get total thickness of all layers in the stack."""
+        return sum(layer.get_layer_set_thickness() for layer in self.layer_stack)
+    
     def get_layer_stack_summary(self) -> Dict:
         """Get comprehensive summary of the current layer stack."""
         total_thickness = sum(layer.get_layer_set_thickness() for layer in self.layer_stack)
