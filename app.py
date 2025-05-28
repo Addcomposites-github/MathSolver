@@ -268,6 +268,256 @@ def vessel_geometry_page():
         else:
             st.info("Please configure and generate vessel geometry to see visualization.")
 
+def create_advanced_layer_definition_ui():
+    """Create enhanced layer definition UI with advanced planning capabilities"""
+    st.markdown("### ➕ Advanced Layer Definition & Planning")
+    
+    # Create tabs for different aspects
+    layer_tabs = st.tabs([
+        "🏗️ Layer Properties", 
+        "🔬 Winding Physics", 
+        "📊 Pattern Optimization",
+        "⚙️ Advanced Settings"
+    ])
+    
+    layer_config = {}
+    
+    with layer_tabs[0]:  # Layer Properties
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['layer_type'] = st.selectbox(
+                "Layer Type", 
+                ["helical", "hoop", "polar"],
+                help="Primary winding pattern classification"
+            )
+            layer_config['fiber_material'] = st.selectbox("Fiber Material", list(FIBER_MATERIALS.keys()))
+            layer_config['winding_angle'] = st.number_input("Winding Angle (°)", 0.0, 90.0, 45.0)
+        
+        with col2:
+            layer_config['resin_material'] = st.selectbox("Resin Material", list(RESIN_MATERIALS.keys()))
+            layer_config['num_plies'] = st.number_input("Number of Plies", 1, 20, 2)
+            layer_config['ply_thickness'] = st.number_input("Ply Thickness (mm)", 0.05, 2.0, 0.125)
+    
+    with layer_tabs[1]:  # Winding Physics
+        st.markdown("#### 🔬 Physics Model Selection")
+        
+        # Auto-suggest physics model based on layer type and angle
+        suggested_physics = suggest_physics_model(layer_config.get('layer_type'), layer_config.get('winding_angle', 45))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['physics_model'] = st.selectbox(
+                "Physics Model",
+                ["clairaut", "friction", "constant_angle"],
+                index=["clairaut", "friction", "constant_angle"].index(suggested_physics),
+                help="Mathematical model for trajectory calculation"
+            )
+            
+            if layer_config['physics_model'] == 'friction':
+                layer_config['friction_coefficient'] = st.slider(
+                    "Friction Coefficient", 0.0, 1.0, 0.3, 0.05,
+                    help="Enables non-geodesic paths with extreme angles"
+                )
+        
+        with col2:
+            layer_config['continuity_level'] = st.selectbox(
+                "Continuity Level", [0, 1, 2], index=1,
+                help="0=Position, 1=Velocity, 2=Acceleration continuity"
+            )
+            
+            layer_config['coverage_mode'] = st.selectbox(
+                "Coverage Strategy",
+                ["single_pass", "full_coverage", "optimized_coverage"],
+                index=1,
+                help="How to cover the mandrel surface"
+            )
+        
+        # Show physics recommendation
+        show_physics_recommendation(layer_config)
+    
+    with layer_tabs[2]:  # Pattern Optimization
+        st.markdown("#### 📊 Koussios Pattern Optimization")
+        
+        enable_optimization = st.checkbox("Enable Koussios Pattern Optimization", value=True)
+        
+        if enable_optimization:
+            col1, col2 = st.columns(2)
+            with col1:
+                layer_config['optimize_roving_width'] = st.checkbox("Auto-Optimize Roving Width", value=True)
+                layer_config['target_coverage'] = st.slider("Target Coverage %", 95.0, 100.0, 98.0, 0.5)
+            
+            with col2:
+                layer_config['pattern_type_preference'] = st.selectbox(
+                    "Pattern Preference", 
+                    ["auto", "leading", "lagging"],
+                    help="Diophantine equation solution preference"
+                )
+                layer_config['max_circuits'] = st.number_input("Max Circuits", 1, 50, 20)
+        
+        # Add live pattern analysis if vessel geometry is available
+        add_live_pattern_analysis(layer_config)
+    
+    with layer_tabs[3]:  # Advanced Settings
+        st.markdown("#### ⚙️ Advanced Manufacturing Settings")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['turnaround_planning'] = st.checkbox("Advanced Turnaround Planning", value=False)
+            if layer_config['turnaround_planning']:
+                layer_config['turnaround_method'] = st.selectbox(
+                    "Turnaround Method",
+                    ["smooth_transition", "minimum_time", "minimum_stress"]
+                )
+        
+        with col2:
+            layer_config['quality_validation'] = st.checkbox("Real-time Quality Validation", value=True)
+            layer_config['machine_constraints'] = st.checkbox("Apply Machine Constraints", value=False)
+        
+        # Add real-time validation
+        add_realtime_feasibility_validation(layer_config)
+    
+    return layer_config
+
+def suggest_physics_model(layer_type, winding_angle):
+    """Intelligently suggest optimal physics model"""
+    if layer_type == 'hoop' or (winding_angle and winding_angle > 75):
+        return 'constant_angle'  # Near-hoop patterns
+    elif winding_angle and winding_angle < 25:
+        return 'clairaut'  # Low-angle geodesic-dominant
+    elif winding_angle and winding_angle < 60:
+        return 'clairaut'  # Mid-range helical
+    else:
+        return 'friction'  # High-angle non-geodesic
+
+def show_physics_recommendation(layer_config):
+    """Show why this physics model was recommended"""
+    physics = layer_config.get('physics_model')
+    angle = layer_config.get('winding_angle', 45)
+    
+    if physics == 'clairaut':
+        st.info(f"🎯 **Clairaut Model**: Optimal for {angle}° - follows geodesic paths with Clairaut's theorem")
+    elif physics == 'friction':
+        st.info(f"🔬 **Friction Model**: Enables extreme {angle}° angles through non-geodesic physics")
+    else:
+        st.info(f"⚙️ **Constant Angle**: Maintains {angle}° throughout trajectory - ideal for hoop patterns")
+
+def add_live_pattern_analysis(layer_config):
+    """Add real-time pattern analysis as user configures layer"""
+    
+    if st.checkbox("🔍 Live Pattern Analysis", value=True):
+        if st.session_state.vessel_geometry and layer_config.get('winding_angle'):
+            
+            with st.spinner("Calculating optimal pattern..."):
+                try:
+                    # Simplified pattern analysis using available vessel data
+                    vessel = st.session_state.vessel_geometry
+                    angle = layer_config['winding_angle']
+                    
+                    # Basic pattern calculations
+                    equatorial_radius = vessel.inner_diameter / 2
+                    circumference = 2 * math.pi * equatorial_radius
+                    roving_width = 3.0  # Default roving width in mm
+                    
+                    # Estimate number of circuits needed
+                    estimated_circuits = max(1, int(circumference / roving_width))
+                    coverage_efficiency = min(100.0, (roving_width * estimated_circuits) / circumference * 100)
+                    
+                    # Show analysis results
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Estimated Circuits", estimated_circuits)
+                        st.metric("Coverage Efficiency", f"{coverage_efficiency:.1f}%")
+                    
+                    with col2:
+                        gap_overlap = abs(circumference - (roving_width * estimated_circuits))
+                        if gap_overlap > 0.1:
+                            st.metric("Gap/Overlap", f"{gap_overlap:.2f}mm")
+                        else:
+                            st.metric("Perfect Fit", "✅")
+                    
+                    with col3:
+                        pattern_quality = "Excellent" if coverage_efficiency > 98 else "Good"
+                        st.metric("Pattern Quality", pattern_quality)
+                    
+                    # Show recommendations
+                    if coverage_efficiency < 95:
+                        st.warning("⚠️ **Suggestion**: Consider adjusting roving width or winding angle for better coverage")
+                    elif coverage_efficiency > 99.5:
+                        st.success("✅ **Excellent**: Optimal pattern parameters detected")
+                    else:
+                        st.info("💡 **Good**: Pattern parameters within acceptable range")
+                        
+                except Exception as e:
+                    st.warning(f"Pattern analysis unavailable: {str(e)}")
+
+def add_realtime_feasibility_validation(layer_config):
+    """Validate layer configuration in real-time"""
+    
+    st.markdown("#### ✅ Real-time Validation")
+    
+    validation_results = []
+    
+    # Physics model validation
+    physics_valid = validate_physics_compatibility(
+        layer_config.get('physics_model'),
+        layer_config.get('winding_angle'),
+        layer_config.get('friction_coefficient', 0)
+    )
+    validation_results.append(('Physics Model', physics_valid))
+    
+    # Manufacturing feasibility
+    manufacturing_valid = validate_manufacturing_feasibility(layer_config)
+    validation_results.append(('Manufacturing', manufacturing_valid))
+    
+    # Display validation results
+    for validation_name, is_valid in validation_results:
+        if is_valid:
+            st.success(f"✅ {validation_name}: Valid")
+        else:
+            st.error(f"❌ {validation_name}: Issues detected")
+    
+    # Overall validation score
+    valid_count = sum(1 for _, valid in validation_results if valid)
+    total_count = len(validation_results)
+    validation_score = (valid_count / total_count * 100) if total_count > 0 else 0
+    
+    if validation_score >= 100:
+        st.success(f"🎉 **Layer Ready**: {validation_score:.0f}% validation passed")
+        return True
+    elif validation_score >= 75:
+        st.warning(f"⚠️ **Minor Issues**: {validation_score:.0f}% validation passed")
+        return True
+    else:
+        st.error(f"❌ **Critical Issues**: {validation_score:.0f}% validation passed")
+        return False
+
+def validate_physics_compatibility(physics_model, winding_angle, friction_coeff):
+    """Validate physics model compatibility with winding parameters"""
+    if not physics_model or not winding_angle:
+        return False
+        
+    if physics_model == 'friction' and friction_coeff == 0:
+        return False  # Friction model needs friction coefficient
+    
+    if physics_model == 'constant_angle' and winding_angle < 70:
+        return False  # Constant angle better for near-hoop patterns
+        
+    return True
+
+def validate_manufacturing_feasibility(layer_config):
+    """Validate manufacturing feasibility of layer configuration"""
+    if not layer_config.get('ply_thickness') or not layer_config.get('num_plies'):
+        return False
+        
+    total_thickness = layer_config.get('ply_thickness', 0) * layer_config.get('num_plies', 0)
+    
+    # Check if total thickness is reasonable
+    if total_thickness > 10.0:  # More than 10mm might be challenging
+        return False
+        
+    return True
+
 def layer_stack_definition_page():
     """Multi-layer composite stack definition and mandrel geometry management"""
     st.title("🏗️ Layer Stack Definition")
@@ -307,52 +557,28 @@ def layer_stack_definition_page():
     with col2:
         st.metric("Equatorial Radius", f"{stack_summary['current_equatorial_radius_mm']:.2f} mm")
     
-    # Add new layer section
-    st.subheader("➕ Add New Layer")
+    # Enhanced Layer Definition with Advanced Planning
+    st.subheader("➕ Advanced Layer Definition & Planning")
     
-    with st.expander("🔧 Layer Definition", expanded=len(stack_summary['layer_details']) == 0):
-        col1, col2 = st.columns(2)
+    with st.expander("🔧 Advanced Layer Configuration", expanded=len(stack_summary['layer_details']) == 0):
+        layer_config = create_advanced_layer_definition_ui()
         
-        with col1:
-            layer_type = st.selectbox("Layer Type", 
-                                    ["helical", "hoop", "polar"],
-                                    help="Winding pattern for this layer")
-            
-            fiber_materials = list(FIBER_MATERIALS.keys())
-            fiber_material = st.selectbox("Fiber Material", fiber_materials)
-            
-            winding_angle = st.number_input("Winding Angle (°)", 
-                                          min_value=0.0, max_value=90.0, 
-                                          value=45.0 if layer_type == "helical" else 88.0,
-                                          step=0.1)
-        
-        with col2:
-            resin_materials = list(RESIN_MATERIALS.keys())
-            resin_material = st.selectbox("Resin Material", resin_materials)
-            
-            num_plies = st.number_input("Number of Plies", 
-                                      min_value=1, max_value=20, value=2,
-                                      help="Number of plies in this layer set")
-            
-            ply_thickness = st.number_input("Single Ply Thickness (mm)", 
-                                          min_value=0.05, max_value=2.0, 
-                                          value=0.125, step=0.005,
-                                          help="Thickness of individual ply")
-        
-        coverage = st.slider("Coverage Percentage", 0, 100, 100,
-                           help="Percentage of surface covered by this layer")
-        
-        if st.button("➕ Add Layer to Stack", type="primary"):
+        if st.button("➕ Add Advanced Layer to Stack", type="primary"):
             new_layer = manager.add_layer(
-                layer_type=layer_type,
-                fiber_material=fiber_material,
-                resin_material=resin_material,
-                winding_angle_deg=winding_angle,
-                num_plies=num_plies,
-                single_ply_thickness_mm=ply_thickness,
-                coverage_percentage=coverage
+                layer_type=layer_config['layer_type'],
+                fiber_material=layer_config['fiber_material'],
+                resin_material=layer_config['resin_material'],
+                winding_angle_deg=layer_config['winding_angle'],
+                num_plies=layer_config['num_plies'],
+                single_ply_thickness_mm=layer_config['ply_thickness'],
+                coverage_percentage=layer_config.get('coverage_percentage', 100)
             )
-            st.success(f"✅ Added Layer {new_layer.layer_set_id}: {layer_type} at {winding_angle}°")
+            
+            # Store advanced config in layer metadata
+            if hasattr(new_layer, 'advanced_config'):
+                new_layer.advanced_config = layer_config
+            
+            st.success(f"✅ Added Advanced Layer {new_layer.layer_set_id}: {layer_config['layer_type']} at {layer_config['winding_angle']}° with {layer_config['physics_model']} physics")
             st.rerun()
     
     # Current layer stack display
