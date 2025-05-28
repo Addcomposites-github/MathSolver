@@ -59,10 +59,11 @@ def main():
         "Layer Stack Definition": "✅" if 'layer_stack_manager' in st.session_state else "⭕",
         "Trajectory Planning": "✅" if st.session_state.trajectory_data else "⭕",
         "Performance Analysis": "⭕",
+        "Manufacturing Simulation": "✅" if 'layer_manager' in st.session_state else "⭕",
         "Export Results": "⭕"
     }
     
-    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Performance Analysis", "Export Results"]
+    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Performance Analysis", "Manufacturing Simulation", "Export Results"]
     
     # Create enhanced navigation with status indicators
     st.sidebar.markdown("### Navigation Menu")
