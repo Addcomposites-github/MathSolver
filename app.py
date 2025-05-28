@@ -765,9 +765,10 @@ def trajectory_planning_page():
         with col1:
             st.info(f"**Layers Defined**: {len(layer_manager.layer_stack)} layers")
         with col2:
-            st.info(f"**Total Thickness**: {layer_manager.total_thickness_mm:.2f}mm")
+            stack_summary = layer_manager.get_layer_stack_summary()
+            st.info(f"**Total Thickness**: {stack_summary['total_thickness_mm']:.2f}mm")
         with col3:
-            st.info(f"**Layers Applied**: {layer_manager.layers_applied_to_mandrel}")
+            st.info(f"**Layers Applied**: {stack_summary['layers_applied_to_mandrel']}")
         
         # Main planning mode selection
         planning_mode = st.selectbox(
@@ -905,7 +906,11 @@ def generate_all_layer_trajectories(layer_manager, roving_width, roving_thicknes
             )
             
             # Generate trajectory for this layer
-            trajectory_data = layer_planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+            trajectory_data = layer_planner.generate_trajectory(
+                pattern_name="geodesic_spiral",
+                coverage_option="single_circuit",
+                user_circuits=1
+            )
             
             if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
                 all_layer_trajectories.append({
@@ -969,7 +974,11 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
         )
         
         # Generate trajectory
-        trajectory_data = layer_planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+        trajectory_data = layer_planner.generate_trajectory(
+            pattern_name="geodesic_spiral",
+            coverage_option="single_circuit",
+            user_circuits=1
+        )
         
         if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
             st.session_state.trajectory_data = trajectory_data
