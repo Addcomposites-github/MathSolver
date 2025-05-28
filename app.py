@@ -740,13 +740,246 @@ def material_properties_page():
                         st.write(f"- {prop}: {value}")
 
 def trajectory_planning_page():
-    st.header("Filament Winding Trajectory Planning")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 15px; margin-bottom: 2rem;">
+        <h1 style="color: white; margin: 0; font-size: 2.5rem;">🎯 Advanced Trajectory Planning</h1>
+        <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0 0 0; font-size: 1.2rem;">
+            Multi-layer trajectory generation with automatic layer stack integration
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     if st.session_state.vessel_geometry is None:
         st.warning("Please generate vessel geometry first in the 'Vessel Geometry' section.")
         return
     
+    # Check if layer stack is defined for integrated planning
+    if 'layer_stack_manager' in st.session_state and st.session_state.layer_stack_manager.layer_stack:
+        st.success("🎯 **Layer Stack Integration Active**: Planning trajectories for each defined layer")
+        
+        # Show layer stack summary
+        layer_manager = st.session_state.layer_stack_manager
+        st.markdown("### 📋 Current Layer Stack")
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            st.info(f"**Layers Defined**: {len(layer_manager.layer_stack)} layers")
+        with col2:
+            st.info(f"**Total Thickness**: {layer_manager.total_thickness_mm:.2f}mm")
+        with col3:
+            st.info(f"**Layers Applied**: {layer_manager.layers_applied_to_mandrel}")
+        
+        # Main planning mode selection
+        planning_mode = st.selectbox(
+            "Planning Mode",
+            ["Layer-by-Layer Planning", "Complete Stack Planning", "Single Layer Override"],
+            help="Choose how to generate trajectories for your layer stack"
+        )
+        
+        if planning_mode == "Layer-by-Layer Planning":
+            layer_by_layer_planning(layer_manager)
+        elif planning_mode == "Complete Stack Planning":
+            complete_stack_planning(layer_manager)
+        else:
+            single_layer_override_planning(layer_manager)
+        
+        return
+    
+    # Standard trajectory planning for vessels without layer stack
+    st.info("💡 **Tip**: Define a layer stack first for automatic multi-layer trajectory planning!")
     col1, col2 = st.columns([1, 2])
+
+
+def layer_by_layer_planning(layer_manager):
+    """Generate trajectories for each layer individually with proper mandrel evolution"""
+    st.markdown("### 🎯 Layer-by-Layer Trajectory Planning")
+    st.info("Each layer gets its own trajectory planner instance with correct mandrel geometry and parameters")
+    
+    # Configuration options
+    col1, col2 = st.columns(2)
+    with col1:
+        roving_width = st.number_input("Roving Width (mm)", min_value=1.0, max_value=10.0, value=3.0, step=0.1)
+        roving_thickness = st.number_input("Roving Thickness (mm)", min_value=0.05, max_value=1.0, value=0.2, step=0.01)
+    with col2:
+        dome_points = st.number_input("Dome Points", min_value=50, max_value=200, value=150, step=10)
+        cylinder_points = st.number_input("Cylinder Points", min_value=10, max_value=50, value=20, step=5)
+    
+    # Show layer stack details
+    st.markdown("### 📋 Layers to Process")
+    layer_data = []
+    for i, layer in enumerate(layer_manager.layer_stack):
+        layer_data.append({
+            "Layer": f"{layer.layer_set_id}",
+            "Type": layer.layer_type,
+            "Angle": f"{layer.winding_angle_deg}°",
+            "Thickness": f"{layer.calculated_set_thickness_mm:.2f}mm",
+            "Status": "✅ Ready" if i < layer_manager.layers_applied_to_mandrel else "⏳ Pending"
+        })
+    
+    st.dataframe(layer_data, use_container_width=True, hide_index=True)
+    
+    if st.button("🚀 Generate All Layer Trajectories", type="primary"):
+        generate_all_layer_trajectories(layer_manager, roving_width, roving_thickness, dome_points, cylinder_points)
+
+
+def complete_stack_planning(layer_manager):
+    """Generate complete integrated trajectory for the entire stack"""
+    st.markdown("### 🎯 Complete Stack Planning")
+    st.info("Generates one integrated trajectory considering all layers simultaneously")
+    
+    # Show stack summary
+    total_angle_variation = max([layer.winding_angle_deg for layer in layer_manager.layer_stack]) - min([layer.winding_angle_deg for layer in layer_manager.layer_stack])
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Layers", len(layer_manager.layer_stack))
+    with col2:
+        st.metric("Angle Range", f"{total_angle_variation:.0f}°")
+    with col3:
+        st.metric("Final Thickness", f"{layer_manager.total_thickness_mm:.2f}mm")
+    
+    st.warning("🚧 **Coming Soon**: Integrated multi-layer trajectory optimization")
+    st.info("This will consider layer interdependencies and optimize the complete winding sequence")
+
+
+def single_layer_override_planning(layer_manager):
+    """Override planning for a specific layer"""
+    st.markdown("### 🎯 Single Layer Override")
+    st.info("Plan trajectory for one specific layer with custom parameters")
+    
+    # Select layer
+    layer_options = [f"Layer {layer.layer_set_id} ({layer.winding_angle_deg}°)" for layer in layer_manager.layer_stack]
+    selected_layer_idx = st.selectbox("Select Layer", range(len(layer_options)), format_func=lambda x: layer_options[x])
+    
+    selected_layer = layer_manager.layer_stack[selected_layer_idx]
+    
+    # Show layer details
+    st.markdown(f"**Selected Layer**: {selected_layer.layer_set_id}")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info(f"**Type**: {selected_layer.layer_type}")
+    with col2:
+        st.info(f"**Angle**: {selected_layer.winding_angle_deg}°")
+    with col3:
+        st.info(f"**Thickness**: {selected_layer.calculated_set_thickness_mm:.2f}mm")
+    
+    # Override parameters
+    st.markdown("### ⚙️ Override Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        override_angle = st.number_input("Override Angle (deg)", min_value=10.0, max_value=80.0, value=float(selected_layer.winding_angle_deg))
+        roving_width = st.number_input("Roving Width (mm)", min_value=1.0, max_value=10.0, value=3.0, step=0.1)
+    with col2:
+        dome_points = st.number_input("Dome Points", min_value=50, max_value=200, value=150, step=10)
+        cylinder_points = st.number_input("Cylinder Points", min_value=10, max_value=50, value=20, step=5)
+    
+    if st.button("🎯 Generate Single Layer Trajectory", type="primary"):
+        generate_single_layer_trajectory(layer_manager, selected_layer_idx, override_angle, roving_width, 0.2, dome_points, cylinder_points)
+
+
+def generate_all_layer_trajectories(layer_manager, roving_width, roving_thickness, dome_points, cylinder_points):
+    """Generate trajectories for all layers with proper mandrel evolution"""
+    all_layer_trajectories = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, layer in enumerate(layer_manager.layer_stack):
+        status_text.text(f"Planning trajectory for Layer {layer.layer_set_id} ({layer.winding_angle_deg}°)...")
+        progress_bar.progress((i + 1) / len(layer_manager.layer_stack))
+        
+        # Get current mandrel geometry for this layer
+        mandrel_geom = layer_manager.get_current_mandrel_summary()
+        
+        try:
+            # Create trajectory planner for this specific layer
+            from modules.trajectories_streamlined import TrajectoryPlanner
+            
+            layer_planner = TrajectoryPlanner(
+                st.session_state.vessel_geometry,  # Use base vessel geometry
+                dry_roving_width_m=roving_width/1000,
+                dry_roving_thickness_m=roving_thickness/1000,
+                roving_eccentricity_at_pole_m=0.0,  # Default
+                target_cylinder_angle_deg=layer.winding_angle_deg,  # Layer-specific angle
+                mu_friction_coefficient=0.0  # Geodesic default
+            )
+            
+            # Generate trajectory for this layer
+            trajectory_data = layer_planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+            
+            if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                all_layer_trajectories.append({
+                    "layer_id": layer.layer_set_id,
+                    "layer_type": layer.layer_type,
+                    "winding_angle": layer.winding_angle_deg,
+                    "trajectory": trajectory_data,
+                    "mandrel_geometry": mandrel_geom
+                })
+                
+                # Apply this layer to mandrel for next iteration
+                layer_manager.apply_layer_to_mandrel(i)
+                st.success(f"✅ Layer {layer.layer_set_id} trajectory generated ({len(trajectory_data['path_points'])} points)")
+            else:
+                st.error(f"❌ Failed to generate trajectory for Layer {layer.layer_set_id}")
+                break
+                
+        except Exception as e:
+            st.error(f"❌ Error planning Layer {layer.layer_set_id}: {str(e)}")
+            break
+    
+    # Store all trajectories for manufacturing simulation
+    if all_layer_trajectories:
+        st.session_state.multi_layer_trajectories = all_layer_trajectories
+        st.session_state.trajectory_data = all_layer_trajectories[-1]['trajectory']  # Store last one for visualization
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ All layer trajectories generated successfully!")
+        
+        st.success(f"🎉 **Complete**: Generated trajectories for {len(all_layer_trajectories)} layers")
+        st.info("💡 **Integration**: All layer trajectories are now available for Manufacturing Simulation")
+        
+        # Show summary
+        st.markdown("### 📊 Generated Trajectories Summary")
+        summary_data = []
+        for traj in all_layer_trajectories:
+            summary_data.append({
+                "Layer": traj["layer_id"],
+                "Angle": f"{traj['winding_angle']}°",
+                "Points": len(traj["trajectory"]["path_points"]),
+                "Type": traj["layer_type"]
+            })
+        st.dataframe(summary_data, use_container_width=True, hide_index=True)
+
+
+def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, roving_width, roving_thickness, dome_points, cylinder_points):
+    """Generate trajectory for a single layer with override parameters"""
+    layer = layer_manager.layer_stack[layer_idx]
+    
+    try:
+        from modules.trajectories_streamlined import TrajectoryPlanner
+        
+        # Create trajectory planner with override parameters
+        layer_planner = TrajectoryPlanner(
+            st.session_state.vessel_geometry,
+            dry_roving_width_m=roving_width/1000,
+            dry_roving_thickness_m=roving_thickness/1000,
+            roving_eccentricity_at_pole_m=0.0,
+            target_cylinder_angle_deg=override_angle,  # Use override angle
+            mu_friction_coefficient=0.0
+        )
+        
+        # Generate trajectory
+        trajectory_data = layer_planner.generate_geodesic_trajectory(dome_points, cylinder_points)
+        
+        if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+            st.session_state.trajectory_data = trajectory_data
+            st.success(f"✅ Generated trajectory for Layer {layer.layer_set_id} with {override_angle}° angle")
+            st.info(f"📊 **Points Generated**: {len(trajectory_data['path_points'])}")
+        else:
+            st.error("❌ Failed to generate trajectory")
+            
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
     
     with col1:
         st.subheader("Winding Parameters")

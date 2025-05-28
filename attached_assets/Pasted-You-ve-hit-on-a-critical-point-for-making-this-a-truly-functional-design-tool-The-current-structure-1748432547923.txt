@@ -1,0 +1,270 @@
+You've hit on a critical point for making this a truly functional design tool! The current structure with `LayerStackManager` perfectly handles the geometric evolution of the mandrel. Now, we need to ensure that the `StreamlinedTrajectoryPlanner` (or a similar refined planner) is invoked *for each layer* in the stack, using the specific parameters of that layer and the mandrel geometry *as it exists before that layer is wound*.
+
+Let's redraft the step-by-step plan for the **Advanced Trajectory Planning for Multi-Layer & Complex Paths** module, keeping this tight integration in mind. The goal is that the output for this module will be a collection of individual trajectories, one for each defined layer, which can then be "clubbed" together for manufacturing simulation.
+
+## Module: Advanced Trajectory Planning for Multi-Layer & Complex Paths (Integrated with LayerStackManager)
+
+The core idea is that the `StreamlinedTrajectoryPlanner` (or a new, more specialized `LayerTrajectoryPlanner`) will be instantiated or configured *for each layer* from the `LayerStackManager`.
+
+### Overall Workflow (Conceptual) in `app.py` or a main orchestrator:
+
+```python
+# Main Orchestration Logic (Conceptual)
+# Assuming layer_stack_manager is an instance of LayerStackManager
+# and has layers defined.
+
+all_layer_trajectories = []
+
+for layer_index in range(len(layer_stack_manager.layer_stack)):
+    current_layer_definition = layer_stack_manager.layer_stack[layer_index]
+    
+    # 1. Get the mandrel geometry *before* this layer is applied
+    # This requires a method in LayerStackManager to get the geometry
+    # at a specific point in the stack, or we apply layers geometrically
+    # first, then plan trajectories on those "frozen" geometries.
+    # For now, let's assume LayerStackManager can provide the surface
+    # on which the current_layer_definition will be wound.
+    
+    # Option A: Mandrel geometry is incrementally updated, so current state is correct
+    mandrel_geom_for_this_layer = layer_stack_manager.get_current_mandrel_for_trajectory()
+    
+    # Option B (if planning all trajectories after defining all layers geometrically):
+    # mandrel_geom_for_this_layer = layer_stack_manager.get_mandrel_surface_before_layer(layer_index)
+
+    print(f"\nPlanning trajectory for Layer {current_layer_definition.layer_set_id} ({current_layer_definition.layer_type})")
+    print(f"  Winding on mandrel with polar opening: {mandrel_geom_for_this_layer['polar_opening_radius_mm']:.2f} mm")
+    print(f"  Winding angle for this layer: {current_layer_definition.winding_angle_deg}°")
+
+    # 2. Instantiate/Configure Trajectory Planner for this specific layer
+    #    The planner now uses the current mandrel from LayerStackManager
+    #    and the specific winding angle and other params of current_layer_definition.
+    
+    # Example using StreamlinedTrajectoryPlanner (needs to accept mandrel_profile as dict)
+    # This might involve passing the 'profile_points' directly or modifying
+    # StreamlinedTrajectoryPlanner to accept a pre-processed mandrel_geometry_dict.
+    
+    # For simplicity, let's assume StreamlinedTrajectoryPlanner can be initialized
+    # with a 'current_mandrel_profile_dict' that bypasses its own vessel_geometry processing.
+    # OR, we create a temporary VesselGeometry object from the current mandrel state.
+    
+    temp_vessel_for_planner = VesselGeometry( # This is a helper, not the main one
+        inner_diameter = mandrel_geom_for_this_layer['equatorial_radius_mm'] * 2 - (current_layer_definition.calculated_set_thickness_mm * 2), # Approx.
+        wall_thickness = current_layer_definition.calculated_set_thickness_mm, # Effective thickness
+        cylindrical_length = layer_stack_manager.mandrel.initial_profile['z_mm'][-1] - layer_stack_manager.mandrel.initial_profile['z_mm'][0], # Approx.
+        dome_type = layer_stack_manager.mandrel.initial_profile.get('dome_type', "Isotensoid") # Get from initial
+    )
+    # Crucially, provide the *actual current surface points* to this temporary vessel or directly to the planner
+    temp_vessel_for_planner.profile_points = {
+        'r_inner_mm': mandrel_geom_for_this_layer['profile_points']['r_inner_mm'], # This is the surface to wind on
+        'z_mm': mandrel_geom_for_this_layer['profile_points']['z_mm'],
+        # r_outer_mm will be this surface + current layer's thickness
+        'r_outer_mm': mandrel_geom_for_this_layer['profile_points']['r_inner_mm'] + current_layer_definition.calculated_set_thickness_mm
+    }
+    # Add other necessary attributes to temp_vessel_for_planner if StreamlinedTrajectoryPlanner expects them.
+    # Alternatively, StreamlinedTrajectoryPlanner._initialize_parameters could take a pre-computed profile.
+
+
+    layer_planner = StreamlinedTrajectoryPlanner(
+        vessel_geometry=temp_vessel_for_planner, # Uses the current mandrel surface
+        dry_roving_width_m=current_layer_definition.roving_width_mm / 1000, # Assume LayerDefinition has this
+        dry_roving_thickness_m=current_layer_definition.single_ply_thickness_mm / 1000, # Using single ply for now
+        roving_eccentricity_at_pole_m= getattr(current_layer_definition, 'polar_eccentricity_mm', 0) / 1000,
+        target_cylinder_angle_deg=current_layer_definition.winding_angle_deg,
+        mu_friction_coefficient=getattr(current_layer_definition, 'mu_friction', 0.0) # Layer specific friction
+    )
+
+    # 3. Determine pattern type and coverage for this layer
+    #    This could come from LayerDefinition or be a general setting.
+    pattern_name_for_layer = "geodesic_spiral" # Default, should be based on layer.layer_type
+    if current_layer_definition.layer_type == "hoop":
+        pattern_name_for_layer = "helical_unified" # Using helical with ~90 deg angle
+        # Ensure target_cylinder_angle_deg is set appropriately for hoop, e.g., 88-90 deg.
+        # The layer_planner might need re-init or property update if angle changes
+        layer_planner.target_cylinder_angle_deg = current_layer_definition.winding_angle_deg
+        layer_planner._initialize_parameters() # Re-calc advancement etc.
+        
+    elif current_layer_definition.layer_type == "helical" or current_layer_definition.layer_type == "polar":
+        pattern_name_for_layer = "geodesic_spiral" # Or non_geodesic_spiral
+        if getattr(current_layer_definition, 'mu_friction', 0.0) > 0:
+            pattern_name_for_layer = "non_geodesic_spiral"
+
+
+    # TODO: Determine num_passes for THIS layer based on coverage_percentage & pattern theory
+    # For full coverage of one layer:
+    # num_passes_for_layer = layer_planner._calculate_passes_unified("full_coverage", 1)
+    # This needs to be refined to consider Koussios pattern theory for the current layer.
+    # For now, placeholder:
+    num_passes_for_layer = 2 # Minimal single circuit for each layer for now
+
+    layer_trajectory_data = layer_planner.generate_trajectory(
+        pattern_name=pattern_name_for_layer,
+        coverage_option="user_defined", # or "full_coverage_one_layer"
+        user_circuits= num_passes_for_layer // 2
+    )
+
+    if layer_trajectory_data and layer_trajectory_data.get('success'):
+        all_layer_trajectories.append({
+            "layer_id": current_layer_definition.layer_set_id,
+            "trajectory": layer_trajectory_data
+        })
+        print(f"  Trajectory for layer {current_layer_definition.layer_set_id} planned.")
+        
+        # 4. Apply this layer's thickness to the LayerStackManager's mandrel
+        #    This step assumes the trajectory planning was successful and gives us confidence
+        #    to geometrically "add" the layer.
+        layer_stack_manager.apply_layer_to_mandrel(layer_index) 
+        print(f"  Mandrel geometry updated after layer {current_layer_definition.layer_set_id}.")
+    else:
+        print(f"  ERROR: Trajectory planning failed for layer {current_layer_definition.layer_set_id}.")
+        # Decide how to handle failure: stop, skip layer, etc.
+        break
+
+# Now all_layer_trajectories contains the path data for each layer
+# This can be passed to a manufacturing simulation tab or exported.
+```
+
+---
+Now, let's detail the sub-features for "Advanced Trajectory Planning" with this multi-layer context.
+
+### 1. Full Winding Pattern Generation Logic (Per Layer)
+
+* **Requirement (Multi-Layer Context):** For *each defined layer* in `LayerStackManager.layer_stack`, calculate the optimal winding pattern (p, k, nd, advancements) to achieve its specified `coverage_percentage`. This calculation must use the *current mandrel geometry* (output of `LayerStackManager.get_current_mandrel_for_trajectory()`) before the current layer is wound.
+* **Book Insights:** Same as before (Koussios Chapter 8). The key is that $Y_{eq}$, $c$ (polar opening radius), and $T_{eq}$ (target thickness for *this layer*) are now dynamic, changing for each layer.
+* **Implementation Steps:**
+    a.  **Integrate `WindingPatternCalculator`:** This class (from `winding_patterns.py`) will be a core component.
+    b.  **Per-Layer Invocation:**
+        * Inside the main loop iterating through `LayerStackManager.layer_stack`:
+            * Get `current_mandrel_geometry` (z\_mm, r\_current\_mm, current polar opening, current equatorial radius) from `LayerStackManager`.
+            * Get current `LayerDefinition` (roving_width\_mm for this layer, target\_angle\_deg for this layer, target number of sub-layers `d` which is usually 1 for this definition of a layer set).
+            * Call `WindingPatternCalculator.calculate_pattern_parameters()` with these dynamic inputs.
+    c.  **Using Pattern Output:** The `nd_windings` and `delta_phi_pattern_rad` from `PatternParameters` will determine `num_passes` (since $nd$ is total crossings, usually $nd/2$ circuits) and `phi_advancement_rad_per_pass` for the `StreamlinedTrajectoryPlanner` when generating the trajectory for *this specific layer*.
+
+    ```python
+    # Conceptual usage within the main orchestration loop for each layer:
+    # current_layer_definition = ...
+    # mandrel_geom_for_this_layer = layer_stack_manager.get_current_mandrel_for_trajectory()
+    
+    # pattern_calculator = WindingPatternCalculator(
+    #     fiber_volume_fraction=current_layer_definition.composite_properties.get('fiber_volume_fraction', 0.6)
+    # )
+    
+    # pattern_params_for_layer = pattern_calculator.calculate_pattern_parameters(
+    #     current_mandrel_geometry=mandrel_geom_for_this_layer, # Contains current radii
+    #     roving_width_mm=getattr(current_layer_definition, 'roving_width_mm', 3.0), # Add to LayerDefinition
+    #     target_angle_deg=current_layer_definition.winding_angle_deg,
+    #     num_layers=1 # Usually, each LayerDefinition is one "structural layer" in Koussios's sense for pattern calc
+    # )
+    #
+    # if pattern_params_for_layer.pattern_feasible:
+    #     # num_passes_for_layer needs to be derived from nd_windings.
+    #     # nd_windings is total rovings crossing equator. If one circuit = 2 crossings,
+    #     # then circuits = nd_windings / 2. Number of passes = nd_windings.
+    #     num_passes_for_layer = pattern_params_for_layer.nd_windings
+    #     phi_advancement_for_layer = pattern_params_for_layer.delta_phi_pattern_rad / (num_passes_for_layer / 2) # per pass
+    #
+    #     # Configure layer_planner (instance of StreamlinedTrajectoryPlanner)
+    #     layer_planner.phi_advancement_rad_per_pass = phi_advancement_for_layer
+    #     # ... then call layer_planner.generate_trajectory with num_passes_for_layer
+    # else:
+    #     print(f"Warning: Optimal pattern not found for layer {current_layer_definition.layer_set_id}. Using defaults.")
+    #     # Use default num_passes and advancement from layer_planner
+    ```
+
+### 2. Sophisticated Turnaround Kinematics at Poles (Per Pass/Circuit)
+
+* **Requirement (Multi-Layer Context):** For each pass within each layer's trajectory, when the path approaches a polar opening of the *current mandrel surface*, the feed-eye motion must be carefully planned for a smooth turnaround. The `RobustTurnaroundCalculator` (from `turnaround_kinematics.py`) should be used.
+* **Book Insights:** Peters (book2.pdf) Chapter 4, Fig. 4.3 shows an "advanced method of pipe winding" involving machine overshoot for better turnarounds. This highlights the need for controlled kinematics beyond simple dwells. Koussios (book1.pdf) doesn't detail machine kinematics for turnarounds but sets the stage with pattern advancement angles.
+* **Implementation Steps:**
+    a.  **Integrate `RobustTurnaroundCalculator`:** This class will be called by the `StreamlinedTrajectoryPlanner` (specifically, its core segment generation logic like `_solve_geodesic_segment_unified` or a new non-geodesic equivalent).
+    b.  **Triggering Turnaround:** When a trajectory segment (e.g., helical path on dome) reaches the vicinity of the current polar opening (defined by `current_mandrel_polar_opening_radius_mm` and the `clairauts_constant_for_path_m` of the layer_planner):
+        * Capture the `entry_point` state (position, velocity, fiber angle on mandrel).
+        * Define the `exit_point` state (target position and fiber angle after the turn, ready for the return pass).
+        * The `phi_advancement_rad` for the turnaround segment comes from the overall `phi_advancement_rad_per_pass` calculated by the pattern logic for this layer, divided by the number of poles (usually 2).
+        * Call `RobustTurnaroundCalculator.generate_smooth_turnaround()`.
+    c.  **Output:** The list of `TurnaroundPoint` (machine coordinates) is appended to the current layer's trajectory. The `exit_state` from the turnaround becomes the `entry_state` for the next trajectory segment (e.g., the return pass).
+
+    ```python
+    # Conceptual integration within StreamlinedTrajectoryPlanner's pass generation loop
+    # if at_polar_opening:
+    #     turnaround_calculator = RobustTurnaroundCalculator(...)
+    #     entry_state_dict = convert_current_state_to_transition_state_dict(current_machine_pos, current_velocity, ...)
+    #     exit_state_dict = define_target_exit_state_after_turn(...)
+    #     mandrel_geom_dict = layer_stack_manager.get_current_mandrel_for_trajectory() # or simplified version
+    #
+    #     turnaround_phi_adv = self.phi_advancement_rad_per_pass / 2.0 # Advancement for this pole
+    #
+    #     turnaround_sequence = turnaround_calculator.generate_smooth_turnaround(
+    #         entry_point=entry_state_dict,
+    #         exit_point=exit_state_dict,
+    #         mandrel_geometry=mandrel_geom_dict,
+    #         phi_advancement_rad=turnaround_phi_adv
+    #     )
+    #     # Append turnaround_sequence.points to the layer's trajectory
+    #     # Update current_machine_pos, current_phi_rad etc. from turnaround_sequence.exit_state
+    ```
+
+### 3. Path Continuity and Transitions (Between Segments/Passes/Layers)
+
+* **Requirement (Multi-Layer Context):** Ensure smooth C1/C2 continuity for feed-eye motion not only between segments *within* a layer's trajectory (e.g., dome-cylinder, turnaround-pass) but also consider if any special transition is needed between the end of one complete layer and the start of the next. The `PathContinuityManager` (from `path_continuity.py`) is designed for this.
+* **Book Insights:** Koussios (book1.pdf) Chapter 9.2 "Transitional circuits" and Chapter 12 "Dynamics of filament winding" are relevant for understanding the need for smooth motion and interpolation.
+* **Implementation Steps:**
+    a.  **Integrate `PathContinuityManager`:** This manager will be used by the `StreamlinedTrajectoryPlanner`.
+    b.  **Intra-Layer Continuity:** After generating points for a segment (e.g., cylindrical part) and before generating the next (e.g., dome or turnaround):
+        * Get `segment_1_end` state and predict/define `segment_2_start` state.
+        * Call `PathContinuityManager.analyze_segment_continuity()`.
+        * If `smooth_transition_required` is true, call `PathContinuityManager.generate_smooth_transition()` and insert these transition points.
+    c.  **Inter-Layer Transitions:** Typically, the end of one layer and the start of the next are distinct machine operations (e.g., cut and restart). However, for visualization or advanced simulation, one might model a smooth machine movement to the start position of the next layer. This would use `PathContinuityManager` with the last point of layer N and the first point of layer N+1. *For now, focus on intra-layer continuity.*
+
+### 4. Full Feed-Eye Kinematics for Non-Geodesic Paths (Per Layer)
+
+* **Requirement (Multi-Layer Context):** If a `LayerDefinition` specifies a non-geodesic path (e.g., by having `mu_friction_coefficient > 0` and a target angle that requires it), the `StreamlinedTrajectoryPlanner` must use the `NonGeodesicKinematicsCalculator` (from `non_geodesic_kinematics.py`) for that layer.
+* **Book Insights:**
+    * Koussios (book1.pdf) Chapter 6 "Non-geodesic trajectories" and Chapter 5, Eq. 5.62 provides the core differential equation for $(sin\alpha)'$.
+    * For **Cylinders:** Section 6.4.2 and Eq. 6.41 (or Eq. 9.12) provide the winding angle evolution $\alpha(\theta_{polar})$. The `NonGeodesicKinematicsCalculator`'s `calculate_cylinder_non_geodesic` aims to implement this.
+    * For **Domes:** Section 6.4 and specific examples like conical shells (Eq. 5.65, 5.67) are given. General domes require numerical solution of Eq. 5.62. The `calculate_dome_non_geodesic` in `NonGeodesicKinematicsCalculator` aims for this.
+* **Implementation Steps:**
+    a.  **Integrate `NonGeodesicKinematicsCalculator`:** The `StreamlinedTrajectoryPlanner`'s `_generate_non_geodesic_unified` method will heavily rely on this.
+    b.  **Per-Layer Call:**
+        * When `_generate_non_geodesic_unified` is called for a layer:
+            * Instantiate `NonGeodesicKinematicsCalculator` with the layer's `mu_friction_coefficient` and other relevant parameters (e.g., fiber tension if modeled).
+            * Get the `current_mandrel_profile_points`.
+            * Divide the profile into dome and cylinder segments.
+            * Call `calculate_cylinder_non_geodesic()` and `calculate_dome_non_geodesic()` for the respective segments, passing the initial winding angle for the segment (which would be the exit angle of the previous segment or turnaround).
+            * Stitch these segments together, ensuring continuity using `PathContinuityManager`.
+
+### 5. Accurate Feed-Eye Yaw (`machine_A_feed_eye_yaw_rad`) for Domes (Geodesic, Per Layer)
+
+* **Requirement (Multi-Layer Context):** For layers using Andrianov-based geodesic dome paths, the `StreamlinedTrajectoryPlanner` (via `_solve_geodesic_segment_unified` or its helper `FilamentWindingKinematics` from `copv_design_and_trajectory.py`) must accurately calculate the feed-eye yaw.
+* **Book Insights:** Peters (book2.pdf) Eq. (21) from Andrianov (in conceptual module source [300]) states $A = \pi/2 - \beta_s$. Andrianov's Eq. (3) defines $\beta_s(z)$ for a hemisphere.
+* **Implementation Steps (within the geodesic dome path generator):**
+    a.  **Determine Contact Point Axial Coordinate (`z_dome_surf_junc`):** This is the main challenge. When Andrianov's dome path parameter (`current_path_param_dome_alpha_andr`) is used, the corresponding axial position $z$ of the *fiber contact point on the dome surface* (measured from the dome-cylinder junction) needs to be determined. Andrianov's original paper (not fully available here) would detail the geometric transformation from `alpha_param` to surface coordinates.
+        * If this direct mapping is unavailable, an approximation or an iterative solution might be needed: given the feed-eye position from Andrianov's Eq. 17, find the point on the mandrel surface that is `payout_length_fiber` away along the tangent.
+    b.  **Calculate `z_po_junc`:** This is the axial distance of the polar opening from the dome-cylinder junction for the *current mandrel*.
+        * $z_{po\_junc} = R_{D\_current} - \sqrt{R_{D\_current}^2 - r_{po\_current}^2}$ (assuming pole is at $R_D$ from junction for a hemispherical dome).
+    c.  **Calculate $\beta_s(z_{dome\_surf\_junc})$:** Using Andrianov's Eq. (3).
+    d.  **Calculate Yaw:** $A_{mach} = \pi/2 - \beta_s$.
+
+### 6. Precise Parameter Range for Andrianov's Dome Path (Per Layer)
+
+* **Requirement (Multi-Layer Context):** For layers using Andrianov's geodesic dome trajectory, the iteration range for `current_path_param_dome_alpha_andr` must be correctly determined to cover the dome from its current polar opening to its current junction with the cylinder.
+* **Book Insights:** This is specific to Andrianov's formulation and not detailed in the provided excerpts.
+* **Implementation Steps:**
+    a.  **Analyze Andrianov's Geometric Mapping:** This requires a deeper understanding of how `alpha_param` in his equations (e.g., Eq. 15, 17) maps to points on the sphere/dome.
+    b.  **Start Value:** Find `alpha_param_start` such that the contact point's radius $\rho$ equals `current_mandrel_polar_opening_radius` (or the effective turning radius) and $\beta_s \approx \pi/2$.
+    c.  **End Value:** Find `alpha_param_end` such that the contact point's radius $\rho$ equals `current_mandrel_cyl_radius` and its axial position corresponds to the dome-cylinder junction, and $\beta_s$ matches the entry angle for the cylinder.
+    d.  This may involve solving implicit equations derived from Andrianov's geometry.
+
+### 7. Advanced Slippage Checks and Friction Modeling (Per Layer)
+
+* **Requirement (Multi-Layer Context):** Especially for non-geodesic layers, incorporate explicit slippage checks.
+* **Book Insights:** Koussios (book1.pdf) Eq. 5.58: $|k_g/k_n| \le |\mu_{max}|$ is the key stability criterion.
+* **Implementation Steps (within `NonGeodesicKinematicsCalculator` or as a validation step):**
+    a.  **For each point on a planned non-geodesic path:**
+        * Obtain local mandrel geometry (radii of curvature $\rho_1, \rho_2$ or $R_m, R_p$).
+        * Obtain the planned winding angle $\beta_{srf}$ (or $\alpha$ in Koussios's notation).
+        * Calculate normal curvature $k_n = k_m \cos^2\alpha + k_p \sin^2\alpha$ (Eq. 5.48).
+        * Calculate geodesic curvature $k_g = \frac{\cos\alpha}{\sqrt{G}}(\alpha' + \frac{E'}{2E}\frac{\sin\alpha}{\cos\alpha})$ (Eq. 5.53). Here $\alpha'$ is $d\alpha/ds_m$ (rate of change of winding angle along meridian), $E, G$ are metric coefficients.
+        * Check if $|k_g/k_n| \le \mu_{friction\_coeff\_for\_layer}$.
+    b.  **Fiber Tension Consideration:** The normal force $f_n = F_{tension} \cdot k_n$. The lateral force needed $f_g = F_{tension} \cdot k_g$. The available friction force is $\mu \cdot f_n$. So, check $|F_{tension} \cdot k_g| \le \mu \cdot |F_{tension} \cdot k_n|$.
+
+This detailed plan should guide the development of your advanced trajectory planning module, ensuring it correctly handles multi-layer scenarios and incorporates the rich theoretical background from the provided literature. The most complex parts will be the full non-geodesic kinematics on domes and the precise determination of Andrianov's path parameter range.
