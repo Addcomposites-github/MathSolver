@@ -48,13 +48,32 @@ class TrajectoryProfileProcessor:
                 resampled_data['z_mm'], resampled_data['r_inner_mm']
             )
             
+            # Calculate pole coordinates for continuous path generation
+            z_coords = resampled_data['z_mm'] / 1000.0  # Convert to meters
+            r_coords = resampled_data['r_inner_mm'] / 1000.0  # Convert to meters
+            
+            # Find front and aft pole z-coordinates
+            front_pole_z = float(np.max(z_coords))  # Positive dome
+            aft_pole_z = float(np.min(z_coords))    # Negative dome
+            
+            # Calculate effective polar opening radius
+            polar_opening_radius = float(np.min(r_coords))
+            
             return {
                 'r_inner_mm': resampled_data['r_inner_mm'],
                 'z_mm': resampled_data['z_mm'],
                 'r_outer_mm': profile.get('r_outer_mm', resampled_data['r_inner_mm']),
                 'segments': segments,
                 'original_length': len(r_inner),
-                'resampled_length': len(resampled_data['r_inner_mm'])
+                'resampled_length': len(resampled_data['r_inner_mm']),
+                # Add data needed for continuous path generation
+                'pole_z_coords_m': {
+                    'front': front_pole_z,
+                    'aft': aft_pole_z
+                },
+                'effective_polar_opening_radius_m': polar_opening_radius,
+                'r_inner_m': r_coords,
+                'z_m': z_coords
             }
             
         except Exception as e:
