@@ -1315,6 +1315,14 @@ def layer_by_layer_planning(layer_manager):
         else:
             st.error("❌ Failed to generate trajectories. Please check layer definitions and try again.")
 
+    # Advanced 3D Full Coverage Visualization section
+    st.markdown("---")
+    st.markdown("### 🎯 Advanced 3D Full Coverage Visualization")
+    st.info("Generate complete coverage patterns with high-quality mandrel representation for any layer")
+    
+    # Add the full coverage visualization for layer stack
+    add_full_coverage_visualization_section(layer_manager)
+
     # 3D Visualization section - independent of generation button
     if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:
         st.markdown("### 🎯 3D Trajectory Visualization")
