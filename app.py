@@ -603,7 +603,7 @@ def layer_stack_definition_page():
                         results['cylinder'] = {
                             'points': len(cylinder_states),
                             'final_angle': math.degrees(cylinder_states[-1].beta_surface_rad) if cylinder_states else 0,
-                            'avg_stability': np.mean([s.stability_margin for s in cylinder_states]) if cylinder_states else 0
+                            'avg_stability': sum([s.stability_margin for s in cylinder_states]) / len(cylinder_states) if cylinder_states else 0
                         }
                     
                     if test_dome and st.session_state.vessel_geometry:
@@ -615,7 +615,7 @@ def layer_stack_definition_page():
                         results['dome'] = {
                             'points': len(dome_states),
                             'final_angle': math.degrees(dome_states[-1].beta_surface_rad) if dome_states else 0,
-                            'avg_stability': np.mean([s.stability_margin for s in dome_states]) if dome_states else 0
+                            'avg_stability': sum([s.stability_margin for s in dome_states]) / len(dome_states) if dome_states else 0
                         }
                     
                     if results:
