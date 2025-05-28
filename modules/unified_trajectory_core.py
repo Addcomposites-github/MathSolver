@@ -12,19 +12,9 @@ class TrajectoryPoint:
     """
     Represents a single point in the fiber trajectory on the mandrel surface.
     """
+    # Required fields first
     position: np.ndarray = field(metadata={"unit": "meters", "description": "Cartesian coordinates [x, y, z] of the point in 3D space."})
     """Cartesian coordinates [x, y, z] of the point in 3D space, in meters."""
-
-    surface_coords: Dict[str, float] = field(default_factory=dict, metadata={"description": "Coordinates of the point on the mandrel surface (e.g., {'rho': float, 'z_cyl': float, 'phi_cyl': float, 's_meridian': float}). rho and z_cyl in meters, phi_cyl in radians, s_meridian in meters."})
-    """
-    Coordinates of the point on the mandrel surface.
-    Keys might include:
-    - 'rho': Radial distance from the axis of revolution (meters).
-    - 'z_cyl': Axial position along the cylinder (meters).
-    - 'phi_cyl': Azimuthal angle around the axis of revolution (radians).
-    - 's_meridian': Arc length along the meridian from a reference point (meters).
-    Units should be consistent (meters for lengths, radians for angles).
-    """
 
     winding_angle_deg: float = field(metadata={"unit": "degrees", "description": "Winding angle at this point. Convention: Angle between the fiber and the meridian (longitudinal axis for cylinder). 0 deg is axial, 90 deg is hoop. Output in degrees."})
     """
@@ -36,14 +26,26 @@ class TrajectoryPoint:
     Stored in degrees as per output requirements (internal calculations might use radians).
     """
 
+    # Fields with defaults
+    surface_coords: Dict[str, float] = field(default_factory=dict, metadata={"description": "Coordinates of the point on the mandrel surface (e.g., {'rho': float, 'z_cyl': float, 'phi_cyl': float, 's_meridian': float}). rho and z_cyl in meters, phi_cyl in radians, s_meridian in meters."})
+    """
+    Coordinates of the point on the mandrel surface.
+    Keys might include:
+    - 'rho': Radial distance from the axis of revolution (meters).
+    - 'z_cyl': Axial position along the cylinder (meters).
+    - 'phi_cyl': Azimuthal angle around the axis of revolution (radians).
+    - 's_meridian': Arc length along the meridian from a reference point (meters).
+    Units should be consistent (meters for lengths, radians for angles).
+    """
+
     fiber_tension: float = field(default=0.0, metadata={"unit": "Newtons", "description": "Calculated or target fiber tension at this point."})
     """Calculated or target fiber tension at this point, in Newtons."""
 
     # Optional additional fields that might be useful
-    normal_vector: np.ndarray = field(default=None, metadata={"description": "Surface normal vector [nx, ny, nz] at this point."})
+    normal_vector: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 1.0]), metadata={"description": "Surface normal vector [nx, ny, nz] at this point."})
     """Surface normal vector [nx, ny, nz] at this point (dimensionless unit vector)."""
 
-    tangent_vector: np.ndarray = field(default=None, metadata={"description": "Path tangent vector [tx, ty, tz] at this point."})
+    tangent_vector: np.ndarray = field(default_factory=lambda: np.array([1.0, 0.0, 0.0]), metadata={"description": "Path tangent vector [tx, ty, tz] at this point."})
     """Path tangent vector [tx, ty, tz] at this point (dimensionless unit vector)."""
 
     curvature_geodesic: float = field(default=0.0, metadata={"unit": "1/meters", "description": "Geodesic curvature of the path at this point."})
