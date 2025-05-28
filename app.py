@@ -841,31 +841,35 @@ def layer_by_layer_planning(layer_manager):
                 })
             
             st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)
+        else:
+            st.error("❌ Failed to generate trajectories. Please check layer definitions and try again.")
+
+    # 3D Visualization section - independent of generation button
+    if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:
+        st.markdown("### 🎯 3D Trajectory Visualization")
+        all_trajectories = st.session_state.all_layer_trajectories
+        
+        # Layer selection for visualization
+        layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
+                       for traj in all_trajectories]
+        
+        selected_layer_idx = st.selectbox(
+            "Select Layer to Visualize",
+            range(len(layer_options)),
+            format_func=lambda x: layer_options[x]
+        )
+        
+        if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
+            selected_traj = all_trajectories[selected_layer_idx]
             
-            # Add 3D visualization section
-            st.markdown("### 🎯 3D Trajectory Visualization")
-            
-            # Layer selection for visualization
-            layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
-                           for traj in all_trajectories]
-            
-            selected_layer_idx = st.selectbox(
-                "Select Layer to Visualize",
-                range(len(layer_options)),
-                format_func=lambda x: layer_options[x]
-            )
-            
-            if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
-                selected_traj = all_trajectories[selected_layer_idx]
-                
-                # Performance controls
-                col1, col2 = st.columns(2)
-                with col1:
-                    decimation_factor = st.slider("Trajectory Detail (lower = more points)", 1, 20, 10, 
-                                                 help="Higher values improve performance by showing fewer trajectory points")
-                with col2:
-                    surface_segments = st.slider("Mandrel Surface Detail", 10, 60, 30,
-                                                help="Lower values improve performance by reducing surface complexity")
+            # Performance controls
+            col1, col2 = st.columns(2)
+            with col1:
+                decimation_factor = st.slider("Trajectory Detail (lower = more points)", 1, 20, 10, 
+                                             help="Higher values improve performance by showing fewer trajectory points")
+            with col2:
+                surface_segments = st.slider("Mandrel Surface Detail", 10, 60, 30,
+                                            help="Lower values improve performance by reducing surface complexity")
                 
                 # Create visualization tabs
                 viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
