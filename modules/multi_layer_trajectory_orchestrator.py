@@ -31,7 +31,7 @@ class MultiLayerTrajectoryOrchestrator:
     def __init__(self, layer_manager):
         """Initialize with LayerStackManager instance"""
         self.layer_manager = layer_manager
-        self.pattern_calculator = PatternCalculator(vessel_geometry=None, roving_width_m=0.003)
+        self.pattern_calculator = PatternCalculator(resin_factor=1.0)
         self.generated_trajectories = []
         
         # Initialize unified trajectory system if available

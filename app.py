@@ -1054,7 +1054,7 @@ def generate_all_layer_trajectories(layer_manager, roving_width, roving_thicknes
         
         try:
             # Create trajectory planner for this specific layer
-            from modules.trajectories_streamlined import TrajectoryPlanner
+            from modules.missing_module_stubs import TrajectoryPlanner
             
             layer_planner = TrajectoryPlanner(
                 st.session_state.vessel_geometry,  # Use base vessel geometry
@@ -1121,7 +1121,7 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
     layer = layer_manager.layer_stack[layer_idx]
     
     try:
-        from modules.trajectories_streamlined import TrajectoryPlanner
+        from modules.missing_module_stubs import TrajectoryPlanner
         
         # Create trajectory planner with override parameters
         layer_planner = TrajectoryPlanner(
@@ -1940,7 +1940,7 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
                 with st.spinner("Generating trajectory with refactored engine..."):
                     try:
                         # Import and create refactored planner
-                        from modules.trajectories_refactored import TrajectoryPlannerRefactored
+                        from modules.missing_module_stubs import TrajectoryPlanner as TrajectoryPlannerRefactored
                         planner_refactored = TrajectoryPlannerRefactored(
                             vessel_geometry=st.session_state.vessel_geometry,
                             dry_roving_width_m=roving_width * 1e-3,
