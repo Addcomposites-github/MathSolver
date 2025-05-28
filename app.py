@@ -247,6 +247,156 @@ def vessel_geometry_page():
         else:
             st.info("Please configure and generate vessel geometry to see visualization.")
 
+def layer_stack_definition_page():
+    """Multi-layer composite stack definition and mandrel geometry management"""
+    st.title("🏗️ Layer Stack Definition")
+    st.markdown("Define your composite layer sequence with automatic mandrel geometry updates")
+    
+    # Initialize layer stack manager
+    if 'layer_stack_manager' not in st.session_state:
+        if st.session_state.vessel_geometry:
+            # Use current vessel geometry as initial mandrel
+            initial_profile = st.session_state.vessel_geometry.profile_points
+            st.session_state.layer_stack_manager = LayerStackManager(initial_profile)
+            st.success("✅ Layer stack manager initialized with current vessel geometry")
+        else:
+            st.warning("⚠️ Please define vessel geometry first before creating layer stack")
+            return
+    
+    manager = st.session_state.layer_stack_manager
+    
+    # Display current stack summary
+    stack_summary = manager.get_layer_stack_summary()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Layers", stack_summary['total_layers'])
+    with col2:
+        st.metric("Structural Layers", stack_summary['structural_layers'])
+    with col3:
+        st.metric("Total Thickness", f"{stack_summary['total_thickness_mm']:.2f} mm")
+    with col4:
+        st.metric("Layers Applied", stack_summary['layers_applied_to_mandrel'])
+    
+    # Current mandrel state
+    st.subheader("📐 Current Mandrel Geometry")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Polar Opening Radius", f"{stack_summary['current_polar_radius_mm']:.2f} mm")
+    with col2:
+        st.metric("Equatorial Radius", f"{stack_summary['current_equatorial_radius_mm']:.2f} mm")
+    
+    # Add new layer section
+    st.subheader("➕ Add New Layer")
+    
+    with st.expander("🔧 Layer Definition", expanded=len(stack_summary['layer_details']) == 0):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            layer_type = st.selectbox("Layer Type", 
+                                    ["helical", "hoop", "polar"],
+                                    help="Winding pattern for this layer")
+            
+            fiber_materials = list(FIBER_MATERIALS.keys())
+            fiber_material = st.selectbox("Fiber Material", fiber_materials)
+            
+            winding_angle = st.number_input("Winding Angle (°)", 
+                                          min_value=0.0, max_value=90.0, 
+                                          value=45.0 if layer_type == "helical" else 88.0,
+                                          step=0.1)
+        
+        with col2:
+            resin_materials = list(RESIN_MATERIALS.keys())
+            resin_material = st.selectbox("Resin Material", resin_materials)
+            
+            num_plies = st.number_input("Number of Plies", 
+                                      min_value=1, max_value=20, value=2,
+                                      help="Number of plies in this layer set")
+            
+            ply_thickness = st.number_input("Single Ply Thickness (mm)", 
+                                          min_value=0.05, max_value=2.0, 
+                                          value=0.125, step=0.005,
+                                          help="Thickness of individual ply")
+        
+        coverage = st.slider("Coverage Percentage", 0, 100, 100,
+                           help="Percentage of surface covered by this layer")
+        
+        if st.button("➕ Add Layer to Stack", type="primary"):
+            new_layer = manager.add_layer(
+                layer_type=layer_type,
+                fiber_material=fiber_material,
+                resin_material=resin_material,
+                winding_angle_deg=winding_angle,
+                num_plies=num_plies,
+                single_ply_thickness_mm=ply_thickness,
+                coverage_percentage=coverage
+            )
+            st.success(f"✅ Added Layer {new_layer.layer_set_id}: {layer_type} at {winding_angle}°")
+            st.rerun()
+    
+    # Current layer stack display
+    if stack_summary['layer_details']:
+        st.subheader("📋 Current Layer Stack")
+        
+        # Create layer stack table
+        layer_df = pd.DataFrame(stack_summary['layer_details'])
+        st.dataframe(layer_df, use_container_width=True)
+        
+        # Apply layers to mandrel section
+        st.subheader("🔄 Apply Layers to Mandrel")
+        
+        unapplied_layers = [i for i in range(len(manager.layer_stack)) 
+                           if i >= len(manager.mandrel.layers_applied)]
+        
+        if unapplied_layers:
+            st.info(f"🔨 {len(unapplied_layers)} layer(s) ready to apply to mandrel")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔨 Apply Next Layer", type="primary"):
+                    layer_idx = unapplied_layers[0]
+                    success = manager.apply_layer_to_mandrel(layer_idx)
+                    if success:
+                        st.success(f"✅ Applied layer {layer_idx + 1} to mandrel")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to apply layer")
+            
+            with col2:
+                if st.button("🔨 Apply All Remaining Layers"):
+                    applied_count = 0
+                    for layer_idx in unapplied_layers:
+                        if manager.apply_layer_to_mandrel(layer_idx):
+                            applied_count += 1
+                    st.success(f"✅ Applied {applied_count} layers to mandrel")
+                    st.rerun()
+        else:
+            st.success("✅ All layers have been applied to mandrel geometry")
+    
+    # Export current mandrel for trajectory planning
+    if stack_summary['layers_applied_to_mandrel'] > 0:
+        st.subheader("🎯 Ready for Trajectory Planning")
+        
+        if st.button("📤 Export Current Mandrel for Trajectory Planning", type="secondary"):
+            # Update vessel geometry with current mandrel state
+            current_mandrel = manager.get_current_mandrel_for_trajectory()
+            
+            # Create new VesselGeometry with updated profile
+            updated_vessel = VesselGeometry(
+                inner_radius_mm=stack_summary['current_equatorial_radius_mm'],
+                length_mm=st.session_state.vessel_geometry.length_mm,
+                dome_type=st.session_state.vessel_geometry.dome_type
+            )
+            updated_vessel.profile_points = current_mandrel['profile_points']
+            
+            # Store for trajectory planning
+            st.session_state.current_mandrel_geometry = updated_vessel
+            st.session_state.mandrel_ready_for_trajectory = True
+            
+            st.success("✅ Current mandrel geometry exported for trajectory planning!")
+            st.info("💡 Navigate to 'Trajectory Planning' to generate winding patterns on the current mandrel surface")
+
+
 def material_properties_page():
     st.header("Material Properties")
     
