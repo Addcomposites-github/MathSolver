@@ -6,6 +6,7 @@ import math
 from modules.geometry import VesselGeometry
 from modules.trajectories import TrajectoryPlanner
 from modules.trajectories_fixed import TrajectoryPlannerFixed
+from modules.trajectories_streamlined import StreamlinedTrajectoryPlanner
 from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
