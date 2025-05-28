@@ -5,7 +5,7 @@ Step 3: Koussios pattern theory for optimal coverage and Diophantine equation so
 
 import numpy as np
 import math
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
 
 class PatternCalculator:
     """

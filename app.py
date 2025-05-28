@@ -18,6 +18,15 @@ from modules.path_continuity import PathContinuityManager
 from modules.non_geodesic_kinematics import NonGeodesicKinematicsCalculator
 from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 
+# Import new unified trajectory system
+try:
+    from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
+    from modules.legacy_trajectory_adapter import LegacyTrajectoryAdapter
+    UNIFIED_SYSTEM_AVAILABLE = True
+except ImportError as e:
+    print(f"Unified trajectory system not available: {e}")
+    UNIFIED_SYSTEM_AVAILABLE = False
+
 # Configure page
 st.set_page_config(
     page_title="COPV Design Tool",
@@ -1140,9 +1149,116 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
         st.subheader("Winding Parameters")
         
         # Winding pattern type
-        pattern_type = st.selectbox("Winding Pattern", ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "🔬 Refactored Engine (Test)", "Helical", "Hoop", "Polar", "Transitional"])
+        pattern_options = ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "🔬 Refactored Engine (Test)", "Helical", "Hoop", "Polar", "Transitional"]
         
-        if pattern_type in ["Helical", "Transitional"]:
+        # Add unified system if available
+        if UNIFIED_SYSTEM_AVAILABLE:
+            pattern_options.insert(0, "🚀 Unified Trajectory System (New)")
+        
+        pattern_type = st.selectbox("Winding Pattern", pattern_options)
+        
+        # Handle unified trajectory system
+        if pattern_type == "🚀 Unified Trajectory System (New)":
+            st.markdown("### 🚀 Advanced Unified Trajectory System")
+            st.success("✨ **Next-Generation System**: Mathematically rigorous trajectory generation with unified interface")
+            
+            # Pattern type selection
+            col1, col2 = st.columns(2)
+            with col1:
+                unified_pattern = st.selectbox(
+                    "Pattern Type",
+                    ["geodesic", "non_geodesic", "helical", "hoop"],
+                    help="Choose the fundamental trajectory physics"
+                )
+                unified_physics = st.selectbox(
+                    "Physics Model", 
+                    ["clairaut", "friction", "constant_angle"],
+                    help="Mathematical model for trajectory calculation"
+                )
+            with col2:
+                unified_coverage = st.selectbox(
+                    "Coverage Mode",
+                    ["single_pass", "full_coverage", "custom"],
+                    help="How to cover the vessel surface"
+                )
+                unified_continuity = st.selectbox(
+                    "Continuity Level",
+                    [0, 1, 2],
+                    help="0=Position, 1=Velocity, 2=Acceleration continuity"
+                )
+            
+            # Advanced parameters
+            st.markdown("### ⚙️ Advanced Parameters")
+            col3, col4 = st.columns(2)
+            with col3:
+                unified_roving_width = st.number_input("Roving Width (mm)", min_value=0.1, value=3.0, step=0.1)
+                unified_layers = st.number_input("Number of Layers", min_value=1, max_value=10, value=1)
+            with col4:
+                unified_angle = st.number_input("Target Winding Angle (°)", min_value=10.0, max_value=85.0, value=45.0, step=1.0)
+                unified_points = st.number_input("Points per Circuit", min_value=50, max_value=500, value=100, step=10)
+            
+            # Generate trajectory button
+            if st.button("🚀 Generate Unified Trajectory", type="primary", help="Generate trajectory using the unified system"):
+                try:
+                    # Initialize unified planner
+                    unified_planner = UnifiedTrajectoryPlanner(
+                        vessel_geometry=st.session_state.vessel_geometry,
+                        roving_width_m=unified_roving_width / 1000,  # Convert mm to m
+                        payout_length_m=0.5,  # Default 500mm payout
+                        default_friction_coeff=0.1
+                    )
+                    
+                    # Generate trajectory
+                    with st.spinner("Generating trajectory using unified system..."):
+                        result = unified_planner.generate_trajectory(
+                            pattern_type=unified_pattern,
+                            coverage_mode=unified_coverage,
+                            physics_model=unified_physics,
+                            continuity_level=unified_continuity,
+                            num_layers_desired=unified_layers,
+                            target_params={'winding_angle_deg': unified_angle},
+                            options={'num_points': unified_points}
+                        )
+                    
+                    if result.points:
+                        # Convert to legacy format for visualization compatibility
+                        adapter = LegacyTrajectoryAdapter(unified_planner)
+                        legacy_output = adapter._convert_legacy_output(result)
+                        
+                        st.session_state.trajectory_data = legacy_output
+                        st.success(f"🎉 **Success!** Generated {len(result.points)} trajectory points with unified system")
+                        
+                        # Show advanced metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Points", len(result.points))
+                        with col2:
+                            st.metric("Quality", f"{result.quality_metrics.get('max_c0_gap_mm', 0):.2f}mm" if result.quality_metrics else "N/A")
+                        with col3:
+                            st.metric("Pattern", unified_pattern.title())
+                        with col4:
+                            st.metric("Physics", unified_physics.title())
+                        
+                        # Quality report
+                        if result.quality_metrics:
+                            with st.expander("📊 Advanced Quality Metrics", expanded=False):
+                                quality_data = []
+                                for key, value in result.quality_metrics.items():
+                                    if isinstance(value, (int, float)):
+                                        quality_data.append({"Metric": key.replace('_', ' ').title(), "Value": f"{value:.3f}"})
+                                    else:
+                                        quality_data.append({"Metric": key.replace('_', ' ').title(), "Value": str(value)})
+                                st.dataframe(quality_data, use_container_width=True, hide_index=True)
+                        
+                        st.rerun()
+                    else:
+                        st.error("❌ No trajectory points generated. Check parameters and try again.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Unified trajectory generation failed: {str(e)}")
+                    st.info("💡 Try adjusting parameters or check vessel geometry")
+        
+        elif pattern_type in ["Helical", "Transitional"]:
             winding_angle = st.slider("Winding Angle (degrees)", min_value=5.0, max_value=85.0, value=55.0, step=1.0)
         
         # Band properties
