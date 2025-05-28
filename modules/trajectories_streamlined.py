@@ -148,15 +148,18 @@ class StreamlinedTrajectoryPlanner:
                 print(f"\n--- Pass {pass_idx + 1}/{num_passes} ---")
                 print(f"Starting from {current_start_pole} pole, φ={math.degrees(phi_for_next_leg_start_at_pole):.2f}°")
                 
-                # 1. Generate main geodesic leg (pole-to-pole)
-                # Use existing geodesic generation with proper parameters
-                is_forward = current_direction_sign > 0
-                leg_result = self._solve_geodesic_segment_unified(
-                    profile_data,
-                    initial_phi=phi_for_next_leg_start_at_pole,
-                    initial_sin_alpha=self.clairauts_constant_for_path_m / polar_opening_radius,
-                    is_forward=is_forward
+                # 1. Generate main geodesic leg (pole-to-pole) using direct geodesic solver
+                leg_points = self._generate_direct_geodesic_leg(
+                    profile_data=profile_data,
+                    start_pole=current_start_pole,
+                    start_phi_rad=phi_for_next_leg_start_at_pole,
+                    direction_sign=current_direction_sign
                 )
+                
+                leg_result = {
+                    'success': len(leg_points) > 0,
+                    'path_points': leg_points
+                }
                 
                 if not leg_result.get('success', False):
                     print(f"Failed to generate geodesic leg {pass_idx + 1}")
@@ -298,6 +301,91 @@ class StreamlinedTrajectoryPlanner:
         
         # For helical patterns, use continuous geodesic as base
         return self._generate_continuous_geodesic_path(profile_data, num_passes)
+    
+    def _generate_direct_geodesic_leg(self, profile_data: Dict, start_pole: str, 
+                                    start_phi_rad: float, direction_sign: int) -> List[Dict]:
+        """
+        Generate geodesic leg using direct analytical calculation instead of ODE solving.
+        This avoids numerical integration issues and provides reliable geodesic paths.
+        """
+        try:
+            # Extract profile coordinates
+            r_coords = profile_data['r_inner_m']
+            z_coords = profile_data['z_m']
+            
+            # Determine start and end points based on pole and direction
+            if start_pole == 'front':
+                if direction_sign > 0:
+                    # Front to aft
+                    z_start, z_end = max(z_coords), min(z_coords)
+                else:
+                    # Front to front (shouldn't happen, but handle gracefully)
+                    z_start, z_end = max(z_coords), max(z_coords) * 0.8
+            else:
+                if direction_sign > 0:
+                    # Aft to front
+                    z_start, z_end = min(z_coords), max(z_coords)
+                else:
+                    # Aft to aft (shouldn't happen, but handle gracefully)
+                    z_start, z_end = min(z_coords), min(z_coords) * 0.8
+            
+            # Generate geodesic points using direct calculation
+            num_points = 50
+            z_path = np.linspace(z_start, z_end, num_points)
+            
+            leg_points = []
+            
+            for i, z in enumerate(z_path):
+                # Find corresponding radius from vessel profile
+                rho = float(np.interp(z, z_coords, r_coords))
+                
+                # Calculate geodesic phi using Clairaut's constant
+                # For geodesic: C = rho * sin(alpha) = constant
+                # sin(alpha) = C / rho
+                sin_alpha = min(0.99, self.clairauts_constant_for_path_m / rho)
+                alpha = math.asin(sin_alpha)
+                
+                # Calculate phi advancement based on geodesic geometry
+                # dphi/dz = (tan(alpha) / rho) * sqrt(1 + (dr/dz)^2)
+                if i > 0:
+                    dz = z_path[i] - z_path[i-1]
+                    drho_dz = (rho - prev_rho) / dz if dz != 0 else 0
+                    ds_dz = math.sqrt(1 + drho_dz**2)
+                    dphi_dz = (math.tan(alpha) / rho) * ds_dz if rho > 1e-6 else 0
+                    phi_current = phi_prev + dphi_dz * dz
+                else:
+                    phi_current = start_phi_rad
+                
+                # Calculate Cartesian coordinates
+                x = rho * math.cos(phi_current)
+                y = rho * math.sin(phi_current)
+                
+                # Create point data structure
+                point = {
+                    'x_m': x,
+                    'y_m': y,
+                    'z_m': z,
+                    'rho_m': rho,
+                    'phi_rad_profile': phi_current % (2 * math.pi),
+                    'alpha_deg_profile': math.degrees(alpha),
+                    'segment_type': 'geodesic_leg'
+                }
+                
+                leg_points.append(point)
+                
+                # Store for next iteration
+                phi_prev = phi_current
+                prev_rho = rho
+            
+            print(f"    Generated {len(leg_points)} points for direct geodesic leg")
+            print(f"    Z range: {z_start:.3f}m to {z_end:.3f}m")
+            print(f"    Phi range: {math.degrees(start_phi_rad):.1f}° to {math.degrees(phi_current):.1f}°")
+            
+            return leg_points
+            
+        except Exception as e:
+            print(f"Error in direct geodesic leg generation: {e}")
+            return []
     
     def _calculate_passes_unified(self, coverage_option: str, user_circuits: int) -> int:
         """Unified pass calculation logic - FIXED to use actual circuits, not doubled passes."""
