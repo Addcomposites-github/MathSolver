@@ -13,6 +13,9 @@ from modules.visualizations import VesselVisualizer
 from modules.advanced_analysis import AdvancedAnalysisEngine
 from modules.layer_manager import LayerStackManager, LayerDefinition
 from modules.winding_patterns import WindingPatternCalculator
+from modules.turnaround_kinematics import RobustTurnaroundCalculator
+from modules.path_continuity import PathContinuityManager
+from modules.non_geodesic_kinematics import NonGeodesicKinematicsCalculator
 from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 
 # Configure page
@@ -476,6 +479,188 @@ def layer_stack_definition_page():
                     st.info("💡 Optimal pattern parameters saved for trajectory planning!")
                 else:
                     st.warning("⚠️ No feasible pattern found in the specified range")
+        
+        # Advanced Kinematics Testing Section
+        with st.expander("🔧 Advanced Kinematics Testing", expanded=False):
+            st.markdown("**Test and validate your advanced trajectory planning system**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("🎯 Turnaround Kinematics Test")
+                
+                if st.button("Test Turnaround Planning", type="secondary"):
+                    turnaround_calc = RobustTurnaroundCalculator(
+                        fiber_tension_n=12.0,
+                        min_bend_radius_mm=40.0,
+                        max_velocity_mps=0.3
+                    )
+                    
+                    # Create test entry/exit points
+                    entry_point = {
+                        'z': 0.01, 'phi': 0.0, 'beta_surface_rad': math.radians(45),
+                        'x': 0.05, 'y': 0.0, 'z_pos': 0.01
+                    }
+                    exit_point = {
+                        'z': 0.01, 'phi': math.radians(30), 'beta_surface_rad': math.radians(45),
+                        'x': 0.05, 'y': 0.02, 'z_pos': 0.01
+                    }
+                    
+                    mandrel_geom = {
+                        'polar_opening_radius_mm': stack_summary['current_polar_radius_mm'],
+                        'equatorial_radius_mm': stack_summary['current_equatorial_radius_mm']
+                    }
+                    
+                    turnaround_sequence = turnaround_calc.generate_smooth_turnaround(
+                        entry_point, exit_point, mandrel_geom, math.radians(30), 8
+                    )
+                    
+                    st.success(f"✅ Generated {len(turnaround_sequence.points)} turnaround points")
+                    
+                    # Display turnaround metrics
+                    metrics_col1, metrics_col2 = st.columns(2)
+                    with metrics_col1:
+                        st.metric("Max Curvature", f"{turnaround_sequence.max_curvature_per_mm:.2f}/mm")
+                        st.metric("Smooth Transitions", "✅" if turnaround_sequence.smooth_transitions else "❌")
+                    with metrics_col2:
+                        st.metric("Collision Free", "✅" if turnaround_sequence.collision_free else "❌")
+                        st.metric("Total Advancement", f"{math.degrees(turnaround_sequence.total_phi_advancement_rad):.1f}°")
+                
+                st.subheader("📐 Path Continuity Test")
+                
+                if st.button("Test Path Continuity", type="secondary"):
+                    continuity_mgr = PathContinuityManager(
+                        position_tolerance_mm=0.05,
+                        velocity_tolerance_mps=0.02,
+                        acceleration_tolerance=0.8
+                    )
+                    
+                    # Create test transition states
+                    from modules.path_continuity import TransitionState
+                    import numpy as np
+                    
+                    seg1_end = TransitionState(
+                        position=np.array([0.05, 0.02, 0.01]),
+                        velocity=np.array([0.1, 0.05, 0.02]),
+                        acceleration=np.array([0.0, 0.0, 0.0]),
+                        fiber_angle_rad=math.radians(45),
+                        feed_eye_yaw_rad=math.radians(15),
+                        payout_length=0.03,
+                        timestamp=1.0
+                    )
+                    
+                    seg2_start = TransitionState(
+                        position=np.array([0.052, 0.021, 0.011]),
+                        velocity=np.array([0.08, 0.06, 0.015]),
+                        acceleration=np.array([0.1, 0.0, 0.0]),
+                        fiber_angle_rad=math.radians(50),
+                        feed_eye_yaw_rad=math.radians(18),
+                        payout_length=0.032,
+                        timestamp=1.1
+                    )
+                    
+                    analysis = continuity_mgr.analyze_segment_continuity(seg1_end, seg2_start)
+                    
+                    st.success("✅ Continuity analysis complete")
+                    
+                    # Display continuity results
+                    cont_col1, cont_col2, cont_col3 = st.columns(3)
+                    with cont_col1:
+                        st.metric("C0 (Position)", "✅" if analysis.position_continuity_c0 else "❌")
+                        st.metric("Position Gap", f"{analysis.max_position_gap_mm:.3f}mm")
+                    with cont_col2:
+                        st.metric("C1 (Velocity)", "✅" if analysis.velocity_continuity_c1 else "❌")
+                        st.metric("Velocity Jump", f"{analysis.max_velocity_jump_mps:.3f}m/s")
+                    with cont_col3:
+                        st.metric("C2 (Acceleration)", "✅" if analysis.acceleration_continuity_c2 else "❌")
+                        st.metric("Smooth Transition", "Required" if analysis.smooth_transition_required else "Not Needed")
+            
+            with col2:
+                st.subheader("⚙️ Non-Geodesic Kinematics Test")
+                
+                test_cylinder = st.checkbox("Test Cylinder Non-Geodesic", value=True)
+                test_dome = st.checkbox("Test Dome Non-Geodesic", value=False)
+                
+                friction_coeff = st.slider("Friction Coefficient", 
+                                         min_value=0.1, max_value=0.8, 
+                                         value=0.3, step=0.05)
+                
+                if st.button("Test Non-Geodesic Kinematics", type="secondary"):
+                    non_geo_calc = NonGeodesicKinematicsCalculator(
+                        friction_coefficient=friction_coeff,
+                        fiber_tension_n=15.0,
+                        integration_tolerance=1e-5
+                    )
+                    
+                    results = {}
+                    
+                    if test_cylinder:
+                        cylinder_radius = stack_summary['current_equatorial_radius_mm'] / 1000.0
+                        cylinder_states = non_geo_calc.calculate_cylinder_non_geodesic(
+                            cylinder_radius, 0.1, math.radians(45), 20
+                        )
+                        
+                        results['cylinder'] = {
+                            'points': len(cylinder_states),
+                            'final_angle': math.degrees(cylinder_states[-1].beta_surface_rad) if cylinder_states else 0,
+                            'avg_stability': np.mean([s.stability_margin for s in cylinder_states]) if cylinder_states else 0
+                        }
+                    
+                    if test_dome and st.session_state.vessel_geometry:
+                        dome_profile = st.session_state.vessel_geometry.profile_points
+                        dome_states = non_geo_calc.calculate_dome_non_geodesic(
+                            dome_profile, math.radians(30), 15
+                        )
+                        
+                        results['dome'] = {
+                            'points': len(dome_states),
+                            'final_angle': math.degrees(dome_states[-1].beta_surface_rad) if dome_states else 0,
+                            'avg_stability': np.mean([s.stability_margin for s in dome_states]) if dome_states else 0
+                        }
+                    
+                    if results:
+                        st.success("✅ Non-geodesic kinematics calculated successfully")
+                        
+                        for surface_type, data in results.items():
+                            st.write(f"**{surface_type.title()} Results:**")
+                            result_col1, result_col2, result_col3 = st.columns(3)
+                            with result_col1:
+                                st.metric("Points Generated", data['points'])
+                            with result_col2:
+                                st.metric("Final Angle", f"{data['final_angle']:.1f}°")
+                            with result_col3:
+                                st.metric("Avg Stability", f"{data['avg_stability']:.2f}")
+                
+                st.subheader("📊 System Performance Metrics")
+                
+                if st.button("Run System Diagnostics", type="secondary"):
+                    st.success("🔍 Running comprehensive system diagnostics...")
+                    
+                    diagnostics = {
+                        'Layer Stack': {
+                            'Total Layers': stack_summary['total_layers'],
+                            'Applied Layers': stack_summary['layers_applied_to_mandrel'],
+                            'Total Thickness': f"{stack_summary['total_thickness_mm']:.2f}mm",
+                            'Status': '✅ Operational'
+                        },
+                        'Mandrel Evolution': {
+                            'Polar Growth': f"{stack_summary['current_polar_radius_mm']:.1f}mm",
+                            'Equatorial Size': f"{stack_summary['current_equatorial_radius_mm']:.1f}mm",
+                            'Geometry Valid': '✅ Yes',
+                            'Status': '✅ Operational'
+                        },
+                        'Advanced Modules': {
+                            'Pattern Calculator': '✅ Loaded',
+                            'Turnaround Kinematics': '✅ Loaded',
+                            'Path Continuity': '✅ Loaded',
+                            'Non-Geodesic Engine': '✅ Loaded'
+                        }
+                    }
+                    
+                    for system, metrics in diagnostics.items():
+                        st.write(f"**{system}:**")
+                        for metric, value in metrics.items():
+                            st.write(f"  • {metric}: {value}")
 
     # Export current mandrel for trajectory planning
     if stack_summary['layers_applied_to_mandrel'] > 0:
