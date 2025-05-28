@@ -576,7 +576,7 @@ class TrajectoryPlannerRefactored:
         valid_indices = np.where(r_m >= self.clairauts_constant_for_path_m - 1e-6)[0]
         
         if len(valid_indices) == 0:
-            print("Error: No valid trajectory points found (all ρ < C)"
+            print("Error: No valid trajectory points found (all ρ < C)")
             return None
             
         start_idx, end_idx = valid_indices[0], valid_indices[-1]
@@ -594,7 +594,7 @@ class TrajectoryPlannerRefactored:
             r_of_z = UnivariateSpline(z_range, r_range, s=0, k=3)
             dr_dz_func = r_of_z.derivative(1)
         except Exception as e:
-            print(f"Error: Failed to create interpolation functions: {e}"
+            print(f"Error: Failed to create interpolation functions: {e}")
             return None
             
         # Solve geodesic ODE
