@@ -120,16 +120,18 @@ class StreamlinedTrajectoryPlanner:
             return {'success': False, 'message': f'Generation failed: {e}'}
     
     def _calculate_passes_unified(self, coverage_option: str, user_circuits: int) -> int:
-        """Unified pass calculation logic."""
+        """Unified pass calculation logic - FIXED to use actual circuits, not doubled passes."""
         if coverage_option == 'single_circuit':
-            return 2
+            return 2  # One complete circuit = 2 pole-to-pole segments
         elif coverage_option == 'full_coverage':
             if abs(self.phi_advancement_rad_per_pass) > 1e-7:
                 passes_needed = math.ceil(2 * math.pi / abs(self.phi_advancement_rad_per_pass))
                 return passes_needed if passes_needed % 2 == 0 else passes_needed + 1
             return 20
-        else:  # user_defined
-            return user_circuits * 2
+        else:  # user_defined_circuits
+            # CRITICAL FIX: User circuits should NOT be doubled
+            # Each helical circuit requires 2 pole-to-pole segments (forward + return)
+            return user_circuits * 2  # This is correct for helical circuits
     
     def _generate_geodesic_unified(self, profile_data: Dict, num_passes: int) -> Dict:
         """

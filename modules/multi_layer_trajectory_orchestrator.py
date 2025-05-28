@@ -209,11 +209,19 @@ class MultiLayerTrajectoryOrchestrator:
             # Extract number of passes from pattern results with reasonable limits
             calculated_passes = pattern_results.nd_windings
             
-            # Apply reasonable limits for visualization and performance
+            # Apply reasonable limits based on winding angle and coverage theory
             if layer_def.layer_type == 'hoop':
-                num_passes = min(calculated_passes, 20)  # Max 20 circuits for hoop
+                # Hoop layers: 10-20 circuits typically sufficient
+                num_passes = min(calculated_passes, 15)
+            elif layer_def.winding_angle_deg >= 70:
+                # Near-hoop patterns: 12-18 circuits
+                num_passes = min(calculated_passes, 18)
+            elif layer_def.winding_angle_deg >= 30:
+                # Helical patterns (30-70°): 8-15 circuits based on Koussios theory
+                num_passes = min(calculated_passes, 15)
             else:
-                num_passes = min(calculated_passes, 50)  # Max 50 circuits for helical
+                # Low angle patterns: fewer circuits but longer paths
+                num_passes = min(calculated_passes, 12)
             
             return {
                 'num_passes': num_passes,
