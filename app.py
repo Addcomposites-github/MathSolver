@@ -11,6 +11,7 @@ from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
 from modules.advanced_analysis import AdvancedAnalysisEngine
+from modules.layer_manager import LayerStackManager, LayerDefinition
 from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 
 # Configure page
@@ -51,12 +52,13 @@ def main():
     progress_status = {
         "Vessel Geometry": "✅" if st.session_state.vessel_geometry else "⭕",
         "Material Properties": "✅" if 'material_selection' in st.session_state else "⭕",
+        "Layer Stack Definition": "✅" if 'layer_stack_manager' in st.session_state else "⭕",
         "Trajectory Planning": "✅" if st.session_state.trajectory_data else "⭕",
         "Performance Analysis": "⭕",
         "Export Results": "⭕"
     }
     
-    pages = ["Vessel Geometry", "Material Properties", "Trajectory Planning", "Performance Analysis", "Export Results"]
+    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Performance Analysis", "Export Results"]
     
     # Create enhanced navigation with status indicators
     st.sidebar.markdown("### Navigation Menu")
@@ -75,6 +77,8 @@ def main():
         vessel_geometry_page()
     elif page == "Material Properties":
         material_properties_page()
+    elif page == "Layer Stack Definition":
+        layer_stack_definition_page()
     elif page == "Trajectory Planning":
         trajectory_planning_page()
     elif page == "Performance Analysis":
