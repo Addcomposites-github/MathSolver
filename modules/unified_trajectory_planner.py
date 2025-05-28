@@ -43,11 +43,20 @@ class UnifiedTrajectoryPlanner:
         if hasattr(vessel_geometry, 'generate_profile'):
             vessel_geometry.generate_profile()
             profile_points = vessel_geometry.get_profile_points()
+            
+            # Handle different attribute naming conventions
+            if 'rho_points' in profile_points:
+                rho_data = profile_points['rho_points']
+                z_data = profile_points['z_points']
+            elif 'r_inner_mm' in profile_points:
+                # Convert from mm to m and use inner radius as rho
+                rho_data = profile_points['r_inner_mm'] / 1000.0
+                z_data = profile_points['z_mm'] / 1000.0
+            else:
+                raise ValueError("Unrecognized vessel geometry format")
+            
             # Convert to [rho, z] format for physics engine
-            meridian_points = np.column_stack([
-                profile_points['rho_points'], 
-                profile_points['z_points']
-            ])
+            meridian_points = np.column_stack([rho_data, z_data])
         else:
             # Fallback: create simple cylinder profile
             radius = getattr(vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
