@@ -840,6 +840,80 @@ def layer_by_layer_planning(layer_manager):
                 })
             
             st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)
+            
+            # Add 3D visualization section
+            st.markdown("### 🎯 3D Trajectory Visualization")
+            
+            # Layer selection for visualization
+            layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
+                           for traj in all_trajectories]
+            
+            selected_layer_idx = st.selectbox(
+                "Select Layer to Visualize",
+                range(len(layer_options)),
+                format_func=lambda x: layer_options[x]
+            )
+            
+            if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
+                selected_traj = all_trajectories[selected_layer_idx]
+                
+                # Create visualization tabs
+                viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
+                
+                with viz_tab1:
+                    try:
+                        from modules.trajectory_visualization import create_3d_trajectory_visualization, display_trajectory_metrics
+                        
+                        # Create layer info for visualization
+                        layer_info = {
+                            'layer_type': selected_traj['layer_type'],
+                            'winding_angle': selected_traj['winding_angle'],
+                            'layer_id': selected_traj['layer_id']
+                        }
+                        
+                        # Generate 3D plot
+                        fig = create_3d_trajectory_visualization(
+                            selected_traj['trajectory_data'],
+                            st.session_state.vessel_geometry,
+                            layer_info
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"Error creating 3D visualization: {str(e)}")
+                        st.info("3D visualization temporarily unavailable - trajectory data is still valid for manufacturing")
+                
+                with viz_tab2:
+                    try:
+                        from modules.trajectory_visualization import display_trajectory_metrics
+                        
+                        display_trajectory_metrics(
+                            selected_traj['trajectory_data'],
+                            {
+                                'layer_type': selected_traj['layer_type'],
+                                'winding_angle': selected_traj['winding_angle'],
+                                'layer_id': selected_traj['layer_id']
+                            }
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"Error displaying metrics: {str(e)}")
+            
+            # Multi-layer comparison option
+            if len(all_trajectories) > 1:
+                st.markdown("### 🔄 Multi-Layer Comparison")
+                if st.button("🎨 Show All Layers Together", type="secondary"):
+                    try:
+                        from modules.trajectory_visualization import create_multi_layer_comparison
+                        
+                        fig_multi = create_multi_layer_comparison(all_trajectories, st.session_state.vessel_geometry)
+                        st.plotly_chart(fig_multi, use_container_width=True)
+                        
+                        st.success(f"✅ Displaying all {len(all_trajectories)} planned layers together!")
+                        
+                    except Exception as e:
+                        st.error(f"Error creating multi-layer visualization: {str(e)}")
         else:
             st.error("❌ No trajectories were successfully generated")
 
@@ -858,7 +932,8 @@ def complete_stack_planning(layer_manager):
     with col2:
         st.metric("Angle Range", f"{total_angle_variation:.0f}°")
     with col3:
-        st.metric("Final Thickness", f"{layer_manager.total_thickness_mm:.2f}mm")
+        stack_summary = layer_manager.get_layer_stack_summary()
+    st.metric("Final Thickness", f"{stack_summary['total_thickness_mm']:.2f}mm")
     
     st.warning("🚧 **Coming Soon**: Integrated multi-layer trajectory optimization")
     st.info("This will consider layer interdependencies and optimize the complete winding sequence")
