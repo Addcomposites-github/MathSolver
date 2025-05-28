@@ -131,11 +131,30 @@ class MultiLayerTrajectoryOrchestrator:
         else:
             pattern_name = "non_geodesic_spiral"  # Standard helical
         
-        # Generate trajectory
+        # Generate trajectory with proper circuit count for practical winding
+        # Convert theoretical pattern requirements to practical circuit count
+        calculated_circuits = pattern_params.get('num_passes', 10)
+        
+        # Apply practical limits for actual winding (much smaller than theoretical coverage)
+        if layer_def.layer_type == 'hoop':
+            practical_circuits = min(calculated_circuits, 8)  # 8 circuits max for hoop
+        elif layer_def.winding_angle_deg >= 60:
+            practical_circuits = min(calculated_circuits, 10)  # 10 circuits for near-hoop
+        elif layer_def.winding_angle_deg >= 40:
+            practical_circuits = min(calculated_circuits, 12)  # 12 circuits for 40-60° helical
+        else:
+            practical_circuits = min(calculated_circuits, 8)   # 8 circuits for low angles
+        
+        print(f"=== TRAJECTORY CIRCUIT CALCULATION ===")
+        print(f"Layer {layer_def.layer_set_id}: {layer_def.layer_type} at {layer_def.winding_angle_deg}°")
+        print(f"Theoretical circuits needed: {calculated_circuits}")
+        print(f"Practical circuits for winding: {practical_circuits}")
+        print(f"Pattern: {pattern_name}")
+        
         trajectory_data = layer_planner.generate_trajectory(
             pattern_name=pattern_name,
             coverage_option="user_defined_circuits",
-            user_circuits=pattern_params.get('num_passes', 10)
+            user_circuits=practical_circuits
         )
         
         return trajectory_data
