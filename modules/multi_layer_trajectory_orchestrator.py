@@ -145,7 +145,9 @@ class MultiLayerTrajectoryOrchestrator:
         # Initialize unified planner for this layer
         self.unified_planner = UnifiedTrajectoryPlanner(
             vessel_geometry=temp_vessel,
-            roving_width_mm=roving_width_mm
+            roving_width_m=roving_width_mm / 1000,  # Convert mm to m
+            payout_length_m=0.5,  # Default 500mm payout
+            default_friction_coeff=0.1
         )
         
         # Determine optimal parameters for this layer type

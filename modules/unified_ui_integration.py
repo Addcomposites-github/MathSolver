@@ -65,7 +65,8 @@ class UnifiedTrajectoryHandler:
         
         try:
             # Start performance monitoring
-            self.performance_monitor.start_generation(pattern_type, ui_params)
+            if self.performance_monitor:
+                self.performance_monitor.start_generation(pattern_type, ui_params)
             
             # Use cached planner if available, otherwise use direct planner
             active_planner = self.cached_planner if self.cached_planner else self.planner
@@ -82,7 +83,8 @@ class UnifiedTrajectoryHandler:
                 result = active_planner.generate_trajectory(**unified_params)
             
             # End performance monitoring
-            self.performance_monitor.end_generation(result)
+            if self.performance_monitor:
+                self.performance_monitor.end_generation(result)
             
             # Convert to visualization-compatible format using enhanced adapter
             viz_output = self.viz_adapter.convert_trajectory_result_for_viz(result, pattern_type)
