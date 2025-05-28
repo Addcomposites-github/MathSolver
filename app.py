@@ -26,6 +26,7 @@ try:
     from modules.unified_ui_integration import unified_trajectory_generator, show_trajectory_quality_metrics
     from modules.unified_visualization_adapter import UnifiedVisualizationAdapter
     from modules.unified_trajectory_config import create_configuration_ui, get_trajectory_config, TrajectoryConfigManager
+    from modules.unified_trajectory_performance import create_performance_dashboard, enable_performance_optimization
     UNIFIED_SYSTEM_AVAILABLE = True
 except ImportError as e:
     print(f"Unified trajectory system not available: {e}")
@@ -3056,8 +3057,15 @@ def configuration_settings_page():
         st.success("🚀 **Unified Trajectory System Active** - Advanced configuration available")
         
         try:
+            # Enable performance optimization
+            enable_performance_optimization()
+            
             # Create the configuration UI
             config, config_manager = create_configuration_ui()
+            
+            # Add performance monitoring dashboard
+            st.markdown("---")
+            create_performance_dashboard()
             
             # Show current system status
             with st.expander("📊 Current System Status", expanded=False):

@@ -9,6 +9,7 @@ from .unified_trajectory_planner import UnifiedTrajectoryPlanner
 from .legacy_trajectory_adapter import LegacyTrajectoryAdapter
 from .ui_parameter_mapper import UIParameterMapper
 from .unified_visualization_adapter import UnifiedVisualizationAdapter
+from .unified_trajectory_performance import CachedTrajectoryPlanner, TrajectoryPerformanceMonitor
 
 class UnifiedTrajectoryHandler:
     """
@@ -21,6 +22,13 @@ class UnifiedTrajectoryHandler:
         self.planner = None
         self.adapter = None
         self.viz_adapter = UnifiedVisualizationAdapter()
+        self.cached_planner = None
+        self.performance_monitor = None
+        
+        # Initialize performance monitoring
+        if 'trajectory_monitor' not in st.session_state:
+            st.session_state.trajectory_monitor = TrajectoryPerformanceMonitor()
+        self.performance_monitor = st.session_state.trajectory_monitor
     
     def initialize_planner(self, vessel_geometry, roving_width_mm: float = 3.0):
         """Initialize the unified planner with vessel geometry"""
@@ -31,6 +39,14 @@ class UnifiedTrajectoryHandler:
             default_friction_coeff=0.1
         )
         self.adapter = LegacyTrajectoryAdapter(self.planner)
+        
+        # Enable intelligent caching for better performance
+        cache_enabled = st.session_state.get('caching_enabled', True)
+        if cache_enabled:
+            cache_limit = st.session_state.get('cache_size_limit', 100)
+            self.cached_planner = CachedTrajectoryPlanner(self.planner, cache_limit)
+        else:
+            self.cached_planner = None
     
     def generate_trajectory_unified(self, pattern_type: str, ui_params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -48,24 +64,47 @@ class UnifiedTrajectoryHandler:
             raise RuntimeError("Planner not initialized. Call initialize_planner() first.")
         
         try:
+            # Start performance monitoring
+            self.performance_monitor.start_generation(pattern_type, ui_params)
+            
+            # Use cached planner if available, otherwise use direct planner
+            active_planner = self.cached_planner if self.cached_planner else self.planner
+            
             # Handle the new unified system interface directly
             if pattern_type == "🚀 Unified Trajectory System (New)":
                 # Parameters already in correct format from UI
-                result = self.planner.generate_trajectory(**ui_params)
-                return self.viz_adapter.convert_trajectory_result_for_viz(result, pattern_type)
+                result = active_planner.generate_trajectory(**ui_params)
+            else:
+                # Map legacy UI parameters to unified format
+                unified_params = self.mapper.map_streamlit_ui_to_unified(pattern_type, ui_params)
+                
+                # Generate trajectory using unified system with caching
+                result = active_planner.generate_trajectory(**unified_params)
             
-            # Map legacy UI parameters to unified format
-            unified_params = self.mapper.map_streamlit_ui_to_unified(pattern_type, ui_params)
-            
-            # Generate trajectory using unified system
-            result = self.planner.generate_trajectory(**unified_params)
+            # End performance monitoring
+            self.performance_monitor.end_generation(result)
             
             # Convert to visualization-compatible format using enhanced adapter
             viz_output = self.viz_adapter.convert_trajectory_result_for_viz(result, pattern_type)
             
-            # Add unified system indicators
+            # Add performance and caching indicators
             viz_output['unified_system_used'] = True
             viz_output['enhanced_quality_metrics'] = True
+            
+            # Add cache information if available
+            if self.cached_planner:
+                cache_stats = self.cached_planner.get_cache_stats()
+                viz_output['cache_stats'] = cache_stats
+                
+                # Update session state with cache stats
+                st.session_state.trajectory_cache_stats = cache_stats
+                
+                # Show cache performance info
+                if result and hasattr(result, 'metadata'):
+                    if result.metadata.get('cache_hit'):
+                        st.info("⚡ **Cache Hit!** - Trajectory retrieved from cache for instant results")
+                    else:
+                        st.info("🔄 **Generated Fresh** - New trajectory calculated and cached for future use")
             
             return viz_output
             
