@@ -149,10 +149,13 @@ class StreamlinedTrajectoryPlanner:
                 print(f"Starting from {current_start_pole} pole, φ={math.degrees(phi_for_next_leg_start_at_pole):.2f}°")
                 
                 # 1. Generate main geodesic leg (pole-to-pole)
+                # Use existing geodesic generation with proper parameters
+                is_forward = current_direction_sign > 0
                 leg_result = self._solve_geodesic_segment_unified(
-                    start_pole=current_start_pole,
-                    start_phi_rad_at_pole=phi_for_next_leg_start_at_pole,
-                    direction_sign=current_direction_sign
+                    profile_data,
+                    initial_phi=phi_for_next_leg_start_at_pole,
+                    initial_sin_alpha=self.clairauts_constant_for_path_m / polar_opening_radius,
+                    is_forward=is_forward
                 )
                 
                 if not leg_result.get('success', False):
@@ -206,16 +209,17 @@ class StreamlinedTrajectoryPlanner:
             print(f"Geodesic legs: {num_passes}")
             print(f"Turnaround segments: {num_passes - 1}")
             
-            # Format output using existing standardizer
+            # Format output using existing standardizer with correct parameters
             return TrajectoryOutputStandardizer.format_trajectory_output_standard(
-                path_points=all_path_points,
-                pattern_name="continuous_geodesic",
-                metadata={
+                trajectory_points=all_path_points,
+                pattern_type="continuous_geodesic",
+                generation_params={
                     'num_passes': num_passes,
                     'phi_advancement_rad': self.phi_advancement_rad_per_pass,
                     'continuous_path': True,
                     'turnaround_segments': num_passes - 1,
-                    'total_points': len(all_path_points)
+                    'total_points': len(all_path_points),
+                    'clairauts_constant_m': self.clairauts_constant_for_path_m
                 }
             )
             
