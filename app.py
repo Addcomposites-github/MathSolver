@@ -862,13 +862,19 @@ def layer_by_layer_planning(layer_manager):
         if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
             selected_traj = all_trajectories[selected_layer_idx]
             
-            # Performance controls
-            col1, col2 = st.columns(2)
+            # Visualization controls
+            col1, col2, col3 = st.columns(3)
             with col1:
-                decimation_factor = st.slider("Trajectory Detail (lower = more points)", 1, 20, 10, 
-                                             help="Higher values improve performance by showing fewer trajectory points")
+                view_mode = st.selectbox(
+                    "View Mode",
+                    ("Full 3D", "Half 3D (Y+)", "2D R-Z Profile"),
+                    help="Choose visualization mode for trajectory verification"
+                )
             with col2:
-                surface_segments = st.slider("Mandrel Surface Detail", 10, 60, 30,
+                decimation_factor = st.slider("Trajectory Detail", 1, 20, 10, 
+                                             help="Higher values improve performance by showing fewer trajectory points")
+            with col3:
+                surface_segments = st.slider("Surface Detail", 10, 60, 30,
                                             help="Lower values improve performance by reducing surface complexity")
             
             # Create visualization tabs
@@ -876,7 +882,7 @@ def layer_by_layer_planning(layer_manager):
             
             with viz_tab1:
                 try:
-                    from modules.trajectory_visualization import create_3d_trajectory_visualization, display_trajectory_metrics
+                    from modules.trajectory_visualization import create_3d_trajectory_visualization, create_2d_rz_trajectory_visualization, display_trajectory_metrics
                     
                     # Create layer info for visualization
                     layer_info = {
@@ -885,20 +891,35 @@ def layer_by_layer_planning(layer_manager):
                         'layer_id': selected_traj['layer_id']
                     }
                     
-                    # Generate 3D plot with performance optimization
-                    fig = create_3d_trajectory_visualization(
-                        selected_traj['trajectory_data'],
-                        st.session_state.vessel_geometry,
-                        layer_info,
-                        decimation_factor=decimation_factor,
-                        surface_segments=surface_segments
-                    )
+                    # Generate visualization based on selected mode
+                    if view_mode == "2D R-Z Profile":
+                        # Use 2D R-Z profile view for precise trajectory verification
+                        fig = create_2d_rz_trajectory_visualization(
+                            selected_traj['trajectory_data'],
+                            st.session_state.vessel_geometry,
+                            layer_info,
+                            decimation_factor=max(1, decimation_factor // 5)  # Less decimation for 2D
+                        )
+                        st.info("💡 **Profile Verification Mode**: This view shows if trajectory points lie precisely on the mandrel surface")
+                    else:
+                        # Use 3D visualization with appropriate view mode
+                        view_mode_3d = "full" if view_mode == "Full 3D" else "half_y_positive"
+                        fig = create_3d_trajectory_visualization(
+                            selected_traj['trajectory_data'],
+                            st.session_state.vessel_geometry,
+                            layer_info,
+                            decimation_factor=decimation_factor,
+                            surface_segments=surface_segments,
+                            view_mode=view_mode_3d
+                        )
+                        if view_mode == "Half 3D (Y+)":
+                            st.info("🔍 **Half-Section View**: Showing Y≥0 half to reduce visual clutter while preserving trajectory details")
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
                 except Exception as e:
-                    st.error(f"Error creating 3D visualization: {str(e)}")
-                    st.info("3D visualization temporarily unavailable - trajectory data is still valid for manufacturing")
+                    st.error(f"Error creating visualization: {str(e)}")
+                    st.info("Visualization temporarily unavailable - trajectory data is still valid for manufacturing")
                 
                 with viz_tab2:
                     try:

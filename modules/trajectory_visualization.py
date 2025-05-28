@@ -10,7 +10,7 @@ import streamlit as st
 from typing import Dict, List, Optional
 
 def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, layer_info: Dict = None,
-                                     decimation_factor: int = 10, surface_segments: int = 30):
+                                     decimation_factor: int = 10, surface_segments: int = 30, view_mode: str = "full"):
     """
     Create interactive 3D visualization of a single layer trajectory with performance optimization
     
@@ -45,8 +45,16 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
     z_profile = z_profile_mm / 1000.0
     r_profile = r_profile_mm / 1000.0
     
-    # Create mandrel surface with optimized segment count
-    theta_surface = np.linspace(0, 2*np.pi, surface_segments)
+    # Create mandrel surface with optimized segment count - adjust for view mode
+    if view_mode == "half_y_positive":
+        # Generate surface for y >= 0 only
+        theta_surface = np.linspace(-np.pi/2, np.pi/2, surface_segments // 2 + 1)
+    elif view_mode == "half_x_positive":
+        # Generate surface for x >= 0 only
+        theta_surface = np.linspace(0, np.pi, surface_segments // 2 + 1)
+    else:  # "full"
+        theta_surface = np.linspace(0, 2*np.pi, surface_segments)
+    
     z_surface = np.tile(z_profile, (len(theta_surface), 1)).T
     r_surface = np.tile(r_profile, (len(theta_surface), 1)).T
     x_surface = r_surface * np.cos(theta_surface)
@@ -84,6 +92,16 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
                 x_traj = np.array(x_points) * 1000  # Convert m to mm
                 y_traj = np.array(y_points) * 1000
                 z_traj = np.array(z_points) * 1000
+            
+            # Filter trajectory points for half-section views
+            if view_mode == "half_y_positive":
+                # Keep only points where y >= 0
+                mask = y_traj >= -1e-6  # Small tolerance for numerical precision
+                x_traj, y_traj, z_traj = x_traj[mask], y_traj[mask], z_traj[mask]
+            elif view_mode == "half_x_positive":
+                # Keep only points where x >= 0
+                mask = x_traj >= -1e-6  # Small tolerance for numerical precision
+                x_traj, y_traj, z_traj = x_traj[mask], y_traj[mask], z_traj[mask]
             
             # Determine color based on layer type
             if layer_info:
@@ -173,6 +191,100 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
     )
     
     return fig
+
+
+def create_2d_rz_trajectory_visualization(
+        trajectory_data: Dict,
+        vessel_geometry,
+        layer_info: Optional[Dict] = None,
+        decimation_factor: int = 1) -> go.Figure:
+    """
+    Create a 2D R-Z plot of the mandrel profile and overlay the trajectory.
+    This view is excellent for checking if the trajectory lies on the surface.
+    """
+    fig = go.Figure()
+
+    # 1. Plot Mandrel Profile (the surface the layer was wound on)
+    profile = vessel_geometry.get_profile_points()
+    if not profile or 'z_mm' not in profile or 'r_inner_mm' not in profile:
+        st.warning("Mandrel profile data for 2D R-Z plot is missing or incomplete.")
+        return fig  # Return empty figure
+
+    z_profile_mm = np.array(profile['z_mm'])
+    # r_inner_mm from get_profile_points is the winding surface
+    r_profile_mm = np.array(profile['r_inner_mm'])
+
+    fig.add_trace(go.Scatter(
+        x=z_profile_mm, y=r_profile_mm,
+        mode='lines',
+        line=dict(color='grey', width=2, dash='dash'),
+        name='Mandrel Surface (R-Z)'
+    ))
+    # Also plot the negative R profile for visual completeness
+    fig.add_trace(go.Scatter(
+        x=z_profile_mm, y=-r_profile_mm,
+        mode='lines',
+        line=dict(color='grey', width=2, dash='dash'),
+        showlegend=False
+    ))
+
+    # 2. Plot Trajectory Points (projected to R-Z)
+    if trajectory_data and trajectory_data.get('success', False):
+        x_points = trajectory_data.get('x_points_m', [])
+        y_points = trajectory_data.get('y_points_m', [])
+        z_points = trajectory_data.get('z_points_m', [])
+        
+        if len(x_points) > 0:
+            if decimation_factor > 1 and len(x_points) > decimation_factor:
+                indices = np.arange(0, len(x_points), decimation_factor)
+                x_traj_m = np.array(x_points)[indices]
+                y_traj_m = np.array(y_points)[indices]
+                z_traj_m = np.array(z_points)[indices]
+            else:
+                x_traj_m = np.array(x_points)
+                y_traj_m = np.array(y_points)
+                z_traj_m = np.array(z_points)
+
+            # Convert to mm for plotting with profile
+            z_traj_mm = z_traj_m * 1000.0
+
+            # Calculate radial distance R = sqrt(x^2 + y^2)
+            r_traj_mm = np.sqrt(x_traj_m**2 + y_traj_m**2) * 1000.0
+
+            # Determine color based on layer type
+            if layer_info:
+                layer_type = layer_info.get('layer_type', 'unknown')
+                if layer_type == 'hoop':
+                    color = 'red'
+                elif layer_type == 'helical':
+                    color = 'blue'
+                elif layer_type == 'polar':
+                    color = 'green'
+                else:
+                    color = 'orange'
+            else:
+                color = 'red'
+
+            fig.add_trace(go.Scatter(
+                x=z_traj_mm, y=r_traj_mm,
+                mode='markers',
+                marker=dict(color=color, size=3),
+                name=f"Layer {layer_info.get('layer_id', '')} Trajectory" if layer_info else "Trajectory"
+            ))
+        else:
+            st.info(f"No trajectory points to display in 2D R-Z view for layer {layer_info.get('layer_id', '') if layer_info else ''}.")
+
+    # 3. Layout
+    fig.update_layout(
+        title=f"2D R-Z Profile View: Layer {layer_info.get('layer_id', 'N/A')}" if layer_info else "2D R-Z Profile View",
+        xaxis_title="Axial Position Z (mm)",
+        yaxis_title="Radial Position R (mm)",
+        yaxis=dict(scaleanchor="x", scaleratio=1),  # Equal aspect ratio
+        legend_title_text='Legend',
+        height=600
+    )
+    return fig
+
 
 def create_multi_layer_comparison(all_layer_trajectories: List[Dict], vessel_geometry):
     """
