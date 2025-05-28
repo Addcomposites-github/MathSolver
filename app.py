@@ -28,15 +28,48 @@ if 'trajectory_data' not in st.session_state:
     st.session_state.trajectory_data = None
 
 def main():
-    st.title("🏗️ Composite Pressure Vessel Design Tool")
-    st.markdown("Engineering application for COPV 2D profile generation and filament winding trajectory planning")
+    # Enhanced header with professional styling
+    st.markdown("""
+    <div style="background: linear-gradient(90deg, #1e3c72, #2a5298); padding: 1.5rem; border-radius: 10px; margin-bottom: 2rem;">
+        <h1 style="color: white; text-align: center; margin: 0; font-size: 2.5rem;">
+            🏗️ Advanced COPV Design Suite
+        </h1>
+        <p style="color: #e8f4fd; text-align: center; margin: 0.5rem 0 0 0; font-size: 1.1rem;">
+            Professional Engineering Tool for Composite Pressure Vessel Design & Analysis
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Sidebar for navigation
-    st.sidebar.title("Navigation")
-    page = st.sidebar.selectbox(
-        "Select Analysis Module",
-        ["Vessel Geometry", "Material Properties", "Trajectory Planning", "Performance Analysis", "Export Results"]
-    )
+    # Enhanced sidebar with progress tracking
+    st.sidebar.markdown("""
+    <div style="background: #f0f2f6; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+        <h3 style="color: #1e3c72; margin: 0;">🎯 Design Workflow</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Progress indicators
+    progress_status = {
+        "Vessel Geometry": "✅" if st.session_state.vessel_geometry else "⭕",
+        "Material Properties": "✅" if 'material_selection' in st.session_state else "⭕",
+        "Trajectory Planning": "✅" if st.session_state.trajectory_data else "⭕",
+        "Performance Analysis": "⭕",
+        "Export Results": "⭕"
+    }
+    
+    pages = ["Vessel Geometry", "Material Properties", "Trajectory Planning", "Performance Analysis", "Export Results"]
+    
+    # Create enhanced navigation with status indicators
+    st.sidebar.markdown("### Navigation Menu")
+    for i, page_name in enumerate(pages):
+        status = progress_status[page_name]
+        if st.sidebar.button(f"{status} {page_name}", key=f"nav_{i}", use_container_width=True):
+            st.session_state.current_page = page_name
+    
+    # Get current page
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Vessel Geometry"
+    
+    page = st.session_state.current_page
     
     if page == "Vessel Geometry":
         vessel_geometry_page()
@@ -50,36 +83,117 @@ def main():
         export_results_page()
 
 def vessel_geometry_page():
-    st.header("Vessel Geometry Design")
+    # Professional page header
+    st.markdown("""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
+        <h2 style="color: #1e3c72; margin: 0;">⚙️ Vessel Geometry Design</h2>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Define your composite pressure vessel dimensions and dome configuration</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("Input Parameters")
+        # Enhanced input section with better organization
+        st.markdown("""
+        <div style="background: #ffffff; padding: 1rem; border-radius: 8px; border: 1px solid #dee2e6;">
+            <h4 style="color: #495057; margin-top: 0;">🔧 Design Parameters</h4>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Basic vessel parameters
-        st.markdown("### Basic Dimensions")
-        inner_diameter = st.number_input("Inner Diameter (mm)", min_value=10.0, value=200.0, step=1.0)
-        cylindrical_length = st.number_input("Cylindrical Length (mm)", min_value=0.0, value=300.0, step=1.0)
-        wall_thickness = st.number_input("Wall Thickness (mm)", min_value=0.1, value=5.0, step=0.1)
+        # Basic vessel parameters with enhanced styling
+        with st.expander("📏 Basic Dimensions", expanded=True):
+            inner_diameter = st.number_input(
+                "Inner Diameter (mm)", 
+                min_value=10.0, 
+                value=200.0, 
+                step=1.0,
+                help="Internal diameter of the cylindrical section"
+            )
+            cylindrical_length = st.number_input(
+                "Cylindrical Length (mm)", 
+                min_value=0.0, 
+                value=300.0, 
+                step=1.0,
+                help="Length of the straight cylindrical section"
+            )
+            wall_thickness = st.number_input(
+                "Wall Thickness (mm)", 
+                min_value=0.1, 
+                value=5.0, 
+                step=0.1,
+                help="Composite wall thickness"
+            )
         
-        # Dome parameters
-        st.markdown("### Dome Configuration")
-        dome_type = st.selectbox("Dome Type", ["Isotensoid", "Geodesic", "Elliptical", "Hemispherical"])
+        # Dome parameters with visual indicators
+        with st.expander("🏛️ Dome Configuration", expanded=True):
+            dome_type = st.selectbox(
+                "Dome Type", 
+                ["Isotensoid", "Geodesic", "Elliptical", "Hemispherical"],
+                help="Select the dome end-cap geometry type"
+            )
+            
+            if dome_type == "Isotensoid":
+                st.markdown("**⚡ Advanced qrs-Parameterization (Koussios Theory)**")
+                col_q, col_r = st.columns(2)
+                with col_q:
+                    q_factor = st.slider(
+                        "q-factor", 
+                        min_value=0.1, 
+                        max_value=20.0, 
+                        value=9.5, 
+                        step=0.1,
+                        help="Shape parameter controlling dome curvature"
+                    )
+                with col_r:
+                    r_factor = st.slider(
+                        "r-factor", 
+                        min_value=-1.0, 
+                        max_value=2.0, 
+                        value=0.1, 
+                        step=0.01,
+                        help="Boundary condition parameter"
+                    )
+                s_factor = st.slider(
+                    "s-factor", 
+                    min_value=0.0, 
+                    max_value=2.0, 
+                    value=0.5, 
+                    step=0.01,
+                    help="Additional shape control parameter"
+                )
+            elif dome_type == "Elliptical":
+                aspect_ratio = st.slider(
+                    "Dome Aspect Ratio (height/radius)", 
+                    min_value=0.1, 
+                    max_value=2.0, 
+                    value=1.0, 
+                    step=0.01,
+                    help="Ratio of dome height to radius"
+                )
         
-        if dome_type == "Isotensoid":
-            st.markdown("#### qrs-Parameterization (Koussios)")
-            q_factor = st.slider("q-factor", min_value=0.1, max_value=20.0, value=2.0, step=0.1)
-            r_factor = st.slider("r-factor", min_value=-1.0, max_value=2.0, value=0.1, step=0.01)
-            s_factor = st.slider("s-factor", min_value=0.0, max_value=2.0, value=0.5, step=0.01)
-        elif dome_type == "Elliptical":
-            aspect_ratio = st.slider("Dome Aspect Ratio (height/radius)", min_value=0.1, max_value=2.0, value=1.0, step=0.01)
-        
-        # Operating conditions
-        st.markdown("### Operating Conditions")
-        operating_pressure = st.number_input("Operating Pressure (MPa)", min_value=0.1, value=30.0, step=0.1)
-        safety_factor = st.number_input("Safety Factor", min_value=1.0, value=2.0, step=0.1)
-        operating_temp = st.number_input("Operating Temperature (°C)", value=20.0, step=1.0)
+        # Operating conditions with engineering context
+        with st.expander("🌡️ Operating Conditions", expanded=True):
+            operating_pressure = st.number_input(
+                "Operating Pressure (MPa)", 
+                min_value=0.1, 
+                value=30.0, 
+                step=0.1,
+                help="Maximum operating pressure"
+            )
+            safety_factor = st.number_input(
+                "Safety Factor", 
+                min_value=1.0, 
+                value=2.0, 
+                step=0.1,
+                help="Design safety factor for stress calculations"
+            )
+            operating_temp = st.number_input(
+                "Operating Temperature (°C)", 
+                value=20.0, 
+                step=1.0,
+                help="Operating temperature for material properties"
+            )
         
         # Generate geometry button
         if st.button("Generate Vessel Geometry", type="primary"):

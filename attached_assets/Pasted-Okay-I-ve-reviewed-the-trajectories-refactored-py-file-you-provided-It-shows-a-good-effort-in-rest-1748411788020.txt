@@ -1,0 +1,295 @@
+Okay, I've reviewed the trajectories_refactored.py file you provided. It shows a good effort in restructuring according to the plan! You've got the main generate_trajectory dispatcher and the stubs or initial implementations for _engine_continuous_spiral (which seems to be the new name for _engine_geodesic_spiral and _engine_non_geodesic_spiral combined based on is_geodesic_mode) and the ODE solvers.
+
+Here's an evaluation and a list of missing steps or issues, focusing on making the "single circuit" and "full coverage" options work reliably, starting with geodesics:
+
+Evaluation and Next Steps for trajectories_refactored.py
+1. generate_trajectory (Main Dispatcher - L240)
+Logic: Looks good. It correctly dispatches to _engine_continuous_spiral based on pattern_name and passes coverage_option and user_circuits.
+Missing:
+The pattern_name == "Standard Helical-Polar" case is stubbed with a NotImplementedError. If you intend to keep this pattern, its engine will need to be implemented or refined similar to the spiral engines.
+Consider adding a fallback or error for an unrecognized pattern_name.
+2. _engine_continuous_spiral (Core Engine - L280)
+This is the heart of your refactored planner.
+
+Initialization & Profile Prep (_prepare_profile_data - L201):
+
+Issue: self.R_cyl_m is set using self.vessel.get_cylindrical_radius_m(). Ensure this method exists and is robust in your VesselGeometry class. The fallback logic for R_cyl_m if this method fails or returns None is good.
+Issue: Spline creation (self.rho_interp_spl, self.drho_dz_interp_spl) in _prepare_profile_data. If len(unique_z) < 4, you set self.drho_dz_interp_spl = None. The ODE solvers (both geodesic and non-geodesic) rely on drho_dz. If it's None, they will fail.
+Solution: If cubic splines cannot be formed, fall back to linear interpolation for ρ(z) and use np.gradient for dρ/dz, or pass the raw sorted profile points to the ODE solvers and let them handle local differentiation or interpolation. The current fallback self.rho_interp_spl = lambda z_val: np.interp(...) is okay for ρ, but dρ/dz is missing.
+Clairaut's Constant for Geodesic: This engine relies on self.clairauts_constant_for_path_m being correctly set before this engine is called if is_geodesic_mode is true. Your __init__ calls _initialize_clairauts_constant (L167), which seems to set this up. This is good.
+Phi Advancement Calculation (L321):
+
+Math: The formula (self.dry_roving_width_m / math.cos(target_alpha_cyl_rad_effective)) / self.R_cyl_m for phi_advancement_rad_per_pass is correct for adjacent band placement.
+Robustness: The checks for self.R_cyl_m > 1e-6 and abs(math.cos(target_alpha_cyl_rad_effective)) > 1e-9 are good.
+Number of Passes Determination (L335):
+
+Logic: The logic for actual_num_passes_to_run based on coverage_option ('full_coverage', 'single_circuit', 'user_defined') is clear and correct.
+single_circuit correctly sets actual_num_passes_to_run = 2.
+full_coverage calculates passes_for_one_coverage_layer based on phi_advancement_rad_per_pass. This is the right approach.
+Main Pass Loop (L356):
+
+Continuity:
+initial_phi_for_pass = current_phi_rad - Correct.
+initial_sin_alpha_for_pass = current_sin_alpha - Correct.
+ODE Solver Calls:
+Geodesic Mode (L383): Calls _solve_ode_geodesic_segment.
+Non-Geodesic Mode (L450): Calls _solve_ode_non_geodesic_segment.
+ODE Failure Handling (L434 for Geodesic, L474 for Non-Geodesic):
+
+Improvement: You've added break statements if the segment solution fails. This is excellent and will prevent the huge "step length" (misreported as "gap").
+The logging is also good.
+Storing Points and Updating State (L490 - L518):
+
+The logic to add points from segment_points_this_pass to full_path_points, skipping the first point if it's a duplicate, is good.
+current_sin_alpha = final_sin_alpha_this_pass - Correct.
+current_phi_rad_pass_end = final_phi_this_pass - Correct.
+current_phi_rad = current_phi_rad_pass_end + phi_advancement_rad_per_pass - Correct application of advancement for the start of the next pass.
+Missing Steps/Issues in _engine_continuous_spiral:
+
+Geodesic Turnaround Logic (Critical for Geodesic Mode):
+
+The current _solve_ode_geodesic_segment (L605) uses a dϕ/dz formulation which is problematic when ρ→C (Clairaut's constant), as α→π/2 and dz→0 for a change in s 
+m
+​
+ .
+
+The "simplified geodesic turnaround" (L390-L425) in _engine_continuous_spiral is an attempt to handle this by creating a purely circumferential segment if abs(current_sin_alpha - 1.0) < 1e-4.
+
+Issue: This logic assumes the phi_advancement_rad_per_pass is the turn. For a single fiber path, the path becomes circumferential naturally. The phi_advancement_rad_per_pass is for patterning between different fiber circuits or passes.
+Issue: The z_at_turn = pass_start_z (L407) is an approximation and likely incorrect. The z coordinate at which ρ=C must be found from the profile. There can be two such z values on a dome.
+Issue: This explicit turn segment makes the overall path length for the "pass" different from the purely meridional integration.
+More Robust Geodesic Turnaround Strategy:
+
+In _solve_ode_geodesic_segment: Integrate dϕ/dz (or dϕ/dρ) from the starting pole until ρ gets very close to C (e.g., sinα=0.99999). Record the z,ρ,ϕ at this point. This is the end of the "meridional sweep" part of the leg.
+In _engine_continuous_spiral:
+The final_sin_alpha_this_pass from the solver should be ≈1.0.
+The final_phi_this_pass is the ϕ at this near-turnaround point.
+The current_sin_alpha for the next pass (which will go in the opposite z direction) should also start at ≈1.0.
+The phi_advancement_rad_per_pass is added to current_phi_rad as is currently done. This sets the starting ϕ for the next meridional sweep from the same polar region but shifted for the pattern.
+The "turn" itself (the part where α≈90 
+∘
+ ) is implicitly handled because the next pass starts with α≈90 
+∘
+  and immediately begins its meridional journey in the opposite z direction. The path on the mandrel doesn't need an artificial circumferential segment within a single pass's physics unless you are explicitly modeling a polar dwell for a specific purpose. The pattern advancement creates the shift between such passes.
+Initial current_sin_alpha for the Very First Geodesic Pass (L307):
+
+If is_geodesic_mode, current_sin_alpha = np.clip(self.clairauts_constant_for_path_m / current_rho if current_rho > 1e-9 else 1.0, -1.0, 1.0).
+Issue: If current_rho (which is rho_at_pole_start) is equal to self.clairauts_constant_for_path_m (i.e., winding starts tangentially to the polar opening C), then current_sin_alpha will be 1.0. This means the first pass would immediately be in the "simplified geodesic turnaround" block (L390). This might be intended if the first "pass" is just the turn, but it's unusual. Typically, the first pass starts meridionally from the pole.
+Clarification: For a geodesic path starting at a pole opening r 
+po
+​
+  (where r 
+po
+​
+ =C), the fiber departs with α≈0 if it's the actual geometric pole, or if C<r 
+pole_cap
+​
+  it can depart with a non-zero α. If C is the radius of the polar boss itself, then yes, α=90 
+∘
+  is the condition there. Your effective_polar_opening_radius_m calculation which sets C might be the radius the fiber is tangent to. If so, starting with sinα=1 there is correct.
+3. _solve_ode_geodesic_segment (L605)
+Math: The geodesic_ode_system defining dϕ/dz is mathematically correct.
+Turnaround Singularity (L626-L634):
+The if rho_at_z <= C_val + 1e-7: check returning [np.nan] is a way to stop the solver, but it's abrupt.
+The if abs(math.cos(alpha_val)) < 1e-9: returning [1e9] (infinite slope) will cause solve_ivp to take extremely small steps and likely fail or become very slow.
+Robustness at Turnaround:
+Solution: This solver needs to be designed to integrate dϕ/dz only in regions where dz
+
+=0 and ρ>C.
+Determine the z_turnaround points where rho_of_z_spl(z_turnaround) = clairaut_C. There could be two on a dome (entry and exit of the turnaround region for a given meridional direction).
+The z_eval_points passed to solve_ivp should not cross or exactly hit these z_turnaround points if using the dϕ/dz formulation.
+One strategy: Solve from z_start up to z_near_turnaround_1 (where ρ=C+ϵ). The final_sin_alpha will be ≈1. Then, for the next segment, if it's still considered part of the same "pass" across the pole, you'd need a different integration (e.g. dϕ/ds 
+circumferential
+​
+ ). But with your pass-based system, this point is where one pass effectively ends its z-varying integration.
+Return Value (L667): return {'solution': solution, 'final_sin_alpha': final_sin_alpha, 'rho_of_z_spl': rho_of_z_spl}. The engine then unpacks this. This is okay.
+Proposed Refinement for Geodesic Segment Solver & Engine Interaction:
+
+Python
+
+# In TrajectoryPlannerRefactored
+
+def _solve_ode_geodesic_segment(self, z_eval_segment: np.ndarray, # z-points for THIS segment only
+                                initial_phi_segment: float,
+                                clairaut_C: float,
+                                rho_of_z_spl: UnivariateSpline, # Pass the already created spline
+                                drho_dz_of_z_spl: UnivariateSpline
+                               ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], bool, str]: # phi_values, sin_alpha_values, success, message
+    """Solves d(phi)/dz for a geodesic segment, stopping if rho <= C."""
+    
+    phi_at_z_eval = np.full_like(z_eval_segment, np.nan)
+    sin_alpha_at_z_eval = np.full_like(z_eval_segment, np.nan)
+    
+    # Define the ODE system locally
+    def geodesic_ode_system_local(z_val, y_phi_ode): # y_phi_ode is [phi]
+        rho_at_z = float(rho_of_z_spl(z_val))
+        
+        if rho_at_z <= clairaut_C + 1e-9: # Stop if too close or less than C from below
+             # This event should ideally be caught by an event in solve_ivp
+            return [np.nan] # Cause solver to stop / indicate problem
+
+        arg_asin = clairaut_C / rho_at_z
+        if not (-1.0 <= arg_asin <= 1.0): return [np.nan]
+        alpha_val = math.asin(arg_asin)
+
+        if abs(math.cos(alpha_val)) < 1e-9: # alpha is pi/2 (turnaround)
+            # dphi/dz is infinite. For RK45, this is an issue.
+            # Return a very large value to indicate rapid turning, but the event should catch it.
+            # A better way is for the main engine to detect this state before calling.
+            direction = 1 if len(z_eval_segment) < 2 or z_eval_segment[-1] > z_eval_segment[0] else -1
+            return [direction * 1e9] 
+
+        drho_dz_at_z = float(drho_dz_of_z_spl(z_val))
+        ds_m_dz = math.sqrt(1.0 + drho_dz_at_z**2)
+        dphi_dz = (math.tan(alpha_val) / rho_at_z) * ds_m_dz
+        return [dphi_dz]
+
+    # Event function to stop integration when rho approaches C
+    def event_rho_equals_C(z_val, y_phi_ode):
+        rho_at_z = float(rho_of_z_spl(z_val))
+        return rho_at_z - (clairaut_C + 1e-7) # Stop when rho = C + epsilon
+    event_rho_equals_C.terminal = True # Stop integration when event occurs
+    event_rho_equals_C.direction = 0 # Detect event when crossing from positive to negative or vice-versa
+
+    sol_span = [z_eval_segment[0], z_eval_segment[-1]]
+    try:
+        solution = solve_ivp(
+            geodesic_ode_system_local, sol_span, [initial_phi_segment],
+            dense_output=True, method='RK45', # LSODA can be better for stiffness
+            atol=1e-8, rtol=1e-6, events=[event_rho_equals_C]
+        )
+    except Exception as e:
+        self.log_message(f"Exception in geodesic solve_ivp: {e}", level="ERROR")
+        return None, None, False, f"Exception: {e}"
+
+    if not solution.success:
+        # Check if it stopped due to event or actual failure
+        event_triggered = solution.t_events is not None and len(solution.t_events[0]) > 0
+        msg = f"Geodesic ODE failed: {solution.message}"
+        if event_triggered:
+            msg += " Stopped by event rho~C."
+            # If stopped by event, it's a "successful" termination at turnaround point
+            # The solution will only go up to the event time/z.
+            # We need to evaluate solution on z_eval_points up to that event.
+            z_event = solution.t_events[0][0]
+            # Filter z_eval_segment to only include points up to z_event
+            if z_eval_segment[-1] > z_eval_segment[0]: # Forward
+                z_eval_points_for_sol = z_eval_segment[z_eval_segment <= z_event]
+                # Add z_event if not already the last point, to get precise end
+                if not np.isclose(z_eval_points_for_sol[-1], z_event):
+                    z_eval_points_for_sol = np.append(z_eval_points_for_sol, z_event)
+            else: # Reverse
+                z_eval_points_for_sol = z_eval_segment[z_eval_segment >= z_event]
+                if not np.isclose(z_eval_points_for_sol[-1], z_event):
+                     z_eval_points_for_sol = np.append(z_eval_points_for_sol, z_event)
+            
+            if len(z_eval_points_for_sol) < 1: # Event at start, no integration
+                 phi_at_z_eval = np.array([initial_phi_segment])
+                 sin_alpha_at_z_eval = np.array([np.clip(clairaut_C / float(rho_of_z_spl(z_eval_segment[0])), -1.0, 1.0) if float(rho_of_z_spl(z_eval_segment[0])) > 1e-9 else 1.0])
+                 return phi_at_z_eval, sin_alpha_at_z_eval, True, "Event at start"
+
+            phi_at_z_eval = solution.sol(z_eval_points_for_sol)[0]
+            # Calculate sin_alpha for these points
+            rho_vals_for_sol = rho_of_z_spl(z_eval_points_for_sol)
+            sin_alpha_at_z_eval = np.array([np.clip(clairaut_C / r, -1.0, 1.0) if r > 1e-9 else 1.0 for r in rho_vals_for_sol])
+            # Ensure last sin_alpha is 1.0 due to event
+            if sin_alpha_at_z_eval.size > 0: sin_alpha_at_z_eval[-1] = 1.0
+
+            return phi_at_z_eval, sin_alpha_at_z_eval, True, msg # Success due to event
+        else: # True failure
+            self.log_message(msg, level="WARNING")
+            return None, None, False, msg
+
+    phi_at_z_eval = solution.sol(z_eval_segment)[0]
+    rho_vals = rho_of_z_spl(z_eval_segment)
+    sin_alpha_at_z_eval = np.array([np.clip(clairaut_C / r, -1.0, 1.0) if r > 1e-9 else 1.0 for r in rho_vals])
+    # Check if last point should be a turnaround
+    if abs(rho_vals[-1] - clairaut_C) < 1e-6 : sin_alpha_at_z_eval[-1] = 1.0
+
+    return phi_at_z_eval, sin_alpha_at_z_eval, True, "Success"
+
+
+# Modify _engine_continuous_spiral for geodesic mode call:
+# ... inside the pass loop, if is_geodesic_mode ...
+            phi_values_ode_pass, sin_alpha_values_ode_pass, pass_successful, pass_message = \
+                self._solve_ode_geodesic_segment(
+                    z_eval_points_pass,
+                    initial_phi_for_pass,
+                    self.clairauts_constant_for_path_m,
+                    self.rho_interp_spl, # Pass existing splines from _prepare_profile_data
+                    self.drho_dz_interp_spl
+                )
+
+            if not pass_successful:
+                self.log_message(f"ERROR: Geodesic segment generation failed for pass {pass_idx + 1}. Message: {pass_message}. Aborting.", level="ERROR")
+                final_summary['status'] = "GEODESIC_SEGMENT_FAILURE"
+                final_summary['error_message'] = f"Geodesic segment failed on pass {pass_idx + 1}: {pass_message}"
+                break
+
+            # Path points construction for geodesic
+            segment_points_this_pass.clear() # Clear before filling
+            for i in range(len(z_eval_points_pass)):
+                # This assumes phi_values_ode_pass and sin_alpha_values_ode_pass are for z_eval_points_pass
+                # If _solve_ode_geodesic_segment returns truncated results due to event,
+                # then z_eval_points_pass here should also be the truncated version.
+                # This needs careful handling of how many points are returned by the solver.
+                # For simplicity, assume solver gives solution for all z_eval_points_pass, or fails.
+                # The enhanced _solve_ode_geodesic_segment above returns phi/sin_alpha for the z_points it could solve.
+                # The loop below should be over the *actual z points for which solution was found*.
+                # This is complex. Let's revert the geodesic segment solver to return full point dicts.
+                # See `_integrate_geodesic_segment` from prior response for that structure.
+                # For now, assume phi_values_ode_pass and sin_alpha_values_ode_pass match z_eval_points_pass length
+                # or the _solve_ode_geodesic_segment is modified to return dicts.
+
+                if i >= len(phi_values_ode_pass): break # If solution was truncated
+
+                z_p = z_eval_points_pass[i]
+                rho_p = float(self.rho_interp_spl(z_p))
+                phi_p = phi_values_ode_pass[i]
+                sin_alpha_p_val = sin_alpha_values_ode_pass[i]
+                alpha_p = math.asin(np.clip(sin_alpha_p_val, -1.0, 1.0))
+
+                segment_points_this_pass.append({
+                    'x_m': rho_p * math.cos(phi_p), 'y_m': rho_p * math.sin(phi_p),
+                    'z_m': z_p, 'r_m': rho_p,
+                    'alpha_meridian_rad': alpha_p, 'phi_rad': phi_p, 'pass_idx': pass_idx + 1
+                })
+            
+            if not segment_points_this_pass: # Should be caught by pass_successful
+                # ... handle error ...
+                break
+                
+            final_sin_alpha_this_pass = sin_alpha_values_ode_pass[-1]
+            final_phi_this_pass = phi_values_ode_pass[-1]
+4. Remaining and Removed Methods
+To Remove/Deprecate (as planned):
+generate_geodesic_trajectory (old L998 in previous file structure)
+generate_non_geodesic_trajectory (old L1750)
+generate_continuous_helical_non_geodesic (L2450, kinematic)
+_solve_non_geodesic_sin_alpha_profile (L1200, Euler based)
+To Keep & Refine:
+generate_standard_helical_polar_pattern (L2038):
+Math: Its use of helical on cylinder and geodesic on domes (via _generate_dome_segment_geodesic) is sound.
+Issue: _generate_dome_segment_geodesic (L1858) also directly integrates dϕ/dz. It needs the same robust turnaround handling as _solve_ode_geodesic_segment (i.e., use the new solver or incorporate its logic).
+It should also be adapted to use the coverage_option: 'single_circuit' / 'full_coverage' parameters.
+Step-by-Step Plan Summary:
+
+Backup trajectories_refactored.py.
+Implement _prepare_profile_data(): Ensure it correctly prepares sorted profiles and robust global interpolators (rho_interp_spl, drho_dz_interp_spl) or a strategy if splines can't be formed (e.g. passing raw points and differentiating locally).
+Implement/Refine _solve_ode_geodesic_segment(): Focus on robustly handling the ρ→C turnaround, possibly by stopping the dϕ/dz integration just before C and letting the _engine_continuous_spiral manage the state for the next pass (which starts with sinα≈1). Using solve_ivp events is a good way.
+Modify _engine_continuous_spiral (Geodesic Mode First):
+Integrate the call to the new _solve_ode_geodesic_segment.
+Ensure the phi_advancement_rad_per_pass and actual_num_passes_to_run (for 'single_circuit' and 'full_coverage') are correctly used.
+Verify the continuity of current_sin_alpha (should be ≈1.0 after a turnaround) and current_phi_rad (with advancement).
+Test thoroughly with 'single_circuit' and 'full_coverage' for GEODESIC mode. Aim to eliminate the "Max gap" (step length) issue by ensuring no ODE failures or by breaking cleanly.
+Refine _engine_continuous_spiral (Non-Geodesic Mode):
+Once geodesic is stable, ensure the existing _solve_ode_non_geodesic_segment is called correctly.
+The primary fix here is the robust break on ODE failure.
+The "sharp turn" for non-geodesic is somewhat expected with the current turnaround model (discrete ϕ shift). Ensure this is acceptable.
+Flag this mode as "Experimental" in the UI via the pattern_name in generate_trajectory.
+Refactor generate_standard_helical_polar_pattern():
+Make its dome segment generation use the new robust _solve_ode_geodesic_segment or similar logic.
+Adapt it to use coverage_option for number of circuits.
+Cleanup: Remove the deprecated/old trajectory generation methods.
+Test UI Integration (test_refactored.py and app.py): Ensure app.py calls generate_trajectory with the new pattern_name and coverage_option arguments.
+This detailed approach should guide you to a more stable and predictable trajectory planner. Focus on getting the geodesic mode perfect first, as it has simpler underlying physics for the path itself.

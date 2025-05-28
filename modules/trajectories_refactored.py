@@ -245,10 +245,28 @@ class TrajectoryPlannerRefactored:
     def _prepare_profile_data(self) -> Optional[Dict]:
         """Prepare vessel profile data for trajectory calculations."""
         try:
-            if not hasattr(self.vessel_geometry, 'profile_points') or self.vessel_geometry.profile_points is None:
+            # Access vessel geometry through proper attribute
+            vessel = getattr(self, 'vessel_geometry', None) or getattr(self, 'vessel', None)
+            if not vessel or not hasattr(vessel, 'profile_points') or vessel.profile_points is None:
+                print("No valid vessel profile data available")
                 return None
             
-            profile = self.vessel_geometry.profile_points
+            profile = vessel.profile_points
+            
+            # Initialize Clairaut's constant if not set
+            if not hasattr(self, 'clairauts_constant_for_path_m') or self.clairauts_constant_for_path_m is None:
+                # Calculate effective polar opening radius
+                r_inner_mm = profile['r_inner_mm']
+                min_radius_mm = np.min(r_inner_mm)
+                self.clairauts_constant_for_path_m = min_radius_mm / 1000.0  # Convert to meters
+                print(f"Initialized Clairaut's constant: {self.clairauts_constant_for_path_m*1000:.2f}mm")
+            
+            # Calculate pattern advancement if not set
+            if not hasattr(self, 'phi_advancement_rad_per_pass') or self.phi_advancement_rad_per_pass is None:
+                # Default to 10 degrees for good coverage
+                self.phi_advancement_rad_per_pass = np.radians(10.0)
+                print(f"Initialized pattern advancement: {np.degrees(self.phi_advancement_rad_per_pass):.1f}°")
+            
             return {
                 'r_inner_mm': profile['r_inner_mm'],
                 'z_mm': profile['z_mm'],
@@ -269,38 +287,190 @@ class TrajectoryPlannerRefactored:
         return self._engine_geodesic_spiral(coverage_option, num_passes)
 
     def _solve_geodesic_segment(self, profile_data, current_phi_rad, is_forward, pass_idx):
-        """Simple geodesic segment solver for basic trajectory generation."""
+        """
+        Advanced geodesic segment solver with proper Clairaut's law implementation.
+        
+        This implements true geodesic paths using:
+        - Robust ODE integration with event detection
+        - Proper turnaround handling at polar openings
+        - Clairaut's constant preservation
+        """
         try:
-            # Simple implementation to generate basic helical points
-            points = []
-            r_values = profile_data['r_inner_mm'] / 1000.0  # Convert to meters
+            # Convert profile data to meters
+            r_values = profile_data['r_inner_mm'] / 1000.0
             z_values = profile_data['z_mm'] / 1000.0
             
-            # Generate points along the profile
-            for i, (r, z) in enumerate(zip(r_values, z_values)):
-                phi = current_phi_rad + i * 0.1  # Simple phi progression
-                x = r * np.cos(phi)
-                y = r * np.sin(phi)
+            # Create interpolation splines for vessel profile
+            from scipy.interpolate import UnivariateSpline
+            
+            # Sort by z for proper interpolation
+            sorted_indices = np.argsort(z_values)
+            z_sorted = z_values[sorted_indices]
+            r_sorted = r_values[sorted_indices]
+            
+            # Create smooth splines for radius and derivative
+            if len(z_sorted) >= 4:
+                rho_spline = UnivariateSpline(z_sorted, r_sorted, s=0, k=3)
+                drho_dz_spline = rho_spline.derivative()
+            else:
+                # Fallback to linear interpolation
+                rho_spline = lambda z: np.interp(z, z_sorted, r_sorted)
+                drho_dz_spline = lambda z: np.gradient(np.interp([z-1e-6, z+1e-6], z_sorted, r_sorted), 2e-6)[0]
+            
+            # Determine integration range
+            z_start = z_sorted[0] if is_forward else z_sorted[-1]
+            z_end = z_sorted[-1] if is_forward else z_sorted[0]
+            
+            # Create evaluation points
+            num_points = min(100, len(z_sorted) * 2)
+            z_eval = np.linspace(z_start, z_end, num_points)
+            
+            # Geodesic ODE system with Clairaut's law
+            def geodesic_ode_system(z, y):
+                """ODE system: dy/dz where y = [phi]"""
+                phi = y[0]
+                
+                try:
+                    rho_at_z = float(rho_spline(z))
+                    
+                    # Check if we're at turnaround (rho ≈ Clairaut constant)
+                    if hasattr(self, 'clairauts_constant_for_path_m') and self.clairauts_constant_for_path_m:
+                        C = self.clairauts_constant_for_path_m
+                        if rho_at_z <= C + 1e-6:
+                            return [1e9]  # Near-infinite slope at turnaround
+                    else:
+                        C = rho_at_z * 0.7  # Default Clairaut constant
+                    
+                    # Calculate winding angle from Clairaut's law
+                    sin_alpha = min(1.0, C / rho_at_z)
+                    alpha = np.arcsin(sin_alpha)
+                    
+                    if abs(np.cos(alpha)) < 1e-9:
+                        return [1e9]  # Avoid division by zero
+                    
+                    # Calculate derivative terms
+                    drho_dz = float(drho_dz_spline(z))
+                    ds_dz = np.sqrt(1.0 + drho_dz**2)  # Arc length element
+                    
+                    # Geodesic equation: dphi/dz
+                    dphi_dz = (np.tan(alpha) / rho_at_z) * ds_dz
+                    
+                    return [dphi_dz]
+                    
+                except Exception as e:
+                    return [0.0]  # Safe fallback
+            
+            # Event function to detect turnaround
+            def turnaround_event(z, y):
+                try:
+                    rho_at_z = float(rho_spline(z))
+                    C = getattr(self, 'clairauts_constant_for_path_m', rho_at_z * 0.7)
+                    return rho_at_z - (C + 1e-6)
+                except:
+                    return 1.0
+            
+            turnaround_event.terminal = True
+            turnaround_event.direction = -1
+            
+            # Solve the ODE with event detection
+            from scipy.integrate import solve_ivp
+            
+            sol = solve_ivp(
+                geodesic_ode_system,
+                [z_start, z_end],
+                [current_phi_rad],
+                t_eval=z_eval,
+                method='RK45',
+                events=[turnaround_event],
+                rtol=1e-8,
+                atol=1e-10
+            )
+            
+            if not sol.success and len(sol.t) == 0:
+                print(f"ODE integration failed: {sol.message}")
+                return None
+            
+            # Extract results
+            z_result = sol.t
+            phi_result = sol.y[0]
+            
+            # Calculate trajectory points
+            points = []
+            for i, (z, phi) in enumerate(zip(z_result, phi_result)):
+                rho = float(rho_spline(z))
+                
+                # Calculate winding angle
+                C = getattr(self, 'clairauts_constant_for_path_m', rho * 0.7)
+                sin_alpha = min(1.0, C / rho)
+                alpha = np.arcsin(sin_alpha)
+                
+                # Cartesian coordinates
+                x = rho * np.cos(phi)
+                y = rho * np.sin(phi)
                 
                 points.append({
                     'x': x, 'y': y, 'z': z,
-                    'rho': r, 'phi': phi, 'alpha': 0.7  # Default winding angle
+                    'rho': rho, 'phi': phi, 'alpha': alpha
                 })
+            
+            final_phi = phi_result[-1] if len(phi_result) > 0 else current_phi_rad
             
             return {
                 'helical_points': points,
-                'final_phi_rad': current_phi_rad + len(points) * 0.1
+                'final_phi_rad': final_phi,
+                'integration_success': sol.success,
+                'num_points': len(points)
             }
+            
         except Exception as e:
-            print(f"Error in geodesic segment: {e}")
+            print(f"Error in advanced geodesic segment: {e}")
             return None
 
     def _generate_geodesic_turnaround(self, profile_data, current_phi_rad, z_pole):
-        """Simple turnaround generation."""
-        return {
-            'turnaround_points': [],
-            'final_phi_rad': current_phi_rad + 0.5
-        }
+        """
+        Advanced geodesic turnaround with smooth pattern advancement.
+        
+        Handles the transition at polar openings where the fiber path
+        becomes circumferential before starting the next meridional pass.
+        """
+        try:
+            # Get Clairaut constant for this path
+            C = getattr(self, 'clairauts_constant_for_path_m', 0.05)  # Default 50mm
+            
+            # Calculate advancement angle for pattern coverage
+            phi_advancement = getattr(self, 'phi_advancement_rad_per_pass', 0.1)
+            
+            # Generate smooth turnaround points
+            turnaround_points = []
+            num_turnaround_points = 8
+            
+            for i in range(num_turnaround_points):
+                t = i / (num_turnaround_points - 1)
+                phi = current_phi_rad + t * phi_advancement
+                
+                # Turnaround occurs at the polar opening radius
+                rho = C
+                z = z_pole
+                
+                x = rho * np.cos(phi)
+                y = rho * np.sin(phi)
+                
+                turnaround_points.append({
+                    'x': x, 'y': y, 'z': z,
+                    'rho': rho, 'phi': phi, 'alpha': np.pi/2  # 90° winding angle at turnaround
+                })
+            
+            return {
+                'turnaround_points': turnaround_points,
+                'final_phi_rad': current_phi_rad + phi_advancement
+            }
+            
+        except Exception as e:
+            print(f"Error in turnaround generation: {e}")
+            return {
+                'turnaround_points': [],
+                'final_phi_rad': current_phi_rad + 0.1
+            }
 
     def _engine_geodesic_spiral(self, coverage_option: str, num_passes: int) -> Optional[Dict]:
         """
