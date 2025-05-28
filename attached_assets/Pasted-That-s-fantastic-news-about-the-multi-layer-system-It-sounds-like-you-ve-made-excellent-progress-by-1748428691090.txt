@@ -1,0 +1,235 @@
+That's fantastic news about the multi-layer system! It sounds like you've made excellent progress by successfully implementing Koussios's thickness distribution theories for dynamic mandrel evolution. The realistic polar opening growth is also a key indicator of a robust geometric model.
+
+Let's move on to drafting the step-by-step plan for the next module: **Advanced Trajectory Planning for Multi-Layer & Complex Paths**. This will build upon your now-solid multi-layer geometry foundation.
+
+## Module: Advanced Trajectory Planning for Multi-Layer & Complex Paths
+
+Here's a plan, referencing the provided books (Koussios - `book1.pdf`, Peters - `book2.pdf`) for relevant theories and equations.
+
+### 1. Full Winding Pattern Generation Logic
+
+* **Requirement:** Implement algorithms to generate full winding patterns (sequences of circuits) for complete and efficient coverage of *each defined composite layer*. This involves managing overlaps and turnarounds systematically.
+* **Book Insights:**
+    * Koussios (book1.pdf) Chapter 8, "Winding patterns & fibre stacking," is the primary reference.
+        * **Effective Roving Width ($B_{eff}$):** The width of the band projected on the circumference.
+            * Equation: $B_{eff} = B / \cos(\alpha_{eq})$ where $B$ is the actual roving width (dimensionless, $b/c$) and $\alpha_{eq}$ is the winding angle at the equator.
+        * **Required Number of Windings ($nd$):** To cover the equatorial periphery.
+            * Equation: $nd = CE[(\pi/w) \cdot (\sqrt{Y_{eq}^2 - 1} / B)]$ where $w$ is a resin inclusion factor (approx $1/v_f$), $Y_{eq}$ is the dimensionless equatorial radius, $T_{eq}$ is dimensionless equatorial thickness, and $T$ is dimensionless roving thickness. A simpler form from (Eq. 3.42) relates $nd$ to layers $d$ and $\Delta\varphi$: $nd = 2\pi d / \Delta\varphi$. $CE$ is the ceiling function.
+        * **Diophantine Equations for Pattern Closure:**
+            * Leading pattern: $(p+1)kd - nd = 1$
+            * Lagging pattern: $pkd - nd = -1$
+            * Where `p` and `k` are pattern constants related to angular advancement, `d` is the number of closed layers, and `nd` is the total number of rovings crossing the equator for `d` layers.
+        * **Angular Propagation ($\Delta\Phi_{tot}$):** The total angular shift of the fiber after one complete circuit (pole-to-pole-to-pole).
+            * Equation: $\Phi_{tot} = 2\Phi^{(c)} + 4\Phi^{(d)}$ for dome-cylinder vessels. $\Phi^{(c)}$ and $\Phi^{(d)}$ are propagations over cylinder and dome, respectively.
+            * $\Delta\Phi_{tot} = \min\{|\text{mod}_{(2\pi)}(\Phi_{tot})|, |\text{mod}_{(-2\pi)}(\Phi_{tot})|\}$.
+        * **Roving Width in Radians ($\Delta\varphi$):**
+            * Equation: $\Delta\varphi = B_{eff} / Y_{eq} = B / \sqrt{Y_{eq}^2 - 1}$.
+        * **Pattern Constants (p, k):**
+            * $p = IP[2\pi / \Delta\Phi]$
+            * $k = IP[\Delta\Phi / \Delta\varphi]$ (IP is Integer Part)
+        * **Pattern Search Strategy:** Koussios suggests using these equations to find feasible $\{B, T\}$ (roving width and thickness) combinations that satisfy the Diophantine equations.
+    * Peters (book2.pdf), Chapter 4, discusses the "Band Pattern Concept" and achieving systematic laydown. It also gives a formula for the number of circuits for a pipe: $N = \pi D \cos(\alpha) / B_{width}$.
+* **Implementation Steps:**
+
+    a.  **`WindingPatternCalculator` Class:** Create a class to encapsulate pattern calculations.
+    b.  **Inputs:** Equatorial radius of the current mandrel surface, polar opening radius, target winding angle at the equator, roving/band width, desired number of layers `d`.
+    c.  **Calculate $\alpha_{eq}$ and $B_{eff}$:** Based on inputs.
+    d.  **Calculate $\Delta\Phi_{tot}$:** This is complex as it requires integrating $\frac{d\phi}{dY}$ (Eq. 4.5 in Koussios) over the dome and cylinder for a given path (geodesic or non-geodesic). For geodesics, Eq. 5.24 or 5.25 ($d\phi/dt$) can be used.
+        * $\Phi^{(d)} = \int_{Y_{min}}^{Y_{eq}} \frac{\sqrt{1+Z'(Y)^2}}{Y \tan(\alpha(Y))} dY$ (Conceptual, derived from Koussios Eq. 3.36 and 5.14c where $tan\alpha = \phi' \sqrt{E/G} = \phi' Y / \sqrt{1+Z'^2}$).
+        * $\Phi^{(c)} = (L_{cyl} / R_{cyl}) \tan(\alpha_{cyl})$ for a cylinder.
+    e.  **Calculate $\Delta\varphi$.**
+    f.  **Determine `p` and `k` (integer parts).**
+    g.  **Solve/Check Diophantine Equations:** Iterate through slight adjustments to roving width (B) or by using the "Pattern Search" approach to find integer solutions for `nd` that satisfy Eq. 3.34 or 3.35 for the desired `d`.
+    h.  **Output:** Optimal pattern parameters (p, k, nd, actual $\Delta\Phi_{leading/lagging}$ (Eq. 3.43)).
+
+    ```python
+    # Conceptual snippet within WindingPatternCalculator
+    def calculate_pattern_parameters(self, Y_eq, Y_min, # dimensionless radii
+                                     actual_roving_width_b, polar_opening_c,
+                                     num_layers_d, Z_prime_func, # Z'(Y)
+                                     alpha_func_of_Y, # alpha(Y) e.g. asin(Y_min/Y) for geodesic
+                                     L_cyl_dimensionless # H in Koussios
+                                    ):
+        B_dimensionless = actual_roving_width_b / polar_opening_c
+        
+        # Placeholder for Phi_d calculation (complex integration)
+        # Phi_d = integrate(sqrt(1+Z_prime_func(Y)**2) / (Y * tan(alpha_func_of_Y(Y))), Y_min, Y_eq)
+        # Phi_c = (L_cyl_dimensionless / Y_eq) * tan(alpha_func_of_Y(Y_eq)) # alpha at equator
+        # Phi_total_unbounded = 2 * Phi_c + 4 * Phi_d # Eq 3.36
+        # delta_Phi_total = min(abs(Phi_total_unbounded % (2*math.pi)), abs(Phi_total_unbounded % (-2*math.pi))) # Eq 3.37
+        
+        # ... (calculate delta_phi using Eq 3.38) ...
+        # ... (calculate p_float, k_float) ...
+        # p_int = int(p_float) # Eq 3.40 IP
+        # k_int = int(k_float) # Eq 3.40 IP
+
+        # Iteratively find nd that satisfies Diophantine equations (Eq 3.34 or 3.35)
+        # This often involves adjusting B or accepting slight overlaps/gaps.
+        # nd_target = ... solve Diophantine ...
+
+        # return {"p": p_int, "k": k_int, "nd": nd_target, "delta_Phi_pattern": delta_Phi_pattern_rad}
+        pass
+    ```
+
+### 2. Sophisticated Turnaround Kinematics at Poles
+
+* **Requirement:** Detailed feed-eye motion planning for smooth and precise turnarounds at polar openings to maintain pattern accuracy and avoid fiber bridging/slippage.
+* **Book Insights:**
+    * Peters (book2.pdf), Chapter 4 (Fig. 4.2, 4.3), discusses optimizing the turnaround for pipe winding to minimize material buildup and control wound length by adjusting machine lead and dwell. This is more conceptual than mathematical for complex domes.
+    * Koussios (book1.pdf) focuses on the angular advancement ($\Delta\Phi$) needed for the pattern during turnaround, not the specific machine kinematics.
+* **Implementation Steps:**
+    a.  **Define Turnaround Zone:** Geometrically identify the region on the dome where the fiber path transitions from predominantly meridional to predominantly circumferential and back.
+    b.  **Path Modification:** The trajectory here will likely deviate from a pure geodesic to achieve the required angular shift ($\Delta\Phi_{pattern} / (2 \cdot \text{poles})$) for the pattern. This is a non-geodesic segment.
+    c.  **Feed-Eye Control:**
+        * The feed-eye path must guide the fiber smoothly through this turn. This might involve coordinating all available machine axes.
+        * Consider payout length (`lambda_pay`) and fiber tension.
+        * The feed-eye yaw (`machine_A_feed_eye_yaw_rad`) will be critical to orient the fiber correctly.
+    d.  **Numerical Solution:** This often requires an iterative numerical solver to find feed-eye positions that ensure the fiber contacts the mandrel tangentially along the desired (potentially non-geodesic) turnaround path while respecting payout length and friction limits.
+
+    ```python
+    # Conceptual snippet within TrajectoryPlanner
+    # def generate_turnaround_segment(self, entry_point_mandrel, exit_point_mandrel,
+    #                                 entry_beta_srf_rad, exit_beta_srf_rad,
+    #                                 phi_advancement_rad,
+    #                                 current_mandrel_profile_func, # r_m(x_m)
+    #                                 kinematics_solver: FilamentWindingKinematics):
+    #     turnaround_machine_points = []
+    #     # 1. Define a smooth non-geodesic path on the mandrel for the turnaround
+    #     #    This path must achieve phi_advancement_rad.
+    #     # 2. For points along this mandrel path:
+    #     #    - Calculate desired fiber orientation (beta_srf_rad).
+    #     #    - Calculate surface normal and tangent vectors on mandrel.
+    #     #    - Solve for feed-eye position (X,Y,Z,A) using inverse kinematics,
+    #     #      respecting payout length and friction (mu_friction_coeff).
+    #     #      This might involve iterative solutions.
+    #     #    - Check for collisions.
+    #     # turnaround_machine_points.append(feed_eye_solution)
+    #     return turnaround_machine_points
+    pass
+    ```
+
+### 3. Path Continuity and Transitions (C1/C2)
+
+* **Requirement:** Ensure smooth (C1: tangent, C2: curvature) feed-eye motion and fiber path when transitioning between different winding segments (dome-cylinder, cylinder-dome) and between consecutive passes/circuits.
+* **Book Insights:**
+    * Koussios (book1.pdf), Chapter 9.2 "Transitional circuits," discusses non-geodesic paths for transitioning, for example, from polar to hoop windings on a cylinder. Equations 9.12, 9.13 describe winding angle and path changes.
+    * Peters (book2.pdf), Chapter 4, notes that software can attempt to generate stable transitions[cite: 2304].
+* **Implementation Steps:**
+    a.  **End-Condition Matching:** When planning a segment (e.g., dome), its starting fiber orientation and feed-eye position/velocity should match the ending conditions of the previous segment (e.g., turnaround or cylinder).
+    b.  **Interpolation/Blending Functions:** Use splines or other blending functions for machine axis commands to ensure smooth changes in velocity and acceleration across segment boundaries if direct analytical matching is too complex.
+    c.  **Feed-Forward Control Concepts:** The kinematic model should ideally predict future states to allow for smooth deceleration and acceleration into and out of transitions. Koussios (book1.pdf) Chapter 12 and 14 discuss dynamics, interpolation, and optimization which are relevant here.
+
+    ```python
+    # Conceptual: When linking trajectory segments
+    # prev_segment_end_state = # {pos_eye, vel_eye, fiber_angle_on_mandrel, ...}
+    # current_segment_start_state = # {pos_eye, vel_eye, fiber_angle_on_mandrel, ...}
+    #
+    # if not is_continuous(prev_segment_end_state, current_segment_start_state, tolerance_C1, tolerance_C2):
+    #     transition_path = generate_smooth_transition_kinematics(
+    #                           prev_segment_end_state,
+    #                           current_segment_start_state,
+    #                           duration_transition
+    #                       )
+    #     # Append transition_path machine commands
+    # else:
+    #     # Directly append current_segment commands
+    pass
+    ```
+
+### 4. Full Feed-Eye Kinematics for Non-Geodesic Paths
+
+* **Requirement:** Calculate machine coordinates (X,Y,Z,A) for paths where the winding angle is intentionally varied according to friction models.
+* **Book Insights:**
+    * **Cylinder:**
+        * Koussios (book1.pdf) Eq. 5.62: $(sin\alpha)' = c_2 f^2 + c_1 f + c_0$ where $f=\sin\alpha$, is the general DE for winding angle $\alpha$ (our $\beta_{srf}$) evolution on a surface of revolution, considering friction $\mu$, curvatures ($k_m, k_p$), and metric coefficient $E$.
+        * Specifically for a cylinder, Eq. 6.41 (or 9.12) provides $\alpha(\theta_{polar})$ or $\beta_{srf}(\theta_{koussios})$.
+        * The conceptual module already has `calculate_beta_angle_cylinder_non_geodesic_rad`.
+        * The challenge is that Andrianov's `get_feed_eye_pos_cylinder_geodesic` assumes *constant* $\beta_{cyl}$.
+    * **Domes:**
+        * Koussios (book1.pdf) Eq. 5.62 applies generally. Analytical solutions are rare; Eq. 5.65 and 5.67 are for conical shells. Numerical integration of Eq. 5.62 gives $\alpha(t)$ or $\beta_{srf}(t)$ along a meridian.
+        * Peters (book2.pdf), Chapter 5 (by Koussios), reiterates these equations.
+* **Implementation Steps:**
+    a.  **Path Definition on Mandrel:** First, define the non-geodesic path (sequence of points and local winding angles $\beta_{srf}$) on the current mandrel surface. This involves:
+        * For cylinders: Numerically integrate $d\phi_{mandrel} = (\tan(\beta_{srf}(x_{axial})) / r_{cyl}) dx_{axial}$, where $\beta_{srf}(x_{axial})$ comes from Koussios's angle evolution equation (e.g. Eq. 6.41).
+        * For domes: Numerically integrate Eq. 5.62 for $\beta_{srf}(t)$ (where $t$ is the meridional parameter) and then Eq. 5.24 for $\phi(t)$ to get the 3D path on the dome.
+    b.  **Inverse Kinematics for Feed-Eye:** For each point on this defined non-geodesic mandrel path:
+        * Calculate the surface normal and the fiber tangent vector on the mandrel.
+        * Solve for the feed-eye position (X,Y,Z) and yaw (A) such that the fiber is tangent at the contact point, payout length is maintained, and no-slip condition (based on required geodesic curvature vs. available friction) is respected.
+        * This is an iterative numerical problem, as the direct analytical solutions (like Andrianov's) are mostly for geodesics.
+        * The core idea is: $P_{eye} = P_{contact\_on\_mandrel} + \lambda_{pay} \cdot \vec{t}_{fiber\_in\_space}$, where $\vec{t}_{fiber\_in\_space}$ is the unit vector along the fiber from mandrel to eye. This vector is tangent to the path on the mandrel.
+
+    ```python
+    # Conceptual, highly simplified for a single point
+    # def solve_feed_eye_for_non_geodesic_point(
+    #         mandrel_contact_point_xyz, # (x,y,z) on mandrel
+    #         fiber_tangent_on_mandrel_xyz, # unit vector of fiber on mandrel at contact point
+    #         surface_normal_at_contact_xyz, # unit vector
+    #         payout_length_fiber,
+    #         mu_friction_coeff
+    # ):
+    #     # 1. Calculate geodesic curvature (k_g) of the desired path segment.
+    #     #    k_g = (1/sqrt(H)) * (alpha_prime - phi_prime * sin(beta_meridian)) (Koussios Eq. 5.49)
+    #     #    where alpha is winding angle, beta_meridian is meridian slope.
+    #     #    H, G, E are metric coefficients. alpha_prime = d(alpha)/dt, phi_prime = d(phi)/dt.
+    #
+    #     # 2. Calculate normal curvature (k_n) of the path.
+    #     #    k_n = k_m * cos^2(alpha) + k_p * sin^2(alpha) (Koussios Eq. 5.39 / 5.48)
+    #
+    #     # 3. Check stability: abs(k_g / k_n) <= mu_friction_coeff (Koussios Eq. 5.58)
+    #     #    If not stable, this path point is not possible.
+    #
+    #     # 4. If stable, the fiber direction in space is fiber_tangent_on_mandrel_xyz.
+    #     #    Feed_eye_position = mandrel_contact_point_xyz - payout_length_fiber * fiber_tangent_on_mandrel_xyz
+    #     #    (Note: sign depends on coordinate system and tangent direction definition)
+    #
+    #     # 5. Calculate feed_eye_yaw (machine_A_feed_eye_yaw_rad)
+    #     #    This depends on the orientation of the feed-eye mechanism relative to fiber_tangent_on_mandrel_xyz
+    #     #    and the machine's coordinate system. Typically aims to make the payout normal to eye's exit.
+    #
+    #     # return {"machine_X_...", "machine_Y_...", ...}
+    pass
+    ```
+
+### 5. Accurate Calculation of Feed-Eye Yaw for Domes (Geodesic)
+
+* **Requirement:** For Andrianov-based geodesic dome paths, accurately calculate `beta_angle_with_hoop_rad` ($\beta_s$) at the fiber *tangency point* on the dome to correctly set `machine_A_feed_eye_yaw_rad`.
+* **Book Insights:**
+    * Andrianov's Eq. (3) in Peters (book2.pdf) for $\beta_s(z)$ for a hemispherical dome: $\beta_s(z) = \arcsin \sqrt{(R_c^2 - z_p^2) / (R_c^2 - z^2)}$, where $z$ is the axial coordinate on the dome from the junction, and $z_p$ is the axial coordinate of the polar opening from the junction.
+    * Koussios (book1.pdf) defines the winding angle $\alpha$ for geodesics via Clairaut's theorem: $\sin\alpha = c/\rho(t)$ (Eq. 5.23). This $\alpha$ is with the meridian, so $\beta_s = \pi/2 - \alpha$.
+* **Implementation Steps:**
+    a.  **Find Contact Point:** The main challenge is to determine the actual $(x_m, r_m)$ or $(z_{dome\_surf\_junc}, \rho_{contact})$ coordinates of the fiber tangency point on the dome surface that corresponds to the current `current_path_param_dome_alpha_andr`. Andrianov's kinematic equations (Eq. 17) give the *feed-eye* position, not directly the contact point's axial position `z` needed for his Eq. (3).
+    b.  **Option 1 (If Andrianov's `Y_mach` is axial position of contact):** If `target_machine_Y_carriage_axial_mm` from Andrianov's Eq. 17 *can be directly interpreted* as the axial coordinate $z$ on the dome surface from the dome-cylinder junction (this needs careful verification against Andrianov's full paper/definitions):
+        * Calculate $z_p = R_c - \sqrt{R_c^2 - r_p^2}$ (axial position of polar opening from junction, assuming pole is at $R_c$ from junction).
+        * Use $z = \text{target_machine_Y_carriage_axial_mm}$ in Andrianov's Eq. (3) to find $\beta_s$.
+    c.  **Option 2 (Using Clairaut from Koussios):**
+        * From `current_path_param_dome_alpha_andr`, one would need to find the radial position $\rho(t)$ of the contact point on the dome. Andrianov's original paper would be needed to see how `alpha_param` maps to $\rho(t)$ on the dome surface.
+        * Once $\rho_{contact}$ is known: $\sin\alpha_{contact} = r_{po} / \rho_{contact}$. Then $\beta_{srf\_contact} = \pi/2 - \alpha_{contact}$.
+    d.  **Calculate Yaw:** `machine_A_feed_eye_yaw_rad = (math.pi / 2) - beta_srf_contact_rad`.
+
+### 6. Precise Parameter Range for Andrianov's Dome Path
+
+* **Requirement:** Determine the exact start and end values for `current_path_param_dome_alpha_andr` to ensure the geodesic path on the dome precisely covers the region from the polar opening to the cylinder-dome junction.
+* **Book Insights:** This is specific to Andrianov's parameterization, not detailed in the provided excerpts of Koussios or Peters.
+* **Implementation Steps:**
+    a.  **Boundary Conditions:**
+        * **Start (Polar Opening):** The path starts with the fiber tangent to the effective polar opening. One needs to find the `alpha_param_dome_alpha_andr_start` such that the resulting contact point on the dome (derived from Andrianov's geometry, perhaps Eq. 15) corresponds to $r_m = r_{po}$ (or effective turning radius) and $\beta_{srf} \approx \pi/2$.
+        * **End (Dome-Cylinder Junction):** Find `alpha_param_dome_alpha_andr_end` such that the contact point is at the junction ($r_m = R_{cyl}$) and the winding angle $\beta_{srf}$ matches the desired angle on the cylinder.
+    b.  **Iterative Solution or Analysis of Andrianov's Geometry:** This likely requires analyzing Andrianov's underlying geometric mapping from `alpha_param` to surface coordinates or solving iteratively.
+
+### 7. Advanced Slippage Checks and Friction Modeling
+
+* **Requirement:** Beyond Koussios's angle evolution equation (which implies stability for a given $\mu$), potentially implement more explicit checks of forces.
+* **Book Insights:**
+    * Koussios (book1.pdf) Eq. 5.58: $|k_g/k_n| \le |\mu_{max}|$ is the fundamental condition. $k_g$ is geodesic curvature (Eq. 5.49 or 5.52-5.53), $k_n$ is normal curvature (Eq. 5.44 or 5.48). These depend on the surface geometry ($\rho(t), \zeta(t)$ and their derivatives) and the winding angle $\alpha(t)$.
+    * The normal force $f_n = F/R_n = F k_n$ and lateral force $f_g = F/R_g = F k_g$, where F is fiber tension (Eq. 5.55, 5.56). The stability condition is $|f_g| \le \mu |f_n|$.
+* **Implementation Steps:**
+    a.  **Calculate Curvatures:** For any point on a planned (geodesic or non-geodesic) path on the current mandrel surface:
+        * Determine the meridian profile $(\rho(t), \zeta(t))$ and its derivatives $\rho', \zeta', \rho'', \zeta''$.
+        * Calculate metric coefficients $E, G$ (Eq. 5.4, 5.6).
+        * Calculate principal curvatures $k_m, k_p$ (Eq. 5.29, 5.34 or 2.43, 2.44).
+        * Given the winding angle $\alpha(t)$ (or $\beta_{srf}(t)$), calculate $k_n$ (Eq. 5.48) and $k_g$ (Eq. 5.53).
+    b.  **Explicit Check (Optional):**
+        `if abs(k_g / k_n) > mu_friction_coeff: # Slippage likely` (Handle if $k_n$ is near zero).
+        This check is more for verifying a *pre-defined* path's stability rather than generating a path, as Koussios's Eq. 5.62 for $\alpha'$ inherently tries to find a stable path for the given $\mu$.
+
+This detailed breakdown for advanced trajectory planning should provide a solid roadmap. The most challenging parts will be the full kinematics for non-geodesic paths (especially on domes) and ensuring robust C1/C2 continuity between all segments in a multi-layer, multi-pass winding program.
