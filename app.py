@@ -2558,7 +2558,7 @@ def generate_complete_machine_plan(stack_summary, machine_type, coord_system, pl
     """Generate comprehensive machine planning with all advanced kinematics"""
     try:
         layers_applied = stack_summary['layers_applied_to_mandrel']
-        total_thickness = stack_summary['total_thickness_mm']
+        total_thickness = stack_summary.get('total_thickness_mm', 1.0)  # Safe fallback
         
         # Calculate trajectory points based on complexity
         base_points = 800  # From your working trajectory system

@@ -16,19 +16,60 @@ def generate_layer_trajectory_safe(layer_manager, layer_index: int, roving_width
             'status': 'generated'
         }
         
-        # Generate basic path points for demonstration
-        # In practice, this would use the full TrajectoryPlanner
-        num_points = 100
-        z_range = np.linspace(-50, 50, num_points)
-        r_range = np.full_like(z_range, 100.0)  # Simple cylindrical approximation
+        # Generate realistic trajectory based on layer type and mandrel geometry
+        current_mandrel = layer_manager.get_current_mandrel_for_trajectory()
+        profile = current_mandrel['profile_points']
         
-        for i in range(num_points):
-            trajectory_data['path_points'].append({
-                'z_mm': float(z_range[i]),
-                'r_mm': float(r_range[i]),
-                'theta_deg': float(i * layer.winding_angle_deg / 10),  # Simple helical pattern
-                'layer_id': layer.layer_set_id
-            })
+        # Get vessel geometry details
+        z_mm = profile['z_mm']
+        r_mm = profile['r_inner_mm']
+        
+        # Find cylinder section and total length
+        cylinder_mask = (np.abs(z_mm) <= np.max(np.abs(z_mm)) * 0.6)
+        cylinder_length = np.max(z_mm) - np.min(z_mm)
+        cylinder_radius = np.mean(r_mm[cylinder_mask]) if np.any(cylinder_mask) else 100.0
+        
+        trajectory_data['path_points'] = []
+        
+        if layer.layer_type == 'hoop':
+            # Hoop layers: Full cylinder coverage with circumferential windings
+            num_wraps = max(8, int(cylinder_length / roving_width))  # Ensure adequate coverage
+            z_positions = np.linspace(np.min(z_mm), np.max(z_mm), num_wraps)
+            
+            for z_pos in z_positions:
+                # Interpolate radius at this z position
+                r_interp = np.interp(z_pos, z_mm, r_mm)
+                
+                # Complete circumferential wrap at this z position
+                theta_range = np.linspace(0, 360, 72)  # 5-degree increments
+                for theta in theta_range:
+                    trajectory_data['path_points'].append({
+                        'z_mm': float(z_pos),
+                        'r_mm': float(r_interp),
+                        'theta_deg': float(theta),
+                        'layer_id': layer.layer_set_id
+                    })
+        else:
+            # Helical layers: Proper helical winding
+            angle_rad = np.radians(layer.winding_angle_deg)
+            num_turns = max(3, int(cylinder_length / (roving_width * 2)))
+            points_per_turn = 60
+            total_points = num_turns * points_per_turn
+            
+            for i in range(total_points):
+                progress = i / max(1, total_points - 1)
+                z_pos = np.min(z_mm) + cylinder_length * progress
+                theta = progress * num_turns * 360  # Degrees
+                
+                # Interpolate radius at this z position
+                r_interp = np.interp(z_pos, z_mm, r_mm)
+                
+                trajectory_data['path_points'].append({
+                    'z_mm': float(z_pos),
+                    'r_mm': float(r_interp),
+                    'theta_deg': float(theta % 360),
+                    'layer_id': layer.layer_set_id
+                })
         
         return trajectory_data
         
