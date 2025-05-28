@@ -620,6 +620,9 @@ def layer_stack_definition_page():
         else:
             st.success("✅ All layers have been applied to mandrel geometry")
     
+    # Add Advanced 3D Full Coverage Visualization
+    add_full_coverage_visualization_section(manager)
+    
     # Advanced Pattern Analysis section
     if stack_summary['layers_applied_to_mandrel'] > 0:
         st.subheader("🔬 Advanced Pattern Analysis")
@@ -718,10 +721,166 @@ def layer_stack_definition_page():
                         'pattern_parameters': params,
                         'mandrel_geometry': mandrel_geom
                     }
-                    
-                    st.info("💡 Optimal pattern parameters saved for trajectory planning!")
-                else:
-                    st.warning("⚠️ No feasible pattern found in the specified range")
+
+def add_full_coverage_visualization_section(manager):
+    """Add comprehensive 3D visualization section to layer stack page"""
+    
+    if not manager.layer_stack:
+        return
+    
+    st.markdown("---")
+    st.markdown("### 🎯 Advanced 3D Full Coverage Visualization")
+    st.info("Generate and visualize complete coverage patterns for individual layers with high-quality mandrel representation")
+    
+    # Layer selection for visualization
+    layer_options = []
+    for i, layer in enumerate(manager.layer_stack):
+        status = "✅ Applied" if i < len(manager.mandrel.layers_applied) else "⏳ Pending"
+        layer_options.append(f"Layer {layer.layer_set_id}: {layer.layer_type} at {layer.winding_angle_deg}° ({status})")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        selected_layer_idx = st.selectbox(
+            "Select Layer for Full Coverage Visualization",
+            range(len(layer_options)),
+            format_func=lambda x: layer_options[x],
+            help="Choose which layer to visualize with complete coverage pattern"
+        )
+        
+        if selected_layer_idx is not None:
+            selected_layer = manager.layer_stack[selected_layer_idx]
+            
+            # Show layer details
+            st.markdown(f"**Selected Layer Details:**")
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.info(f"**Type**: {selected_layer.layer_type}")
+                st.info(f"**Angle**: {selected_layer.winding_angle_deg}°")
+            with col_b:
+                st.info(f"**Material**: {selected_layer.fiber_material}")
+                st.info(f"**Plies**: {selected_layer.num_plies}")
+            with col_c:
+                st.info(f"**Thickness**: {selected_layer.calculated_set_thickness_mm:.2f}mm")
+                physics_model = getattr(selected_layer, 'physics_model', 'default')
+                st.info(f"**Physics**: {physics_model}")
+    
+    with col2:
+        st.markdown("**Visualization Settings:**")
+        
+        quality_level = st.selectbox(
+            "Quality Level",
+            ["fast", "balanced", "high_quality"],
+            index=1,
+            help="Higher quality = more detail but slower rendering"
+        )
+        
+        show_all_circuits = st.checkbox("Show All Circuits", value=True, help="Display complete coverage pattern")
+        show_mandrel_mesh = st.checkbox("Show Mandrel Mesh", value=True, help="High-quality mandrel surface")
+        color_by_circuit = st.checkbox("Color by Circuit", value=True, help="Different color for each circuit")
+    
+    # Generate and display visualization
+    if st.button("🚀 Generate Full Coverage Visualization", type="primary"):
+        generate_and_display_full_coverage(
+            manager, selected_layer, selected_layer_idx, 
+            quality_level, show_all_circuits, show_mandrel_mesh, color_by_circuit
+        )
+
+def generate_and_display_full_coverage(manager, selected_layer, layer_idx, 
+                                     quality_level, show_all_circuits, show_mandrel_mesh, color_by_circuit):
+    """Generate and display the full coverage visualization"""
+    
+    with st.spinner("Generating complete coverage pattern..."):
+        try:
+            from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
+            from modules.advanced_3d_visualization import Advanced3DVisualizer
+            
+            # Get appropriate mandrel geometry for this layer
+            if layer_idx < len(manager.mandrel.layers_applied):
+                # Layer is applied - use mandrel geometry at this layer
+                vessel_geometry = manager.get_mandrel_geometry_at_layer(layer_idx)
+            else:
+                # Layer not applied yet - use current mandrel state
+                current_mandrel = manager.get_current_mandrel_for_trajectory()
+                vessel_geometry = st.session_state.vessel_geometry
+                if hasattr(vessel_geometry, 'profile_points'):
+                    vessel_geometry.profile_points = current_mandrel['profile_points']
+            
+            # Prepare layer configuration
+            layer_config = {
+                'layer_type': selected_layer.layer_type,
+                'winding_angle': selected_layer.winding_angle_deg,
+                'physics_model': getattr(selected_layer, 'physics_model', 'clairaut'),
+                'continuity_level': getattr(selected_layer, 'continuity_level', 1),
+                'friction_coefficient': getattr(selected_layer, 'friction_coefficient', 0.1),
+                'roving_width': 3.0,  # Default roving width in mm
+                'coverage_mode': 'full_coverage'
+            }
+            
+            # Generate complete coverage pattern
+            coverage_generator = AdvancedFullCoverageGenerator(vessel_geometry, layer_config)
+            coverage_data = coverage_generator.generate_complete_coverage(quality_level)
+            
+            # Create visualization
+            visualizer = Advanced3DVisualizer()
+            viz_options = {
+                'show_mandrel': show_mandrel_mesh,
+                'mandrel_opacity': 0.3,
+                'circuit_line_width': 3,
+                'show_start_end_points': True,
+                'color_by_circuit': color_by_circuit,
+                'show_surface_mesh': True
+            }
+            
+            fig = visualizer.create_full_coverage_visualization(
+                coverage_data, vessel_geometry, layer_config, viz_options
+            )
+            
+            # Display the visualization
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show coverage statistics
+            st.subheader("📊 Coverage Analysis Results")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Circuits", coverage_data['total_circuits'])
+            with col2:
+                st.metric("Coverage Efficiency", f"{coverage_data['coverage_percentage']:.1f}%")
+            with col3:
+                total_points = sum(len(circuit) for circuit in coverage_data['circuits'])
+                st.metric("Total Points", f"{total_points:,}")
+            with col4:
+                pattern_type = coverage_data['pattern_info'].get('actual_pattern_type', 'Unknown')
+                st.metric("Pattern Type", pattern_type)
+            
+            # Show circuit details
+            if coverage_data['metadata']:
+                st.subheader("🔄 Individual Circuit Details")
+                
+                circuit_details = []
+                for meta in coverage_data['metadata']:
+                    circuit_details.append({
+                        'Circuit': meta['circuit_number'],
+                        'Start Angle (°)': f"{meta['start_phi_deg']:.1f}°",
+                        'Points': meta['points_count'],
+                        'Quality Score': f"{meta['quality_score']:.1f}"
+                    })
+                
+                circuit_df = pd.DataFrame(circuit_details)
+                st.dataframe(circuit_df, use_container_width=True, hide_index=True)
+            
+            st.success(f"✅ Full coverage visualization generated successfully with {coverage_data['total_circuits']} circuits!")
+            
+        except Exception as e:
+            st.error(f"❌ Failed to generate full coverage visualization: {str(e)}")
+            st.info("💡 Try using 'fast' quality level or check if vessel geometry is properly defined.")
+    
+    # Continue with the pattern analysis section completion
+    if 'optimal_pattern_params' in st.session_state:
+        st.info("💡 Optimal pattern parameters saved for trajectory planning!")
+    else:
+        st.info("💡 Configure pattern optimization above to save parameters for trajectory planning.")
         
         # Advanced Kinematics Testing Section
         with st.expander("🔧 Advanced Kinematics Testing", expanded=False):
