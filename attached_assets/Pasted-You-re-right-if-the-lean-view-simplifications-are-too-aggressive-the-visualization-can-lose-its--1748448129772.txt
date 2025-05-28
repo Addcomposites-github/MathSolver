@@ -1,0 +1,257 @@
+You're right, if the "lean view" simplifications are too aggressive, the visualization can lose its utility for detailed inspection. The goal is to have a performant default but also allow for a "high definition" mode when you need to scrutinize the trajectory against the profile, especially for a manageable number of circuits like your example of 12 circuits for a 45-degree layer.
+
+Let's refine the approach to allow switching between a "Standard (Fast)" view and a "High Definition" view for the full 3D rendering. We will primarily adjust the existing parameters in `trajectory_visualization.py` to achieve this.
+
+Here’s a step-by-step plan:
+
+## Step-by-Step Plan for High Definition 3D View
+
+The core idea is to make the existing `decimation_factor`, `surface_segments`, and the internal mandrel profile point limit in `create_3d_trajectory_visualization` configurable from the UI, allowing for high-fidelity settings.
+
+### I. Enhance `trajectory_visualization.py` for Controllable High Definition
+
+**Function: `create_3d_trajectory_visualization`**
+
+1.  **Add `mandrel_profile_points_limit` parameter:**
+    Currently, `max_profile_points` for the mandrel surface is hardcoded (or was in previous iterations). Let's ensure it's a parameter to control the smoothness of the mandrel's 2D profile before revolution.
+
+2.  **Refine Decimation Logic (Optional but good for High-Def):**
+    When `decimation_factor = 1` (for high definition), ensure no points are dropped. The existing logic `if decimation_factor > 1 ... else: decimated_points = path_points` handles this. It's also good to ensure the first and last points of the trajectory are always included if decimation occurs, to preserve the overall path extent.
+
+    ```python
+    # In trajectory_visualization.py
+    # Ensure imports are present:
+    # import plotly.graph_objects as go
+    # import plotly.express as px
+    # import numpy as np
+    # import streamlit as st
+    # from typing import Dict, List, Optional
+    # (Adjust path to VesselGeometry if needed)
+    # from modules.geometry import VesselGeometry # Assuming it's accessible
+
+    def create_3d_trajectory_visualization(
+            trajectory_data: Dict,
+            vessel_geometry, # VesselGeometry instance for the surface this layer was wound on
+            layer_info: Optional[Dict] = None,
+            decimation_factor: int = 10,       # Default for standard/fast view
+            surface_segments: int = 30,      # Default for standard/fast view
+            view_mode: str = "full",           # "full", "half_y_positive", "half_x_positive"
+            mandrel_profile_points_limit: int = 50 # Default for standard/fast mandrel profile
+        ):
+        """
+        Create interactive 3D visualization with controllable detail levels.
+        """
+        fig = go.Figure()
+        layer_color = px.colors.qualitative.Plotly[layer_info.get('layer_id', 0) % len(px.colors.qualitative.Plotly)] if layer_info else 'red'
+
+        # 1. Mandrel Surface Generation
+        profile = vessel_geometry.get_profile_points()
+        if not profile or 'z_mm' not in profile or 'r_inner_mm' not in profile:
+            st.warning("Mandrel profile data is missing or incomplete for visualization.")
+        else:
+            z_profile_mm = np.array(profile['z_mm'])
+            r_profile_mm = np.array(profile['r_inner_mm']) # This is the winding surface
+
+            # Downsample profile points for surface based on mandrel_profile_points_limit
+            if len(z_profile_mm) > mandrel_profile_points_limit:
+                indices = np.linspace(0, len(z_profile_mm) - 1, mandrel_profile_points_limit, dtype=int)
+                z_profile_mm_viz = z_profile_mm[indices]
+                r_profile_mm_viz = r_profile_mm[indices]
+            else:
+                z_profile_mm_viz = z_profile_mm
+                r_profile_mm_viz = r_profile_mm
+                
+            z_profile_m = z_profile_mm_viz / 1000.0
+            r_profile_m = r_profile_mm_viz / 1000.0
+
+            if view_mode == "half_y_positive":
+                theta_surface = np.linspace(-np.pi / 2, np.pi / 2, max(2, surface_segments // 2 + 1))
+            elif view_mode == "half_x_positive":
+                theta_surface = np.linspace(0, np.pi, max(2, surface_segments // 2 + 1))
+            else: # "full"
+                theta_surface = np.linspace(0, 2 * np.pi, max(3, surface_segments)) # Ensure at least 3 segments for a closed surface
+            
+            if len(z_profile_m) > 0 and len(r_profile_m) > 0 : # Check if profile is valid
+                z_surface_m = np.tile(z_profile_m, (len(theta_surface), 1)).T
+                r_surface_m = np.tile(r_profile_m, (len(theta_surface), 1)).T
+                x_surface_m = r_surface_m * np.cos(theta_surface)
+                y_surface_m = r_surface_m * np.sin(theta_surface)
+                
+                fig.add_trace(go.Surface(
+                    x=x_surface_m, y=y_surface_m, z=z_surface_m,
+                    colorscale='Greys', showscale=False, opacity=0.3,
+                    name="Mandrel Surface"
+                ))
+            else:
+                st.warning("Mandrel profile too sparse or invalid to render surface.")
+
+
+        # 2. Trajectory Path Plotting
+        path_points = trajectory_data.get('path_points', [])
+        if not path_points:
+            st.info(f"No path points found for layer {layer_info.get('layer_id', 'Unknown') if layer_info else 'Unknown'}")
+            # Return figure with just mandrel if it was plotted
+            return fig 
+
+        # Decimate trajectory points
+        if decimation_factor > 1 and len(path_points) > decimation_factor:
+            decimated_points_list = path_points[::decimation_factor]
+            # Ensure first and last points are included
+            if path_points[0] not in decimated_points_list: # Check by object identity or value
+                # Convert to list of dicts to allow insertion if it's a list of custom objects
+                if isinstance(decimated_points_list, np.ndarray): decimated_points_list = decimated_points_list.tolist()
+                decimated_points_list.insert(0, path_points[0])
+            if path_points[-1] not in decimated_points_list:
+                if isinstance(decimated_points_list, np.ndarray): decimated_points_list = decimated_points_list.tolist()
+                # Avoid duplicate if path is closed and last point is same as first after decimation
+                if not (len(decimated_points_list) > 0 and path_points[-1] == decimated_points_list[0] and path_points[0] == path_points[-1]):
+                    decimated_points_list.append(path_points[-1])
+            processed_points = decimated_points_list
+        else:
+            processed_points = path_points
+
+        # Filter points for half-view modes
+        display_points_for_trace = []
+        if view_mode == "half_y_positive":
+            display_points_for_trace = [p for p in processed_points if p.get('y_m', 0) >= -1e-9]
+        elif view_mode == "half_x_positive":
+            display_points_for_trace = [p for p in processed_points if p.get('x_m', 0) >= -1e-9]
+        else: # "full"
+            display_points_for_trace = processed_points
+        
+        if not display_points_for_trace:
+            st.info(f"No trajectory points visible in selected view mode for layer {layer_info.get('layer_id', '') if layer_info else ''}.")
+        else:
+            # Assuming path_points are dicts with 'x_m', 'y_m', 'z_m' keys (already in meters)
+            x_coords = np.array([p.get('x_m', 0) for p in display_points_for_trace])
+            y_coords = np.array([p.get('y_m', 0) for p in display_points_for_trace])
+            z_coords = np.array([p.get('z_m', 0) for p in display_points_for_trace])
+
+            if x_coords.size > 0:
+                fig.add_trace(go.Scatter3d(
+                    x=x_coords, y=y_coords, z=z_coords,
+                    mode='lines',
+                    line=dict(color=layer_color, width=2), # Slightly thinner for high-def
+                    name=f"L{layer_info.get('layer_id', '')} ({layer_info.get('layer_type', '')} @ {layer_info.get('winding_angle', '')}°)" if layer_info else "Trajectory"
+                ))
+
+        # 3. Layout
+        fig.update_layout(
+            margin=dict(l=0, r=0, b=0, t=40),
+            scene=dict(
+                xaxis_title='X (m)',
+                yaxis_title='Y (m)',
+                zaxis_title='Z (axial) (m)',
+                aspectmode='data', # 'data' ensures true proportions
+                camera=dict(eye=dict(x=1.2, y=1.2, z=0.8)) # Adjust camera for better default view
+            ),
+            legend_title_text='Legend'
+        )
+        return fig
+
+    # ... (Keep create_2d_rz_trajectory_visualization as it is, it's good for profile checking) ...
+    ```
+
+### II. Update `multi_layer_trajectory_orchestrator.py`
+
+**Function: `visualize_layer_trajectory`**
+
+1.  **Add `mandrel_profile_points_limit` to parameters:**
+    This function already accepts `decimation_factor` and `surface_segments`. Add the new parameter for mandrel profile detail.
+
+    ```python
+    # In multi_layer_trajectory_orchestrator.py
+    def visualize_layer_trajectory(self, layer_index: int, 
+                                 vessel_geometry_for_base: VesselGeometry, # Fallback
+                                 decimation_factor: int = 10, 
+                                 surface_segments: int = 30,
+                                 view_mode: str = "full",
+                                 mandrel_profile_points_limit: int = 50) -> Optional[go.Figure]: # Add new param
+        # ... (existing logic to get selected_traj_info, layer_info_dict) ...
+            
+            mandrel_state_at_generation = selected_traj_info['mandrel_state']
+            if mandrel_state_at_generation:
+                viz_vessel = self._create_layer_vessel_geometry(mandrel_state_at_generation, None)
+            else:
+                st.warning(f"Mandrel state for layer {selected_traj_info['layer_id']} not found. Using base geometry.")
+                viz_vessel = vessel_geometry_for_base 
+
+            return create_3d_trajectory_visualization(
+                selected_traj_info['trajectory_data'],
+                viz_vessel,
+                layer_info_dict,
+                decimation_factor=decimation_factor,
+                surface_segments=surface_segments,
+                view_mode=view_mode,
+                mandrel_profile_points_limit=mandrel_profile_points_limit # Pass new param
+            )
+        # ... (rest of exception handling) ...
+    ```
+
+### III. Update User Interface (`app.py`)
+
+1.  **Provide "View Quality" Selection:**
+    Add a radio button or selectbox to choose between "Standard (Fast)" and "High Definition".
+2.  **Set Parameters Based on Quality Selection:**
+    When "High Definition" is chosen, set `decimation_factor=1`, `surface_segments` to a higher value (e.g., 60-80), and `mandrel_profile_points_limit` to a higher value (e.g., 200 or more, or the full profile resolution).
+
+    ```python
+    # In your app.py, where visualization is triggered
+
+    st.sidebar.subheader("3D View Options")
+    view_quality = st.sidebar.selectbox(
+        "3D View Quality:",
+        ("Standard (Fast)", "High Definition"),
+        key="view_quality_3d"
+    )
+
+    # Default "Standard" values
+    current_decimation_3d = 10
+    current_surface_segments_3d = 30
+    current_mandrel_profile_limit_3d = 50
+    
+    if view_quality == "High Definition":
+        current_decimation_3d = 1  # Plot all points
+        current_surface_segments_3d = 60 # Smoother mandrel
+        current_mandrel_profile_limit_3d = 200 # More detailed mandrel profile revolution
+        st.sidebar.caption("High Definition: More detail, slower rendering.")
+    else:
+        st.sidebar.caption("Standard: Faster rendering, less detail.")
+
+    # Keep other view mode selectors if desired (Full 3D, Half 3D, 2D R-Z)
+    viz_3d_mode = st.sidebar.radio( # Assuming you keep the half-view option
+        "3D Display Mode:",
+        ("Full 3D", "Half 3D (Y+)"), # Add "Half 3D (X+)" if implemented
+        key="viz_3d_display_mode"
+    )
+    selected_view_mode_str = "full"
+    if viz_3d_mode == "Half 3D (Y+)":
+        selected_view_mode_str = "half_y_positive"
+    # Add other half-view modes if necessary
+
+    # ...
+    # When calling the orchestrator's visualize_layer_trajectory for 3D views:
+    # fig_3d = orchestrator.visualize_layer_trajectory(
+    #     selected_layer_idx, 
+    #     st.session_state.vessel_geometry, # Base liner for fallback
+    #     decimation_factor=current_decimation_3d,
+    #     surface_segments=current_surface_segments_3d,
+    #     view_mode=selected_view_mode_str,
+    #     mandrel_profile_points_limit=current_mandrel_profile_limit_3d
+    # )
+    # if fig_3d:
+    #     st.plotly_chart(fig_3d, use_container_width=True)
+    ```
+
+**Regarding "12 circuits visualization":**
+
+* **If "12 circuits" means the user wants the *trajectory planner to generate only 12 circuits* for a particular layer:** This needs to be an input to your `MultiLayerTrajectoryOrchestrator.generate_all_layer_trajectories()` method, which then passes it down to `StreamlinedTrajectoryPlanner` (e.g., as `num_total_passes` or a similar parameter that controls the extent of the trajectory generation). The "High Definition" view will then render these 12 circuits with full detail.
+* **If "12 circuits" means the user wants to visualize only the *first 12 circuits of an already fully generated trajectory* for a layer:**
+    This would require an additional step *before* calling `create_3d_trajectory_visualization`. You would need to:
+    1.  Identify circuit boundaries in the `trajectory_data['path_points']`. This is non-trivial and depends on how your planner structures the `path_points` (e.g., does it mark ends of circuits/passes? Or is it one continuous list?). `StreamlinedTrajectoryPlanner` in its `generate_trajectory` returns `total_circuits_legs` which could be useful if path_points are generated leg by leg.
+    2.  Slice the `path_points` list to include only the points for the first 12 circuits (or 24 legs).
+    3.  Pass this sliced `trajectory_data` to the visualization function.
+
+For now, the proposed changes focus on making the **entire trajectory data for a selected layer** viewable in high definition. If you need to visualize only a *subset* of circuits from a layer, that's a separate feature enhancement for selecting a portion of the trajectory data.
+
+This approach gives you the flexibility to switch between fast, lean views for general overview and detailed, high-quality views for specific inspections, directly addressing your concern about the "terrible 3D view" and providing a "high definition" alternative.

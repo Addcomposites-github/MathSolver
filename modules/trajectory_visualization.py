@@ -10,7 +10,8 @@ import streamlit as st
 from typing import Dict, List, Optional
 
 def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, layer_info: Dict = None,
-                                     decimation_factor: int = 10, surface_segments: int = 30, view_mode: str = "full"):
+                                     decimation_factor: int = 10, surface_segments: int = 30, view_mode: str = "full",
+                                     mandrel_profile_points_limit: int = 50):
     """
     Create interactive 3D visualization of a single layer trajectory with performance optimization
     
@@ -34,16 +35,18 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
     z_profile_mm = np.array(profile['z_mm'])
     r_profile_mm = np.array(profile['r_inner_mm'])
     
-    # Downsample profile points if very dense
-    max_profile_points = 50
-    if len(z_profile_mm) > max_profile_points:
-        indices = np.linspace(0, len(z_profile_mm) - 1, max_profile_points, dtype=int)
-        z_profile_mm = z_profile_mm[indices]
-        r_profile_mm = r_profile_mm[indices]
+    # Downsample profile points based on mandrel_profile_points_limit
+    if len(z_profile_mm) > mandrel_profile_points_limit:
+        indices = np.linspace(0, len(z_profile_mm) - 1, mandrel_profile_points_limit, dtype=int)
+        z_profile_mm_viz = z_profile_mm[indices]
+        r_profile_mm_viz = r_profile_mm[indices]
+    else:
+        z_profile_mm_viz = z_profile_mm
+        r_profile_mm_viz = r_profile_mm
     
     # Convert to meters for plotting
-    z_profile = z_profile_mm / 1000.0
-    r_profile = r_profile_mm / 1000.0
+    z_profile = z_profile_mm_viz / 1000.0
+    r_profile = r_profile_mm_viz / 1000.0
     
     # Create mandrel surface with optimized segment count - adjust for view mode
     if view_mode == "half_y_positive":

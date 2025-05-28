@@ -863,7 +863,7 @@ def layer_by_layer_planning(layer_manager):
             selected_traj = all_trajectories[selected_layer_idx]
             
             # Visualization controls
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 view_mode = st.selectbox(
                     "View Mode",
@@ -871,11 +871,23 @@ def layer_by_layer_planning(layer_manager):
                     help="Choose visualization mode for trajectory verification"
                 )
             with col2:
-                decimation_factor = st.slider("Trajectory Detail", 1, 20, 10, 
-                                             help="Higher values improve performance by showing fewer trajectory points")
-            with col3:
-                surface_segments = st.slider("Surface Detail", 10, 60, 30,
-                                            help="Lower values improve performance by reducing surface complexity")
+                view_quality = st.selectbox(
+                    "3D View Quality",
+                    ("Standard (Fast)", "High Definition"),
+                    help="High Definition: More detail, slower rendering"
+                )
+            
+            # Set parameters based on quality selection
+            if view_quality == "High Definition":
+                decimation_factor = 1  # Plot all points
+                surface_segments = 80  # Smoother mandrel
+                mandrel_profile_limit = 200  # More detailed mandrel profile
+                st.info("🔬 **High Definition Mode**: Full trajectory detail with smooth mandrel surface")
+            else:
+                decimation_factor = 10  # Standard decimation
+                surface_segments = 30  # Standard surface detail
+                mandrel_profile_limit = 50  # Standard mandrel profile
+                st.info("⚡ **Standard Mode**: Optimized for fast rendering")
             
             # Create visualization tabs
             viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
@@ -910,7 +922,8 @@ def layer_by_layer_planning(layer_manager):
                             layer_info,
                             decimation_factor=decimation_factor,
                             surface_segments=surface_segments,
-                            view_mode=view_mode_3d
+                            view_mode=view_mode_3d,
+                            mandrel_profile_points_limit=mandrel_profile_limit
                         )
                         if view_mode == "Half 3D (Y+)":
                             st.info("🔍 **Half-Section View**: Showing Y≥0 half to reduce visual clutter while preserving trajectory details")
