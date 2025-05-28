@@ -6,7 +6,7 @@ Complete integration layer that routes all trajectory requests through the unifi
 import streamlit as st
 from typing import Dict, Any, Optional
 from .unified_trajectory_planner import UnifiedTrajectoryPlanner
-from .legacy_trajectory_adapter import LegacyTrajectoryAdapter
+# Legacy adapter removed - using direct unified interface
 from .ui_parameter_mapper import UIParameterMapper
 from .unified_visualization_adapter import UnifiedVisualizationAdapter
 from .unified_trajectory_performance import CachedTrajectoryPlanner, TrajectoryPerformanceMonitor
@@ -38,7 +38,8 @@ class UnifiedTrajectoryHandler:
             payout_length_m=0.5,  # Default 500mm payout
             default_friction_coeff=0.1
         )
-        self.adapter = LegacyTrajectoryAdapter(self.planner)
+        # Legacy adapter removed - using direct unified interface
+        self.adapter = None
         
         # Enable intelligent caching for better performance
         cache_enabled = st.session_state.get('caching_enabled', True)

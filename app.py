@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import math
 from modules.geometry import VesselGeometry
-from modules.trajectories import TrajectoryPlanner
-from modules.trajectories_fixed import TrajectoryPlannerFixed
-from modules.trajectories_streamlined import StreamlinedTrajectoryPlanner
+from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
+from modules.unified_ui_integration import UnifiedTrajectoryHandler
 from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
@@ -1307,13 +1306,14 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
                 target_angle = st.slider("Target Angle (degrees)", min_value=10.0, max_value=80.0, value=45.0)
             
             # Test button
-            if st.button("🧪 Test Refactored Engine", key="refactored_btn"):
-                with st.spinner("Testing refactored trajectory engine..."):
+            if st.button("🧪 Test Unified Engine", key="unified_btn"):
+                with st.spinner("Testing unified trajectory engine..."):
                     try:
-                        from modules.trajectories_refactored import TrajectoryPlannerRefactored
+                        # Note: Using unified trajectory system
+                        st.info("🔄 Refactored engine has been replaced by the unified trajectory system")
                         
-                        # Create refactored planner
-                        planner_refactored = TrajectoryPlannerRefactored(
+                        # Create unified planner (replaces refactored engine)
+                        planner_unified = UnifiedTrajectoryPlanner(
                             vessel_geometry=st.session_state.vessel_geometry,
                             dry_roving_width_m=roving_width * 1e-3,
                             dry_roving_thickness_m=roving_thickness * 1e-3,
