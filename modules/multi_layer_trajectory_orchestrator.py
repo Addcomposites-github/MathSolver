@@ -134,8 +134,8 @@ class MultiLayerTrajectoryOrchestrator:
         # Generate trajectory
         trajectory_data = layer_planner.generate_trajectory(
             pattern_name=pattern_name,
-            num_total_passes=pattern_params.get('num_passes', 10),
-            coverage_option="user_defined_passes"
+            coverage_option="user_defined_circuits",
+            user_circuits=pattern_params.get('num_passes', 10)
         )
         
         return trajectory_data
@@ -201,17 +201,17 @@ class MultiLayerTrajectoryOrchestrator:
             # Use pattern calculator with current mandrel geometry
             pattern_results = self.pattern_calculator.calculate_pattern_parameters(
                 current_mandrel_geometry=mandrel_data,
-                target_angle_deg=layer_def.winding_angle_deg,
                 roving_width_mm=roving_width_mm,
-                coverage_requirement=95.0  # Default coverage
+                target_angle_deg=layer_def.winding_angle_deg,
+                num_layers=1
             )
             
             # Extract number of passes from pattern results
-            num_passes = pattern_results.get('nd_windings', 10)
+            num_passes = pattern_results.nd_windings
             
             return {
                 'num_passes': num_passes,
-                'delta_phi_pattern_rad': pattern_results.get('delta_phi_pattern_rad', 0.1),
+                'delta_phi_pattern_rad': pattern_results.delta_phi_pattern_rad,
                 'pattern_results': pattern_results
             }
             
