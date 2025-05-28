@@ -264,13 +264,13 @@ class TrajectoryOutputStandardizer:
             if not trajectory_points:
                 return {'success': False, 'message': 'No trajectory points generated'}
             
-            # Extract coordinate arrays with consistent naming
-            x_points = np.array([p.get('x', 0) for p in trajectory_points])
-            y_points = np.array([p.get('y', 0) for p in trajectory_points])
-            z_points = np.array([p.get('z', 0) for p in trajectory_points])
-            rho_points = np.array([p.get('rho', 0) for p in trajectory_points])
-            phi_points = np.array([p.get('phi', 0) for p in trajectory_points])
-            alpha_points = np.array([p.get('alpha', 0) for p in trajectory_points])
+            # Extract coordinate arrays with consistent naming - handle both formats
+            x_points = np.array([p.get('x_m', p.get('x', 0)) for p in trajectory_points])
+            y_points = np.array([p.get('y_m', p.get('y', 0)) for p in trajectory_points])
+            z_points = np.array([p.get('z_m', p.get('z', 0)) for p in trajectory_points])
+            rho_points = np.array([p.get('rho_m', p.get('rho', 0)) for p in trajectory_points])
+            phi_points = np.array([p.get('phi_rad_profile', p.get('phi', 0)) for p in trajectory_points])
+            alpha_points = np.array([p.get('alpha_deg_profile', p.get('alpha', 0)) for p in trajectory_points])
             
             # Calculate comprehensive statistics
             total_points = len(trajectory_points)
