@@ -9,9 +9,10 @@ import numpy as np
 import streamlit as st
 from typing import Dict, List, Optional
 
-def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, layer_info: Dict = None):
+def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, layer_info: Dict = None,
+                                     decimation_factor: int = 10, surface_segments: int = 30):
     """
-    Create interactive 3D visualization of a single layer trajectory
+    Create interactive 3D visualization of a single layer trajectory with performance optimization
     
     Parameters:
     -----------
@@ -21,16 +22,31 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
         Vessel geometry for mandrel surface
     layer_info : Dict
         Layer information (type, angle, etc.)
+    decimation_factor : int
+        Plot every Nth point for performance (default: 10)
+    surface_segments : int
+        Number of segments for mandrel surface (default: 30)
     """
     fig = go.Figure()
     
-    # Get vessel profile for mandrel surface
+    # Get vessel profile for mandrel surface with performance optimization
     profile = vessel_geometry.get_profile_points()
-    z_profile = profile['z_mm']
-    r_profile = profile['r_inner_mm']
+    z_profile_mm = np.array(profile['z_mm'])
+    r_profile_mm = np.array(profile['r_inner_mm'])
     
-    # Create mandrel surface (revolution of profile)
-    theta_surface = np.linspace(0, 2*np.pi, 50)
+    # Downsample profile points if very dense
+    max_profile_points = 50
+    if len(z_profile_mm) > max_profile_points:
+        indices = np.linspace(0, len(z_profile_mm) - 1, max_profile_points, dtype=int)
+        z_profile_mm = z_profile_mm[indices]
+        r_profile_mm = r_profile_mm[indices]
+    
+    # Convert to meters for plotting
+    z_profile = z_profile_mm / 1000.0
+    r_profile = r_profile_mm / 1000.0
+    
+    # Create mandrel surface with optimized segment count
+    theta_surface = np.linspace(0, 2*np.pi, surface_segments)
     z_surface = np.tile(z_profile, (len(theta_surface), 1)).T
     r_surface = np.tile(r_profile, (len(theta_surface), 1)).T
     x_surface = r_surface * np.cos(theta_surface)
@@ -48,18 +64,26 @@ def create_3d_trajectory_visualization(trajectory_data: Dict, vessel_geometry, l
     ))
     
     # Add trajectory path if available
-    if trajectory_data and 'path_points' in trajectory_data:
-        path_points = trajectory_data['path_points']
+    if trajectory_data and trajectory_data.get('success', False):
+        # Get coordinate arrays from TrajectoryOutputStandardizer format
+        x_points = trajectory_data.get('x_points_m', [])
+        y_points = trajectory_data.get('y_points_m', [])
+        z_points = trajectory_data.get('z_points_m', [])
         
-        if len(path_points) > 0:
-            # Extract coordinates
-            z_traj = [point.get('z_mm', 0) for point in path_points]
-            r_traj = [point.get('r_mm', 100) for point in path_points]
-            theta_traj = [np.radians(point.get('theta_deg', 0)) for point in path_points]
-            
-            # Convert to Cartesian
-            x_traj = [r * np.cos(theta) for r, theta in zip(r_traj, theta_traj)]
-            y_traj = [r * np.sin(theta) for r, theta in zip(r_traj, theta_traj)]
+        if len(x_points) > 0:
+            # Apply decimation for performance
+            if decimation_factor > 1 and len(x_points) > decimation_factor:
+                indices = np.arange(0, len(x_points), decimation_factor)
+                # Always include the last point
+                if indices[-1] != len(x_points) - 1:
+                    indices = np.append(indices, len(x_points) - 1)
+                x_traj = np.array(x_points)[indices] * 1000  # Convert m to mm
+                y_traj = np.array(y_points)[indices] * 1000
+                z_traj = np.array(z_points)[indices] * 1000
+            else:
+                x_traj = np.array(x_points) * 1000  # Convert m to mm
+                y_traj = np.array(y_points) * 1000
+                z_traj = np.array(z_points) * 1000
             
             # Determine color based on layer type
             if layer_info:

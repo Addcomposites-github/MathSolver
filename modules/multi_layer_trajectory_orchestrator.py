@@ -242,9 +242,10 @@ class MultiLayerTrajectoryOrchestrator:
             })
         return summary
     
-    def visualize_layer_trajectory(self, layer_index: int, vessel_geometry) -> Optional:
+    def visualize_layer_trajectory(self, layer_index: int, vessel_geometry, 
+                                 decimation_factor: int = 10, surface_segments: int = 30) -> Optional:
         """
-        Visualize specific layer trajectory with correct mandrel surface.
+        Visualize specific layer trajectory with correct mandrel surface and performance optimization.
         
         Parameters:
         -----------
@@ -252,6 +253,10 @@ class MultiLayerTrajectoryOrchestrator:
             Index of layer to visualize
         vessel_geometry : VesselGeometry
             Base vessel geometry for reference
+        decimation_factor : int
+            Plot every Nth point for performance (default: 10)
+        surface_segments : int
+            Number of segments for mandrel surface (default: 30)
             
         Returns:
         --------
@@ -278,14 +283,18 @@ class MultiLayerTrajectoryOrchestrator:
                 return create_3d_trajectory_visualization(
                     selected_traj['trajectory_data'],
                     viz_vessel,
-                    layer_info
+                    layer_info,
+                    decimation_factor=decimation_factor,
+                    surface_segments=surface_segments
                 )
             else:
                 # Fallback to base vessel geometry
                 return create_3d_trajectory_visualization(
                     selected_traj['trajectory_data'],
                     vessel_geometry,
-                    layer_info
+                    layer_info,
+                    decimation_factor=decimation_factor,
+                    surface_segments=surface_segments
                 )
                 
         except Exception as e:
