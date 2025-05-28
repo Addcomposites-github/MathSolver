@@ -8,9 +8,18 @@ import numpy as np
 import streamlit as st
 from typing import Dict, List, Tuple, Optional
 from modules.geometry import VesselGeometry
-from modules.trajectories_streamlined import StreamlinedTrajectoryPlanner
 from modules.winding_patterns import WindingPatternCalculator
 from modules.trajectory_visualization import create_3d_trajectory_visualization
+
+# Import unified trajectory system
+try:
+    from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
+    from modules.unified_visualization_adapter import UnifiedVisualizationAdapter
+    UNIFIED_SYSTEM_AVAILABLE = True
+except ImportError:
+    # Fallback to old system if unified not available
+    from modules.trajectories_streamlined import StreamlinedTrajectoryPlanner
+    UNIFIED_SYSTEM_AVAILABLE = False
 
 
 class MultiLayerTrajectoryOrchestrator:
@@ -24,6 +33,14 @@ class MultiLayerTrajectoryOrchestrator:
         self.layer_manager = layer_manager
         self.pattern_calculator = WindingPatternCalculator()
         self.generated_trajectories = []
+        
+        # Initialize unified trajectory system if available
+        if UNIFIED_SYSTEM_AVAILABLE:
+            self.unified_planner = None  # Will be initialized per layer
+            self.viz_adapter = UnifiedVisualizationAdapter()
+            self.using_unified_system = True
+        else:
+            self.using_unified_system = False
         
     def generate_all_layer_trajectories(self, roving_width_mm: float = 3.0, 
                                       roving_thickness_mm: float = 0.125) -> List[Dict]:
@@ -87,6 +104,7 @@ class MultiLayerTrajectoryOrchestrator:
                                         roving_width_mm: float, roving_thickness_mm: float) -> Dict:
         """
         Generate trajectory for a single layer using current mandrel surface.
+        Uses unified trajectory system for enhanced quality and consistency.
         
         Parameters:
         -----------
@@ -105,10 +123,128 @@ class MultiLayerTrajectoryOrchestrator:
         """
         # Get current mandrel surface
         mandrel_data = self.layer_manager.get_current_mandrel_for_trajectory()
-        current_surface_profile = mandrel_data['profile_points']
         
         # Create temporary VesselGeometry for this layer's winding surface
         temp_vessel = self._create_layer_vessel_geometry(mandrel_data, layer_def)
+        
+        if self.using_unified_system:
+            # Use unified trajectory system for enhanced quality
+            return self._generate_unified_layer_trajectory(
+                temp_vessel, layer_def, roving_width_mm, roving_thickness_mm
+            )
+        else:
+            # Fallback to legacy system
+            return self._generate_legacy_layer_trajectory(
+                temp_vessel, layer_def, roving_width_mm, roving_thickness_mm
+            )
+    
+    def _generate_unified_layer_trajectory(self, temp_vessel, layer_def, 
+                                         roving_width_mm: float, roving_thickness_mm: float) -> Dict:
+        """Generate trajectory using unified system with layer-specific parameters"""
+        
+        # Initialize unified planner for this layer
+        self.unified_planner = UnifiedTrajectoryPlanner(
+            vessel_geometry=temp_vessel,
+            roving_width_mm=roving_width_mm
+        )
+        
+        # Determine optimal parameters for this layer type
+        layer_params = self._determine_layer_parameters(layer_def, roving_width_mm, roving_thickness_mm)
+        
+        print(f"=== UNIFIED LAYER TRAJECTORY GENERATION ===")
+        print(f"Layer {layer_def.layer_set_id}: {layer_def.layer_type} at {layer_def.winding_angle_deg}°")
+        print(f"Pattern: {layer_params['pattern_type']}")
+        print(f"Physics: {layer_params['physics_model']}")
+        print(f"Coverage: {layer_params['coverage_mode']}")
+        
+        try:
+            # Generate trajectory using unified system
+            result = self.unified_planner.generate_trajectory(**layer_params)
+            
+            # Convert to visualization-compatible format
+            trajectory_data = self.viz_adapter.convert_trajectory_result_for_viz(
+                result, f"{layer_def.layer_type}_{layer_def.winding_angle_deg}deg"
+            )
+            
+            # Add layer-specific metadata
+            trajectory_data.update({
+                'layer_system_used': 'unified',
+                'layer_id': layer_def.layer_set_id,
+                'layer_type': layer_def.layer_type,
+                'target_angle': layer_def.winding_angle_deg,
+                'enhanced_quality': True
+            })
+            
+            return trajectory_data
+            
+        except Exception as e:
+            st.error(f"Unified trajectory generation failed for layer {layer_def.layer_set_id}: {str(e)}")
+            # Fallback to legacy system
+            return self._generate_legacy_layer_trajectory(
+                temp_vessel, layer_def, roving_width_mm, roving_thickness_mm
+            )
+    
+    def _determine_layer_parameters(self, layer_def, roving_width_mm: float, roving_thickness_mm: float) -> Dict:
+        """
+        Determine optimal unified system parameters for specific layer type.
+        Maps layer characteristics to unified trajectory parameters.
+        """
+        base_params = {
+            'roving_width_mm': roving_width_mm,
+            'roving_thickness_mm': roving_thickness_mm,
+            'target_angle_deg': layer_def.winding_angle_deg,
+            'continuity_level': 2,  # C2 continuity for manufacturing quality
+            'num_layers_desired': 1  # Single layer at a time
+        }
+        
+        # Determine pattern type and physics model based on layer characteristics
+        if layer_def.layer_type == 'hoop':
+            # Hoop layers: nearly circumferential winding
+            base_params.update({
+                'pattern_type': 'hoop',
+                'physics_model': 'constant_angle',
+                'coverage_mode': 'full_coverage',
+                'num_layers_desired': min(8, max(3, int(360 / max(layer_def.winding_angle_deg, 5))))
+            })
+        elif layer_def.winding_angle_deg < 25:
+            # Low-angle layers: geodesic-dominant
+            base_params.update({
+                'pattern_type': 'geodesic',
+                'physics_model': 'clairaut',
+                'coverage_mode': 'optimized_coverage',
+                'num_layers_desired': max(4, int(20 / max(layer_def.winding_angle_deg, 5)))
+            })
+        elif layer_def.winding_angle_deg < 45:
+            # Mid-angle layers: helical with some geodesic properties
+            base_params.update({
+                'pattern_type': 'helical',
+                'physics_model': 'clairaut',
+                'coverage_mode': 'balanced_coverage',
+                'num_layers_desired': max(6, int(30 / max(layer_def.winding_angle_deg, 10)))
+            })
+        elif layer_def.winding_angle_deg < 75:
+            # High-angle layers: constant angle helical
+            base_params.update({
+                'pattern_type': 'helical',
+                'physics_model': 'constant_angle',
+                'coverage_mode': 'full_coverage',
+                'num_layers_desired': max(8, int(45 / max(layer_def.winding_angle_deg, 15)))
+            })
+        else:
+            # Near-hoop layers: treat as hoop with friction
+            base_params.update({
+                'pattern_type': 'non_geodesic',
+                'physics_model': 'friction',
+                'coverage_mode': 'full_coverage',
+                'friction_coefficient': 0.3,
+                'num_layers_desired': min(12, max(6, int(60 / max(90 - layer_def.winding_angle_deg, 5))))
+            })
+        
+        return base_params
+    
+    def _generate_legacy_layer_trajectory(self, temp_vessel, layer_def, 
+                                        roving_width_mm: float, roving_thickness_mm: float) -> Dict:
+        """Fallback trajectory generation using legacy system"""
         
         # Set up trajectory planner for this specific layer
         layer_planner = StreamlinedTrajectoryPlanner(
@@ -121,7 +257,7 @@ class MultiLayerTrajectoryOrchestrator:
         )
         
         # Calculate winding pattern for this layer
-        pattern_params = self._calculate_layer_pattern(mandrel_data, layer_def, roving_width_mm)
+        pattern_params = self._calculate_layer_pattern(temp_vessel, layer_def, roving_width_mm)
         
         # Determine pattern name based on layer type
         if layer_def.layer_type == 'hoop':
@@ -131,31 +267,19 @@ class MultiLayerTrajectoryOrchestrator:
         else:
             pattern_name = "non_geodesic_spiral"  # Standard helical
         
-        # Generate trajectory with proper circuit count for practical winding
-        # Convert theoretical pattern requirements to practical circuit count
+        # Generate trajectory with practical circuit count
         calculated_circuits = pattern_params.get('num_passes', 10)
-        
-        # Apply practical limits for actual winding (much smaller than theoretical coverage)
-        if layer_def.layer_type == 'hoop':
-            practical_circuits = min(calculated_circuits, 8)  # 8 circuits max for hoop
-        elif layer_def.winding_angle_deg >= 60:
-            practical_circuits = min(calculated_circuits, 10)  # 10 circuits for near-hoop
-        elif layer_def.winding_angle_deg >= 40:
-            practical_circuits = min(calculated_circuits, 12)  # 12 circuits for 40-60° helical
-        else:
-            practical_circuits = min(calculated_circuits, 8)   # 8 circuits for low angles
-        
-        print(f"=== TRAJECTORY CIRCUIT CALCULATION ===")
-        print(f"Layer {layer_def.layer_set_id}: {layer_def.layer_type} at {layer_def.winding_angle_deg}°")
-        print(f"Theoretical circuits needed: {calculated_circuits}")
-        print(f"Practical circuits for winding: {practical_circuits}")
-        print(f"Pattern: {pattern_name}")
+        practical_circuits = min(calculated_circuits, 8)  # Practical limit
         
         trajectory_data = layer_planner.generate_trajectory(
             pattern_name=pattern_name,
             coverage_option="user_defined_circuits",
             user_circuits=practical_circuits
         )
+        
+        # Add legacy system indicator
+        if trajectory_data:
+            trajectory_data['layer_system_used'] = 'legacy'
         
         return trajectory_data
     
@@ -199,7 +323,7 @@ class MultiLayerTrajectoryOrchestrator:
         
         return temp_vessel
     
-    def _calculate_layer_pattern(self, mandrel_data: Dict, layer_def, roving_width_mm: float) -> Dict:
+    def _calculate_layer_pattern(self, vessel_geometry, layer_def, roving_width_mm: float) -> Dict:
         """
         Calculate winding pattern parameters for the specific layer.
         
