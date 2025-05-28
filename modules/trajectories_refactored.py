@@ -245,7 +245,7 @@ class TrajectoryPlannerRefactored:
         - Smooth pattern advancement between passes
         - Robust ODE integration with error handling
         """
-        print(f"Geodesic engine: Generating {num_passes} passes"
+        print(f"Geodesic engine: Generating {num_passes} passes")
         
         # Get vessel profile for trajectory calculation
         profile_data = self._prepare_profile_data()
