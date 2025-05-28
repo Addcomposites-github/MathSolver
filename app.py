@@ -858,6 +858,15 @@ def layer_by_layer_planning(layer_manager):
             if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
                 selected_traj = all_trajectories[selected_layer_idx]
                 
+                # Performance controls
+                col1, col2 = st.columns(2)
+                with col1:
+                    decimation_factor = st.slider("Trajectory Detail (lower = more points)", 1, 20, 10, 
+                                                 help="Higher values improve performance by showing fewer trajectory points")
+                with col2:
+                    surface_segments = st.slider("Mandrel Surface Detail", 10, 60, 30,
+                                                help="Lower values improve performance by reducing surface complexity")
+                
                 # Create visualization tabs
                 viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
                 
@@ -872,11 +881,13 @@ def layer_by_layer_planning(layer_manager):
                             'layer_id': selected_traj['layer_id']
                         }
                         
-                        # Generate 3D plot
+                        # Generate 3D plot with performance optimization
                         fig = create_3d_trajectory_visualization(
                             selected_traj['trajectory_data'],
                             st.session_state.vessel_geometry,
-                            layer_info
+                            layer_info,
+                            decimation_factor=decimation_factor,
+                            surface_segments=surface_segments
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
