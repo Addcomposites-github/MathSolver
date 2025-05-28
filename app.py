@@ -22,6 +22,8 @@ from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 try:
     from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
     from modules.legacy_trajectory_adapter import LegacyTrajectoryAdapter
+    from modules.ui_parameter_mapper import UIParameterMapper
+    from modules.unified_ui_integration import unified_trajectory_generator, show_trajectory_quality_metrics
     UNIFIED_SYSTEM_AVAILABLE = True
 except ImportError as e:
     print(f"Unified trajectory system not available: {e}")
@@ -1614,10 +1616,65 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
         
         if st.button("Calculate Trajectory", type="primary"):
             try:
-                # Default friction coefficient for geodesic patterns
-                friction_coefficient = 0.0  # Geodesic patterns don't use friction
-                
-                if pattern_type == "Geodesic":
+                # Use unified trajectory system for all pattern types if available
+                if UNIFIED_SYSTEM_AVAILABLE and pattern_type != "🚀 Unified Trajectory System (New)":
+                    # Collect all UI parameters for the unified system
+                    ui_params = {}
+                    
+                    # Gather parameters based on pattern type
+                    if pattern_type == "Geodesic":
+                        ui_params.update({
+                            'roving_width': locals().get('roving_width', 3.0),
+                            'roving_thickness': locals().get('roving_thickness', 0.2),
+                            'polar_eccentricity': locals().get('polar_eccentricity', 0.0),
+                            'target_angle': locals().get('target_angle', 45.0),
+                            'dome_points': locals().get('dome_points', 150),
+                            'cylinder_points': locals().get('cylinder_points', 20),
+                            'number_of_passes': 1
+                        })
+                    elif pattern_type == "Non-Geodesic":
+                        ui_params.update({
+                            'roving_width': locals().get('roving_width', 3.0),
+                            'roving_thickness': locals().get('roving_thickness', 0.2),
+                            'polar_eccentricity': locals().get('polar_eccentricity', 0.0),
+                            'target_cylinder_angle_deg': locals().get('target_angle', 45.0),
+                            'friction_coefficient': locals().get('friction_coefficient', 0.3),
+                            'dome_points': locals().get('dome_points', 150),
+                            'cylinder_points': locals().get('cylinder_points', 20),
+                            'num_circuits': locals().get('num_circuits', 1)
+                        })
+                    elif pattern_type == "Multi-Circuit Pattern":
+                        ui_params.update({
+                            'num_circuits_for_vis': locals().get('num_circuits_for_vis', 5),
+                            'pattern_type': 'geodesic',
+                            'dome_points': locals().get('dome_points', 50),
+                            'cylinder_points': locals().get('cylinder_points', 10)
+                        })
+                    elif pattern_type in ["Helical", "Transitional"]:
+                        ui_params.update({
+                            'winding_angle': locals().get('winding_angle', 55.0),
+                            'circuits_to_close': locals().get('circuits_to_close', 8),
+                            'overlap_allowance': locals().get('overlap_allowance', 10.0)
+                        })
+                    else:
+                        # Default parameters for other pattern types
+                        ui_params.update({
+                            'roving_width': 3.0,
+                            'target_angle': 45.0
+                        })
+                    
+                    # Generate trajectory using unified system
+                    trajectory_data = unified_trajectory_generator(pattern_type, **ui_params)
+                    
+                    if trajectory_data:
+                        st.session_state.trajectory_data = trajectory_data
+                        
+                        # Show enhanced quality metrics from unified system
+                        show_trajectory_quality_metrics(trajectory_data)
+                        st.rerun()
+                    
+                # Fallback to legacy system if unified system not available
+                elif pattern_type == "Geodesic":
                     planner = TrajectoryPlanner(
                         st.session_state.vessel_geometry,
                         dry_roving_width_m=roving_width/1000,
