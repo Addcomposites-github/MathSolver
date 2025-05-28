@@ -6,7 +6,7 @@ Complete integration layer that routes all trajectory requests through the unifi
 import streamlit as st
 from typing import Dict, Any, Optional
 from .unified_trajectory_planner import UnifiedTrajectoryPlanner
-# Legacy adapter removed - using direct unified interface
+from .legacy_trajectory_adapter import LegacyTrajectoryAdapter
 from .ui_parameter_mapper import UIParameterMapper
 from .unified_visualization_adapter import UnifiedVisualizationAdapter
 from .unified_trajectory_performance import CachedTrajectoryPlanner, TrajectoryPerformanceMonitor
