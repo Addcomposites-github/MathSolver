@@ -206,8 +206,14 @@ class MultiLayerTrajectoryOrchestrator:
                 num_layers=1
             )
             
-            # Extract number of passes from pattern results
-            num_passes = pattern_results.nd_windings
+            # Extract number of passes from pattern results with reasonable limits
+            calculated_passes = pattern_results.nd_windings
+            
+            # Apply reasonable limits for visualization and performance
+            if layer_def.layer_type == 'hoop':
+                num_passes = min(calculated_passes, 20)  # Max 20 circuits for hoop
+            else:
+                num_passes = min(calculated_passes, 50)  # Max 50 circuits for helical
             
             return {
                 'num_passes': num_passes,

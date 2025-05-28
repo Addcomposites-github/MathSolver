@@ -836,8 +836,8 @@ def layer_by_layer_planning(layer_manager):
                     "Layer": f"Layer {traj['layer_id']}",
                     "Type": traj['layer_type'],
                     "Angle": f"{traj['winding_angle']}°",
-                    "Points": len(traj['trajectory_data'].get('path_points', [])) if traj['trajectory_data'] else 0,
-                    "Status": traj['trajectory_data'].get('success', 'Generated') if traj['trajectory_data'] else 'Failed'
+                    "Points": traj['trajectory_data'].get('total_points', 0) if traj['trajectory_data'] else 0,
+                    "Status": 'Generated' if traj['trajectory_data'] and traj['trajectory_data'].get('success') else 'Failed'
                 })
             
             st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)
