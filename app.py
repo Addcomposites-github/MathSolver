@@ -5,12 +5,11 @@ import pandas as pd
 import math
 from modules.geometry import VesselGeometry
 from modules.trajectories import TrajectoryPlanner
-# Temporarily disabled while fixing syntax issues
-# from modules.trajectories_refactored import TrajectoryPlannerRefactored
-# from modules.pattern_manager_refactored import PatternManagerRefactored
+from modules.trajectories_refactored import TrajectoryPlannerRefactored
 from modules.materials import MaterialDatabase
 from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
+from modules.advanced_analysis import AdvancedAnalysisEngine
 from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 
 # Configure page

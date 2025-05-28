@@ -528,7 +528,7 @@ class TrajectoryPlannerRefactored:
                     
                     current_phi_rad = turnaround_result['final_phi']
                 else:
-                    print(f"Warning: Turnaround generation failed at pass {pass_idx + 1}"
+                    print(f"Warning: Turnaround generation failed at pass {pass_idx + 1}")
                     
             # Update phi for next pass
             current_phi_rad += self.phi_advancement_rad_per_pass
@@ -539,7 +539,7 @@ class TrajectoryPlannerRefactored:
     def _prepare_profile_data(self) -> Optional[Dict]:
         """Prepare vessel profile data for trajectory calculations."""
         if not self.vessel.profile_points:
-            print("Error: No vessel profile available"
+            print("Error: No vessel profile available")
             return None
             
         r_inner_mm = self.vessel.profile_points['r_inner_mm']
