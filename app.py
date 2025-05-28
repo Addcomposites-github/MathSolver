@@ -821,7 +821,27 @@ def layer_by_layer_planning(layer_manager):
     st.dataframe(layer_data, use_container_width=True, hide_index=True)
     
     if st.button("🚀 Generate All Layer Trajectories", type="primary"):
-        generate_all_layer_trajectories(layer_manager, roving_width, roving_thickness, dome_points, cylinder_points)
+        from modules.trajectory_integration_fix import generate_all_layers_safe
+        all_trajectories = generate_all_layers_safe(layer_manager, roving_width, roving_thickness)
+        
+        if all_trajectories:
+            st.session_state.all_layer_trajectories = all_trajectories
+            st.success(f"🎉 Successfully generated trajectories for {len(all_trajectories)} layers!")
+            
+            # Show summary table
+            trajectory_summary = []
+            for traj in all_trajectories:
+                trajectory_summary.append({
+                    "Layer": f"Layer {traj['layer_id']}",
+                    "Type": traj['layer_type'],
+                    "Angle": f"{traj['winding_angle']}°",
+                    "Points": len(traj['path_points']),
+                    "Status": traj['status']
+                })
+            
+            st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)
+        else:
+            st.error("❌ No trajectories were successfully generated")
 
 
 def complete_stack_planning(layer_manager):
@@ -891,7 +911,7 @@ def generate_all_layer_trajectories(layer_manager, roving_width, roving_thicknes
         progress_bar.progress((i + 1) / len(layer_manager.layer_stack))
         
         # Get current mandrel geometry for this layer
-        mandrel_geom = layer_manager.get_current_mandrel_summary()
+        mandrel_geom = layer_manager.get_current_mandrel_for_trajectory()
         
         try:
             # Create trajectory planner for this specific layer
@@ -1932,13 +1952,13 @@ def manufacturing_simulation_page():
     st.markdown("**Advanced machine planning with precise feed-eye kinematics and manufacturing validation**")
     
     # Check if we have vessel geometry and layers
-    if 'vessel_geometry' not in st.session_state or not hasattr(st.session_state, 'layer_manager'):
+    if 'vessel_geometry' not in st.session_state or 'layer_stack_manager' not in st.session_state:
         st.warning("⚠️ Please define vessel geometry and layer stack first.")
         st.markdown("Navigate to **Vessel Geometry** and **Layer Stack Definition** to configure your design.")
         return
     
-    manager = st.session_state.layer_manager
-    stack_summary = manager.get_stack_summary()
+    manager = st.session_state.layer_stack_manager
+    stack_summary = manager.get_layer_stack_summary()
     
     if stack_summary['layers_applied_to_mandrel'] == 0:
         st.warning("⚠️ Please apply layers to mandrel first in the Layer Stack Definition page.")
