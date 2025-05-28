@@ -35,10 +35,43 @@ class PhysicsEngine:
         self.z_coords = vessel_meridian_points[sorted_indices, 1]
         self.rho_coords = vessel_meridian_points[sorted_indices, 0]
 
+        # Remove duplicate z values to ensure strictly increasing sequence
+        unique_indices = []
+        prev_z = None
+        tolerance = 1e-9
+        
+        for i, z_val in enumerate(self.z_coords):
+            if prev_z is None or abs(z_val - prev_z) > tolerance:
+                unique_indices.append(i)
+                prev_z = z_val
+        
+        if len(unique_indices) < len(self.z_coords):
+            print(f"Removed {len(self.z_coords) - len(unique_indices)} duplicate z-coordinates for interpolation")
+            self.z_coords = self.z_coords[unique_indices]
+            self.rho_coords = self.rho_coords[unique_indices]
+
+        # Check if we have enough points for interpolation
+        if len(self.z_coords) < 2:
+            raise ValueError("Need at least 2 unique points for spline interpolation")
+
         if not np.all(np.diff(self.z_coords) > 0):
-            # If z is not strictly increasing, parameterize by cumulative arc length instead
+            # If z is still not strictly increasing, parameterize by cumulative arc length instead
             s_coords = np.zeros_like(self.z_coords)
             s_coords[1:] = np.cumsum(np.sqrt(np.diff(self.z_coords)**2 + np.diff(self.rho_coords)**2))
+            
+            # Ensure s_coords is also strictly increasing
+            unique_s_indices = []
+            prev_s = None
+            for i, s_val in enumerate(s_coords):
+                if prev_s is None or abs(s_val - prev_s) > tolerance:
+                    unique_s_indices.append(i)
+                    prev_s = s_val
+            
+            if len(unique_s_indices) < len(s_coords):
+                s_coords = s_coords[unique_s_indices]
+                self.z_coords = self.z_coords[unique_s_indices]
+                self.rho_coords = self.rho_coords[unique_s_indices]
+            
             self.meridian_param = s_coords
             self._rho_of_s = CubicSpline(s_coords, self.rho_coords, extrapolate=False)
             self._z_of_s = CubicSpline(s_coords, self.z_coords, extrapolate=False)
