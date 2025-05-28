@@ -24,6 +24,7 @@ try:
     from modules.legacy_trajectory_adapter import LegacyTrajectoryAdapter
     from modules.ui_parameter_mapper import UIParameterMapper
     from modules.unified_ui_integration import unified_trajectory_generator, show_trajectory_quality_metrics
+    from modules.unified_visualization_adapter import UnifiedVisualizationAdapter
     UNIFIED_SYSTEM_AVAILABLE = True
 except ImportError as e:
     print(f"Unified trajectory system not available: {e}")

@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from .unified_trajectory_planner import UnifiedTrajectoryPlanner
 from .legacy_trajectory_adapter import LegacyTrajectoryAdapter
 from .ui_parameter_mapper import UIParameterMapper
+from .unified_visualization_adapter import UnifiedVisualizationAdapter
 
 class UnifiedTrajectoryHandler:
     """
@@ -19,6 +20,7 @@ class UnifiedTrajectoryHandler:
         self.mapper = UIParameterMapper()
         self.planner = None
         self.adapter = None
+        self.viz_adapter = UnifiedVisualizationAdapter()
     
     def initialize_planner(self, vessel_geometry, roving_width_mm: float = 3.0):
         """Initialize the unified planner with vessel geometry"""
@@ -50,7 +52,7 @@ class UnifiedTrajectoryHandler:
             if pattern_type == "🚀 Unified Trajectory System (New)":
                 # Parameters already in correct format from UI
                 result = self.planner.generate_trajectory(**ui_params)
-                return self.adapter._convert_legacy_output(result)
+                return self.viz_adapter.convert_trajectory_result_for_viz(result, pattern_type)
             
             # Map legacy UI parameters to unified format
             unified_params = self.mapper.map_streamlit_ui_to_unified(pattern_type, ui_params)
@@ -58,14 +60,14 @@ class UnifiedTrajectoryHandler:
             # Generate trajectory using unified system
             result = self.planner.generate_trajectory(**unified_params)
             
-            # Convert back to legacy format for visualization
-            legacy_output = self.adapter._convert_legacy_output(result)
+            # Convert to visualization-compatible format using enhanced adapter
+            viz_output = self.viz_adapter.convert_trajectory_result_for_viz(result, pattern_type)
             
-            # Add pattern type for compatibility
-            legacy_output['pattern_type'] = pattern_type
-            legacy_output['unified_system_used'] = True
+            # Add unified system indicators
+            viz_output['unified_system_used'] = True
+            viz_output['enhanced_quality_metrics'] = True
             
-            return legacy_output
+            return viz_output
             
         except Exception as e:
             st.error(f"Trajectory generation failed: {str(e)}")
