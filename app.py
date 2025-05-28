@@ -1606,9 +1606,6 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
             
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
-    
-    with col1:
-        st.subheader("Winding Parameters")
         
         # Winding pattern type
         pattern_options = ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "🔬 Refactored Engine (Test)", "Helical", "Hoop", "Polar", "Transitional"]
