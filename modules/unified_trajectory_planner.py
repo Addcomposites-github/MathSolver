@@ -55,8 +55,10 @@ class UnifiedTrajectoryPlanner:
             else:
                 raise ValueError("Unrecognized vessel geometry format")
             
-            # Convert to [rho, z] format for physics engine
-            meridian_points = np.column_stack([rho_data, z_data])
+            # Convert to [rho, z] format for physics engine and ensure proper ordering
+            # Sort by z-coordinate to ensure strictly increasing sequence
+            sort_indices = np.argsort(z_data)
+            meridian_points = np.column_stack([rho_data[sort_indices], z_data[sort_indices]])
         else:
             # Fallback: create simple cylinder profile
             radius = getattr(vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
