@@ -10,11 +10,8 @@ def generate_layer_trajectory_safe(layer_manager, layer_index: int, roving_width
     try:
         layer = layer_manager.layer_stack[layer_index]
         
-        # Simple trajectory data structure
+        # Create trajectory data structure that matches visualization expectations
         trajectory_data = {
-            'layer_id': layer.layer_set_id,
-            'layer_type': layer.layer_type,
-            'winding_angle': layer.winding_angle_deg,
             'path_points': [],
             'status': 'generated'
         }
@@ -53,7 +50,15 @@ def generate_all_layers_safe(layer_manager, roving_width: float, roving_thicknes
         trajectory = generate_layer_trajectory_safe(layer_manager, i, roving_width, roving_thickness)
         
         if trajectory:
-            all_trajectories.append(trajectory)
+            # Wrap trajectory in the expected format for visualization
+            wrapped_trajectory = {
+                'layer_id': layer.layer_set_id,
+                'layer_type': layer.layer_type,
+                'winding_angle': layer.winding_angle_deg,
+                'trajectory_data': trajectory,  # This contains the path_points
+                'mandrel_state': None
+            }
+            all_trajectories.append(wrapped_trajectory)
             st.success(f"✅ Layer {layer.layer_set_id} trajectory generated")
         
         # Apply layer to mandrel for evolution
