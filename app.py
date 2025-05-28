@@ -383,8 +383,9 @@ def layer_stack_definition_page():
             
             # Create new VesselGeometry with updated profile
             updated_vessel = VesselGeometry(
-                inner_radius_mm=stack_summary['current_equatorial_radius_mm'],
-                length_mm=getattr(st.session_state.vessel_geometry, 'length_mm', 200.0),
+                inner_diameter=stack_summary['current_equatorial_radius_mm'] * 2,
+                wall_thickness=st.session_state.vessel_geometry.wall_thickness,
+                cylindrical_length=st.session_state.vessel_geometry.cylindrical_length,
                 dome_type=st.session_state.vessel_geometry.dome_type
             )
             updated_vessel.profile_points = current_mandrel['profile_points']
