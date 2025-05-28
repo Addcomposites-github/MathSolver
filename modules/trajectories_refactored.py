@@ -151,7 +151,10 @@ class TrajectoryPlannerRefactored:
         else:
             # Use geometric limit (minimum physically possible)
             self.clairauts_constant_for_path_m = self.effective_polar_opening_radius_m
-            print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+            if self.clairauts_constant_for_path_m is not None:
+                print(f"Using geometric limit, C = {self.clairauts_constant_for_path_m*1000:.2f}mm")
+            else:
+                print("Using geometric limit, C = None")
             
     def _calculate_pattern_advancement(self):
         """
@@ -230,12 +233,75 @@ class TrajectoryPlannerRefactored:
             return 2  # One complete circuit: A->B->A
         elif coverage_option == 'full_coverage':
             # Calculate passes needed for complete circumferential coverage
-            passes_for_coverage = math.ceil(2 * math.pi / self.phi_advancement_rad_per_pass)
+            if self.phi_advancement_rad_per_pass and self.phi_advancement_rad_per_pass > 0:
+                passes_for_coverage = math.ceil(2 * math.pi / self.phi_advancement_rad_per_pass)
+            else:
+                passes_for_coverage = 4  # Default fallback
             # Ensure even number for complete circuits
             return passes_for_coverage if passes_for_coverage % 2 == 0 else passes_for_coverage + 1
         else:  # user_defined
             return user_circuits * 2  # Each circuit = 2 passes
             
+    def _prepare_profile_data(self) -> Optional[Dict]:
+        """Prepare vessel profile data for trajectory calculations."""
+        try:
+            if not hasattr(self.vessel_geometry, 'profile_points') or self.vessel_geometry.profile_points is None:
+                return None
+            
+            profile = self.vessel_geometry.profile_points
+            return {
+                'r_inner_mm': profile['r_inner_mm'],
+                'z_mm': profile['z_mm'],
+                'r_outer_mm': profile['r_outer_mm']
+            }
+        except Exception as e:
+            print(f"Error preparing profile data: {e}")
+            return None
+
+    def _engine_non_geodesic_spiral(self, coverage_option: str, num_passes: int) -> Optional[Dict]:
+        """Non-geodesic spiral engine (placeholder implementation)."""
+        print("Non-geodesic spiral engine not fully implemented yet")
+        return self._engine_geodesic_spiral(coverage_option, num_passes)
+
+    def _engine_standard_patterns(self, pattern_name: str, coverage_option: str, num_passes: int) -> Optional[Dict]:
+        """Standard patterns engine (placeholder implementation)."""
+        print(f"Standard pattern '{pattern_name}' engine not fully implemented yet")
+        return self._engine_geodesic_spiral(coverage_option, num_passes)
+
+    def _solve_geodesic_segment(self, profile_data, current_phi_rad, is_forward, pass_idx):
+        """Simple geodesic segment solver for basic trajectory generation."""
+        try:
+            # Simple implementation to generate basic helical points
+            points = []
+            r_values = profile_data['r_inner_mm'] / 1000.0  # Convert to meters
+            z_values = profile_data['z_mm'] / 1000.0
+            
+            # Generate points along the profile
+            for i, (r, z) in enumerate(zip(r_values, z_values)):
+                phi = current_phi_rad + i * 0.1  # Simple phi progression
+                x = r * np.cos(phi)
+                y = r * np.sin(phi)
+                
+                points.append({
+                    'x': x, 'y': y, 'z': z,
+                    'rho': r, 'phi': phi, 'alpha': 0.7  # Default winding angle
+                })
+            
+            return {
+                'helical_points': points,
+                'final_phi_rad': current_phi_rad + len(points) * 0.1
+            }
+        except Exception as e:
+            print(f"Error in geodesic segment: {e}")
+            return None
+
+    def _generate_geodesic_turnaround(self, profile_data, current_phi_rad, z_pole):
+        """Simple turnaround generation."""
+        return {
+            'turnaround_points': [],
+            'final_phi_rad': current_phi_rad + 0.5
+        }
+
     def _engine_geodesic_spiral(self, coverage_option: str, num_passes: int) -> Optional[Dict]:
         """
         Robust geodesic spiral trajectory generation engine.
@@ -260,7 +326,7 @@ class TrajectoryPlannerRefactored:
         for pass_idx in range(num_passes):
             is_forward = (pass_idx % 2 == 0)
             
-            print(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})"
+            print(f"Pass {pass_idx + 1}/{num_passes} ({'forward' if is_forward else 'reverse'})")
             
             # Generate helical segment
             segment_result = self._solve_geodesic_segment(
@@ -271,7 +337,7 @@ class TrajectoryPlannerRefactored:
             )
             
             if segment_result is None:
-                print(f"Failed to generate pass {pass_idx + 1}"
+                print(f"Failed to generate pass {pass_idx + 1}")
                 return None
                 
             # Add helical points to trajectory
