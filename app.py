@@ -25,6 +25,7 @@ try:
     from modules.ui_parameter_mapper import UIParameterMapper
     from modules.unified_ui_integration import unified_trajectory_generator, show_trajectory_quality_metrics
     from modules.unified_visualization_adapter import UnifiedVisualizationAdapter
+    from modules.unified_trajectory_config import create_configuration_ui, get_trajectory_config, TrajectoryConfigManager
     UNIFIED_SYSTEM_AVAILABLE = True
 except ImportError as e:
     print(f"Unified trajectory system not available: {e}")
@@ -70,12 +71,13 @@ def main():
         "Material Properties": "✅" if 'material_selection' in st.session_state else "⭕",
         "Layer Stack Definition": "✅" if 'layer_stack_manager' in st.session_state else "⭕",
         "Trajectory Planning": "✅" if st.session_state.trajectory_data else "⭕",
+        "Configuration & Settings": "🚀" if UNIFIED_SYSTEM_AVAILABLE else "⭕",
         "Performance Analysis": "⭕",
         "Manufacturing Simulation": "✅" if 'layer_manager' in st.session_state else "⭕",
         "Export Results": "⭕"
     }
     
-    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Performance Analysis", "Manufacturing Simulation", "Export Results"]
+    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Configuration & Settings", "Performance Analysis", "Manufacturing Simulation", "Export Results"]
     
     # Create enhanced navigation with status indicators
     st.sidebar.markdown("### Navigation Menu")
@@ -98,6 +100,8 @@ def main():
         layer_stack_definition_page()
     elif page == "Trajectory Planning":
         trajectory_planning_page()
+    elif page == "Configuration & Settings":
+        configuration_settings_page()
     elif page == "Performance Analysis":
         performance_analysis_page()
     elif page == "Manufacturing Simulation":
@@ -3033,6 +3037,91 @@ def export_results_page():
             )
         except Exception as e:
             st.error(f"Error generating report: {str(e)}")
+
+def configuration_settings_page():
+    """Advanced configuration and settings for unified trajectory system"""
+    
+    # Page header
+    st.markdown("""
+    <div style='background: linear-gradient(90deg, #1f4e79, #2980b9); padding: 2rem; border-radius: 10px; margin-bottom: 2rem;'>
+        <h1 style='color: white; margin: 0;'>⚙️ Configuration & Settings</h1>
+        <p style='color: #ecf0f1; margin: 0.5rem 0 0 0; font-size: 1.1rem;'>
+            Advanced configuration for unified trajectory system performance and quality
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if UNIFIED_SYSTEM_AVAILABLE:
+        # Show system status
+        st.success("🚀 **Unified Trajectory System Active** - Advanced configuration available")
+        
+        try:
+            # Create the configuration UI
+            config, config_manager = create_configuration_ui()
+            
+            # Show current system status
+            with st.expander("📊 Current System Status", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Performance Mode", config.performance_mode.title())
+                    st.metric("Max Points", f"{config.max_trajectory_points:,}")
+                
+                with col2:
+                    st.metric("Quality Threshold", f"{config.min_quality_threshold:.1%}")
+                    st.metric("Continuity Level", f"C{config.default_continuity_level}")
+                
+                with col3:
+                    status = "🟢 Optimal" if config.performance_mode == 'balanced' else "🔵 Custom"
+                    st.metric("System Status", status)
+                    st.metric("Enhanced Features", "Enabled" if config.enable_enhanced_visualization else "Disabled")
+            
+            # Performance impact information
+            st.markdown("### 💡 Performance Optimization Tips")
+            
+            if config.performance_mode == 'fast':
+                st.info("⚡ **Fast Mode**: Optimized for speed with reduced quality checks. Best for rapid prototyping.")
+            elif config.performance_mode == 'accurate':
+                st.info("🎯 **Accurate Mode**: Maximum quality with detailed validation. Best for final production trajectories.")
+            else:
+                st.info("⚖️ **Balanced Mode**: Optimal balance of quality and performance. Recommended for most applications.")
+            
+            # Quick preset buttons
+            st.markdown("### 🎛️ Quick Configuration Presets")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("⚡ Fast Prototyping", use_container_width=True):
+                    fast_config = config_manager.update_config_from_profile(config, 'fast')
+                    config_manager.save_config(fast_config)
+                    st.success("Applied Fast Prototyping preset!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("⚖️ Balanced Production", use_container_width=True):
+                    balanced_config = config_manager.update_config_from_profile(config, 'balanced')
+                    config_manager.save_config(balanced_config)
+                    st.success("Applied Balanced Production preset!")
+                    st.rerun()
+            
+            with col3:
+                if st.button("🎯 Maximum Quality", use_container_width=True):
+                    accurate_config = config_manager.update_config_from_profile(config, 'accurate')
+                    config_manager.save_config(accurate_config)
+                    st.success("Applied Maximum Quality preset!")
+                    st.rerun()
+                    
+        except Exception as e:
+            st.error(f"Configuration system error: {str(e)}")
+            st.info("Please check that all unified trajectory modules are properly installed.")
+    
+    else:
+        st.warning("⚠️ **Unified Trajectory System Not Available**")
+        st.info("The advanced configuration system requires the unified trajectory modules. Please ensure all modules are properly installed.")
+        
+        # Show basic legacy system info
+        st.markdown("### Legacy System Information")
+        st.info("Currently using the legacy trajectory system with default settings.")
 
 def generate_design_report():
     """Generate a comprehensive design report"""
