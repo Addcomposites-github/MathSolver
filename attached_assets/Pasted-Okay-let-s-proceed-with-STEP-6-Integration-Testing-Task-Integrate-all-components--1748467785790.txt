@@ -1,0 +1,358 @@
+Okay, let's proceed with **STEP 6: Integration & Testing**.
+
+**Task**: Integrate all components (`PhysicsEngine`, `PatternCalculator`, `ContinuityManager`, `TurnaroundPlanner`) into the main `UnifiedTrajectoryPlanner` class. This class will orchestrate the trajectory generation process. We will also outline the testing strategy.
+
+```python
+import numpy as np
+from typing import List, Dict, Any, Optional, Tuple
+
+# Assuming previous steps' classes are available
+# from step1_core_data_structures import TrajectoryPoint, TrajectoryResult
+# from step2_physics_engine import PhysicsEngine
+# from step3_pattern_calculator import PatternCalculator
+# from step4_continuity_manager import ContinuityManager, ContinuityReport, PathQualityReport
+# from step5_turnaround_planner import TurnaroundPlanner, MachineCoords
+# from your_copv_geometry_module import COPVGeometry # Or a similar vessel geometry definition
+
+# For placeholder, if not executed in the same environment:
+if 'TrajectoryPoint' not in globals(): @dataclass class TrajectoryPoint: position: np.ndarray; surface_coords: Dict[str, float]; winding_angle_deg: float; fiber_tension: float = 0.0; normal_vector: Optional[np.ndarray] = None; tangent_vector: Optional[np.ndarray] = None; velocity_vector_mps: Optional[np.ndarray] = None; acceleration_vector_mps2: Optional[np.ndarray] = None; arc_length_from_start: float = 0.0
+if 'TrajectoryResult' not in globals(): @dataclass class TrajectoryResult: points: List[TrajectoryPoint] = field(default_factory=list); metadata: Dict[str, Any] = field(default_factory=dict); quality_metrics: Dict[str, Any] = field(default_factory=dict)
+if 'PhysicsEngine' not in globals(): class PhysicsEngine: def __init__(self, geo): pass; def solve_geodesic(self, **kwargs): return []; def solve_non_geodesic(self, **kwargs): return []; def calculate_helical(self, **kwargs): return []
+if 'PatternCalculator' not in globals(): class PatternCalculator: def calculate_basic_parameters(self, **kwargs): return {}; def solve_diophantine_closure(self, **kwargs): return None; def optimize_coverage_efficiency(self, **kwargs): return {}
+if 'ContinuityManager' not in globals(): class ContinuityManager: def __init__(self, **kwargs):pass; def analyze_continuity(self, **kwargs): return ContinuityReport(); def generate_smooth_transition(self, **kwargs): return []; def validate_path_smoothness(self, **kwargs): return PathQualityReport()
+if 'TurnaroundPlanner' not in globals(): class TurnaroundPlanner: def __init__(self, payout): pass; def generate_polar_turnaround_on_mandrel(self, **kwargs): return []; def calculate_feed_eye_motion(self, **kwargs): return ([],[])
+if 'COPVGeometry' not in globals(): @dataclass class COPVGeometry: meridian_points: np.ndarray; def get_equatorial_radius(self): return 0.1; def get_polar_opening_radius(self, dome_end="front"): return 0.025; def get_cylinder_length(self): return 0.5
+if 'ContinuityReport' not in globals(): @dataclass class ContinuityReport: pass
+if 'PathQualityReport' not in globals(): @dataclass class PathQualityReport: pass
+if 'MachineCoords' not in globals(): @dataclass class MachineCoords: pass
+
+
+class UnifiedTrajectoryPlanner:
+    """
+    Primary interface for generating COPV filament winding trajectories.
+    Integrates physics, pattern calculation, continuity, and turnaround planning.
+    """
+
+    def __init__(self,
+                 vessel_geometry: COPVGeometry,
+                 roving_width_m: float,
+                 payout_length_m: float,
+                 default_friction_coeff: float = 0.1,
+                 material_properties: Optional[Dict[str, Any]] = None):
+        """
+        Initializes the UnifiedTrajectoryPlanner.
+
+        Args:
+            vessel_geometry: An object representing the COPV's geometry.
+            roving_width_m: The as-laid width of the fiber roving/band in meters.
+            payout_length_m: The free fiber length from feed-eye to mandrel (meters).
+            default_friction_coeff: Default coefficient of friction for non-geodesic paths.
+            material_properties: Dictionary of material properties (e.g., fiber density,
+                                 resin properties, etc. - currently for future use).
+        """
+        self.vessel_geometry = vessel_geometry
+        self.roving_width_m = roving_width_m
+        self.payout_length_m = payout_length_m
+        self.default_friction_coeff = default_friction_coeff
+        self.material_properties = material_properties if material_properties else {}
+
+        # Initialize sub-components
+        self.physics_engine = PhysicsEngine(vessel_meridian_points=vessel_geometry.meridian_points)
+        self.pattern_calc = PatternCalculator() # May take default resin_factor
+        self.continuity_mgr = ContinuityManager() # Uses default thresholds
+        self.turnaround_planner = TurnaroundPlanner(payout_length_m=self.payout_length_m)
+
+        self.trajectory_log = [] # For debugging or detailed output
+
+    def _log_message(self, message: str):
+        print(f"[UnifiedPlanner] {message}")
+        self.trajectory_log.append(message)
+
+    def _determine_total_angular_propagation(self,
+                                             physics_model: str,
+                                             clairaut_constant: Optional[float] = None,
+                                             friction_coeff: Optional[float] = None,
+                                             initial_winding_angle_deg: Optional[float] = None,
+                                             # ... other relevant params for a single circuit
+                                             ) -> float:
+        """
+        Calculates the total angular propagation (Delta_Phi_tot) for one full circuit
+        (e.g., pole-to-pole-to-pole) based on the vessel geometry and physics model.
+        This is a complex step and often requires simulating a reference circuit.
+        """
+        self._log_message("Determining total angular propagation per circuit (Delta_Phi_tot)...")
+        # Placeholder: This would involve using the physics_engine to trace a representative
+        # full circuit (e.g., fwd_dome -> cylinder -> aft_dome -> cylinder_return -> fwd_dome_return)
+        # and measuring the net change in azimuthal angle (phi).
+
+        # Example (highly simplified):
+        # path_fwd_dome = self.physics_engine.solve_geodesic(...)
+        # path_cyl_fwd = self.physics_engine.calculate_helical(...)
+        # path_aft_dome = self.physics_engine.solve_geodesic(...)
+        # ... and return paths
+        # delta_phi_circuit = end_phi_of_circuit - start_phi_of_circuit
+        # Delta_Phi_tot = delta_phi_circuit % (2 * np.pi) # or other modulo logic
+
+        # For Koussios (Eq 3.36) analytic calculation could be an option for qrs-vessels.
+        # For now, returning a plausible placeholder value.
+        # This value is CRITICAL for correct pattern calculation.
+        placeholder_delta_phi_tot = np.radians(30) # e.g., 30 degrees advancement
+        self._log_message(f"  Using placeholder Delta_Phi_tot: {np.degrees(placeholder_delta_phi_tot):.2f} deg")
+        return placeholder_delta_phi_tot
+
+
+    def generate_trajectory(self,
+                            pattern_type: str,      # 'geodesic', 'non_geodesic', 'helical', 'hoop'
+                            coverage_mode: str,     # 'single_pass', 'full_coverage', 'custom'
+                            physics_model: str,     # 'clairaut', 'friction', 'constant_angle'
+                            continuity_level: int,  # 0, 1, 2
+                            num_layers_desired: int = 1,
+                            # Segment definitions (example, actual structure depends on COPVGeometry)
+                            # These would define start/end points for segments
+                            # e.g., polar_opening_front_z, dome_cyl_junction_front_z, etc.
+                            segment_definitions: Optional[Dict[str, float]] = None,
+                            initial_conditions: Optional[Dict[str, float]] = None, # e.g. start_z, start_phi, start_alpha
+                            target_params: Optional[Dict[str, Any]] = None, # e.g. target_winding_angle_cyl_deg
+                            **options # Other options like friction_coeff, clairaut_const_override
+                           ) -> TrajectoryResult:
+        """
+        Generates a filament winding trajectory based on the specified parameters.
+
+        Args:
+            pattern_type: Type of path ('geodesic', 'non_geodesic', 'helical', 'hoop').
+            coverage_mode: How the mandrel should be covered ('single_pass', 'full_coverage', 'custom').
+            physics_model: Underlying physics ('clairaut', 'friction', 'constant_angle').
+            continuity_level: Desired continuity (0 for C0, 1 for C1, 2 for C2).
+            num_layers_desired: Number of complete fiber layers for 'full_coverage'.
+            segment_definitions: Geometric definition of vessel segments (e.g., start/end z for cylinder).
+            initial_conditions: Starting state for the trajectory.
+            target_params: Target parameters for the winding (e.g., winding angle on cylinder).
+            options: Additional keyword arguments.
+
+        Returns:
+            TrajectoryResult: The generated trajectory and associated metadata.
+        """
+        self._log_message(f"Generating trajectory: pattern='{pattern_type}', coverage='{coverage_mode}', physics='{physics_model}', C{continuity_level}")
+        all_points: List[TrajectoryPoint] = []
+        metadata_log = {
+            'input_pattern_type': pattern_type,
+            'input_coverage_mode': coverage_mode,
+            'input_physics_model': physics_model,
+            'input_continuity_level': continuity_level,
+            'input_num_layers_desired': num_layers_desired,
+            'input_options': options,
+            'initial_conditions': initial_conditions,
+            'target_params': target_params
+        }
+        
+        # --- 1. Define Basic Parameters ---
+        # These would be derived from vessel_geometry, initial_conditions, target_params
+        # Example:
+        equatorial_radius = self.vessel_geometry.get_equatorial_radius()
+        winding_angle_at_equator_rad = np.radians(target_params.get('winding_angle_at_equator_deg', 30.0)) # Default 30 deg
+        
+        circuits_to_generate = 1
+        actual_pattern_advancement_rad = 0.0
+        pattern_info = None
+
+        if coverage_mode == 'full_coverage':
+            delta_phi_tot_circuit = self._determine_total_angular_propagation(
+                physics_model,
+                # ... pass relevant params for single circuit simulation
+            )
+            metadata_log['calculated_delta_phi_tot_circuit_rad'] = delta_phi_tot_circuit
+
+            basic_pattern_params = self.pattern_calc.calculate_basic_parameters(
+                roving_as_laid_width_m=self.roving_width_m,
+                vessel_radius_at_equator_m=equatorial_radius,
+                winding_angle_at_equator_rad=winding_angle_at_equator_rad,
+                total_angular_propagation_per_circuit_rad=delta_phi_tot_circuit
+            )
+            metadata_log['basic_pattern_params'] = basic_pattern_params
+            self._log_message(f"  Basic pattern params: {basic_pattern_params}")
+
+            pattern_solution = self.pattern_calc.solve_diophantine_closure(
+                p_approx_raw=basic_pattern_params['p_approx_raw'],
+                k_approx_raw=basic_pattern_params['k_approx_raw'],
+                num_layers_desired=num_layers_desired,
+                ideal_bands_for_single_layer_coverage=basic_pattern_params['ideal_bands_for_single_layer_coverage']
+            )
+            metadata_log['diophantine_solution'] = pattern_solution
+            
+            if not pattern_solution:
+                self._log_message("Error: No suitable Diophantine pattern solution found for full coverage.")
+                return TrajectoryResult(points=[], metadata=metadata_log, quality_metrics={'error': "Pattern solution failed"})
+            
+            self._log_message(f"  Diophantine solution: {pattern_solution}")
+            pattern_info = pattern_solution
+            # circuits_to_generate = pattern_solution['nd_total_bands'] # This 'nd' is total band positions.
+            # Number of physical circuits depends on how many bands laid per pass.
+            # If one pass = one circuit covering from pole to pole and back:
+            # Total circuits = n_actual_bands_per_layer (for one layer)
+            # For multiple layers, this needs to be multiplied or handled by how 'd' in Diophantine works.
+            # Koussios's nd is nd_total_bands for 'd' layers. A circuit is one full path.
+            # Number of distinct path starting angles = n_actual_bands_per_layer
+            circuits_to_generate = int(round(pattern_solution['n_actual_bands_per_layer'])) # For one layer coverage
+            actual_pattern_advancement_rad = pattern_solution['actual_angular_propagation_rad']
+
+
+        # --- 2. Loop for Circuits (if full_coverage) or Single Pass ---
+        current_start_phi_rad = initial_conditions.get('start_phi_rad', 0.0) if initial_conditions else 0.0
+
+        for circuit_num in range(circuits_to_generate):
+            self._log_message(f"  Generating circuit {circuit_num + 1}/{circuits_to_generate} starting at phi={np.degrees(current_start_phi_rad):.2f} deg")
+            
+            # Define segments for one pass (e.g., Forward Dome, Cylinder, Aft Dome)
+            # This part is highly dependent on specific COPV geometry and how segments are defined.
+            # For simplicity, let's imagine generating a path on a cylinder for 'helical'
+            
+            pass_segments: List[List[TrajectoryPoint]] = []
+
+            # Example: Generating a single helical pass on a cylinder
+            if pattern_type == 'helical' and physics_model == 'constant_angle':
+                cyl_len = self.vessel_geometry.get_cylinder_length()
+                start_z = initial_conditions.get('start_z_cyl', 0.0) if initial_conditions else 0.0 # Assuming global Z for cylinder
+                target_angle_deg = target_params.get('winding_angle_cyl_deg', 30.0) if target_params else 30.0
+
+                helical_segment = self.physics_engine.calculate_helical(
+                    cyl_radius=equatorial_radius, # Assuming cylinder is at equatorial radius
+                    cyl_length=cyl_len,
+                    start_z=start_z,
+                    start_phi_rad=current_start_phi_rad,
+                    winding_angle_deg=target_angle_deg,
+                    num_points=100 # Example
+                )
+                if helical_segment:
+                    pass_segments.append(helical_segment)
+            
+            # Example: Geodesic on a dome (conceptual)
+            elif pattern_type == 'geodesic' and physics_model == 'clairaut':
+                # This would generate dome path from pole to cylinder junction
+                # Requires more detailed segment definitions and parameters
+                # e.g., self.physics_engine.solve_geodesic(clairaut_constant=..., initial_param_val=..., ...)
+                self._log_message("    Conceptual geodesic dome segment generation...")
+                # dome_segment = [TrajectoryPoint(position=np.array([0,0,0]), surface_coords={}, winding_angle_deg=0)] # Placeholder
+                # pass_segments.append(dome_segment)
+                pass # Placeholder for actual dome + cylinder + dome sequence
+
+            # --- 3. Generate Turnarounds (if applicable for the pass) ---
+            # Conceptual: if a pass ends at a pole, generate turnaround
+            # Example: if last_segment_of_pass ends near pole:
+            # polar_opening_rad = self.vessel_geometry.get_polar_opening_radius("front")
+            # turnaround_mandrel_path = self.turnaround_planner.generate_polar_turnaround_on_mandrel(
+            #     entry_point=pass_segments[-1][-1],
+            #     mandrel_geometry=self.vessel_geometry,
+            #     polar_opening_radius_m=polar_opening_rad,
+            #     pattern_advancement_angle_rad=actual_pattern_advancement_rad if coverage_mode=='full_coverage' else 0
+            # )
+            # pass_segments.append(turnaround_mandrel_path)
+            
+            # --- 4. Stitch Segments for the current pass using ContinuityManager ---
+            current_pass_points: List[TrajectoryPoint] = []
+            for i, segment in enumerate(pass_segments):
+                if not segment: continue
+                if not current_pass_points: # First segment
+                    current_pass_points.extend(segment)
+                else:
+                    # Analyze continuity
+                    # Need last few points of current_pass_points and first few of segment
+                    # report = self.continuity_mgr.analyze_continuity(current_pass_points[-2:], segment[:2])
+                    # if report.c0_gap_m > self.continuity_mgr.c0_threshold_m or \
+                    #    (continuity_level >= 1 and report.c1_velocity_diff_mps > self.continuity_mgr.c1_threshold_mps):
+                    #     self._log_message(f"    Continuity issue before segment {i+1}. Gap: {report.c0_gap_m*1000:.2f}mm. Generating transition.")
+                    #     transition = self.continuity_mgr.generate_smooth_transition(
+                    #         current_pass_points[-1], segment[0], continuity_level
+                    #     )
+                    #     current_pass_points.extend(transition)
+                    current_pass_points.extend(segment) # Simplified: direct concatenation
+            
+            all_points.extend(current_pass_points)
+            
+            # Update starting phi for the next circuit in 'full_coverage'
+            if coverage_mode == 'full_coverage' and current_pass_points:
+                # The actual_pattern_advancement_rad defines the shift for the *start* of the next pattern cycle.
+                # If a circuit is pole-pole-pole, this advancement is applied once per full circuit.
+                current_start_phi_rad += actual_pattern_advancement_rad
+            
+            if coverage_mode == 'single_pass':
+                break # Only one pass needed
+
+        # --- 5. Final Quality Validation ---
+        quality_report = self.continuity_mgr.validate_path_smoothness(all_points)
+        metadata_log['final_trajectory_points_count'] = len(all_points)
+        if pattern_info:
+            coverage_metrics = self.pattern_calc.optimize_coverage_efficiency(
+                n_actual_bands_per_layer=pattern_info['n_actual_bands_per_layer'],
+                angular_band_width_rad=basic_pattern_params['angular_width_of_band_rad'], # Assuming this is delta_phi
+                vessel_radius_m=equatorial_radius
+            )
+            quality_report.notes.append(f"Pattern Coverage: {coverage_metrics}")
+            metadata_log['pattern_coverage_metrics'] = coverage_metrics
+
+        self._log_message(f"Trajectory generation complete. Total points: {len(all_points)}")
+        return TrajectoryResult(points=all_points, metadata=metadata_log, quality_metrics=vars(quality_report))
+
+```
+
+**Explanation and Adherence to Requirements for Step 6:**
+
+1.  **`__init__`**:
+    * The `UnifiedTrajectoryPlanner` initializes instances of `PhysicsEngine`, `PatternCalculator`, `ContinuityManager`, and `TurnaroundPlanner`.
+    * It stores essential shared information like `vessel_geometry`, `roving_width_m`, and `payout_length_m`.
+
+2.  **`generate_trajectory` Method**:
+    * **Orchestration**: This method acts as the main orchestrator. It's structured to:
+        * Parse inputs and options.
+        * Conditionally call the `PatternCalculator` if `coverage_mode == 'full_coverage'`.
+            * The crucial `_determine_total_angular_propagation` is outlined as a placeholder; its accurate calculation is vital and non-trivial, often involving a simulation of a single full winding circuit.
+        * Loop through the required number of circuits (1 for `single_pass`, or determined by pattern for `full_coverage`).
+        * Within each circuit/pass:
+            * **Segment Generation (Conceptual)**: It shows conceptually where `PhysicsEngine` methods (`solve_geodesic`, `solve_non_geodesic`, `calculate_helical`) would be called to generate individual path segments (e.g., dome, cylinder). The actual logic for defining these segments based on `segment_definitions` and chaining them is complex and application-specific.
+            * **Turnaround Generation (Conceptual)**: It shows where `TurnaroundPlanner.generate_polar_turnaround_on_mandrel` would be called, using pattern advancement angles from `PatternCalculator`.
+            * **Continuity Management (Conceptual)**: It outlines where `ContinuityManager.generate_smooth_transition` would be used to stitch segments smoothly according to the desired `continuity_level`.
+        * Assemble all points into a `TrajectoryResult`.
+        * Populate `metadata` with input parameters and intermediate calculation results (like pattern info).
+        * Populate `quality_metrics` using `ContinuityManager.validate_path_smoothness` and coverage metrics from `PatternCalculator`.
+
+3.  **Integration of Components**:
+    * The structure shows how each specialized class (Physics, Pattern, Continuity, Turnaround) is intended to be used by the main planner.
+    * Data flows, such as pattern advancement angle from `PatternCalculator` to `TurnaroundPlanner`, are implicitly handled.
+
+4.  **Technical Requirements (Considered in Design)**:
+    * **Performance/Robustness**: The reliance on specialized engines (like `PhysicsEngine` with robust ODE solvers) is designed for this. Error handling is mentioned conceptually.
+    * **Maintainability**: The single responsibility principle is followed by delegating tasks to the specialized classes.
+
+**Testing Strategy Outline for `UnifiedTrajectoryPlanner`**:
+
+* **Mocking**: For initial tests of `UnifiedTrajectoryPlanner`, the sub-components (`PhysicsEngine`, `PatternCalculator`, etc.) would be mocked to return predefined outputs. This allows testing the orchestration logic of `generate_trajectory` itself (e.g., correct handling of `coverage_mode`, looping, parameter passing).
+* **End-to-End Tests (with real components)**:
+    * **Simple Cases First**:
+        1.  **Single Helical Wrap on Cylinder**:
+            * `pattern_type='helical'`, `coverage_mode='single_pass'`, `physics_model='constant_angle'`.
+            * Verify: Correct number of points, constant winding angle, path stays on cylinder, correct length.
+        2.  **Single Geodesic Pass on a Sphere/Simple Dome**:
+            * `pattern_type='geodesic'`, `coverage_mode='single_pass'`, `physics_model='clairaut'`.
+            * Verify: Path matches Clairaut's theorem, smooth path.
+    * **Full Coverage Tests**:
+        1.  **Helical Full Coverage on Cylinder**:
+            * Check if `PatternCalculator` is called correctly.
+            * Verify correct number of circuits and azimuthal shifts.
+            * Check final `quality_metrics` for coverage.
+        2.  **Geodesic Full Coverage on Pressure Vessel (Dome-Cylinder-Dome)**:
+            * This is a complex test. It needs `_determine_total_angular_propagation` to be accurate.
+            * Verify pattern closure, turnaround generation (conceptually, based on planner calls), and continuity.
+    * **Non-Geodesic Tests**:
+        * Define a segment where non-geodesic winding is expected.
+        * Verify that the `PhysicsEngine.solve_non_geodesic` is called with appropriate friction and angle parameters and that the output reflects angle changes.
+    * **Continuity Tests**:
+        * Create scenarios with known small discontinuities between segments.
+        * Call `generate_trajectory` with `continuity_level=1` and verify that `ContinuityManager.generate_smooth_transition` is invoked and the final path is smoother.
+        * Check `PathQualityReport` metrics.
+    * **Robustness/Error Handling**:
+        * Provide invalid `vessel_geometry` or inconsistent parameters. Verify graceful error messages and no crashes.
+        * Test scenarios that might lead to singularities (e.g., zero polar opening for certain geodesic calculations) and ensure the `PhysicsEngine` (and by extension, the `UnifiedTrajectoryPlanner`) handles them.
+    * **Comparison with Existing Methods**: As per the prompt, key benchmark cases from the old system should be run through the new planner, and results (path coordinates, key metrics) compared to ensure accuracy and identify improvements.
+
+This conceptual implementation of `UnifiedTrajectoryPlanner.generate_trajectory` shows the orchestration. A production-ready version would require detailed logic for segmenting the COPV geometry, managing the state between segments (e.g., end point of one is start of next), precisely calculating `Delta_Phi_tot`, and robustly handling all combinations of inputs.
+
+This concludes the main implementation steps (1-6) as outlined. The next logical steps would be to flesh out the "TODO" and conceptual parts, particularly the detailed interaction logic within `generate_trajectory`, implement comprehensive unit and integration tests, and then create the migration guide.
