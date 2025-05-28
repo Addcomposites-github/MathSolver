@@ -870,35 +870,35 @@ def layer_by_layer_planning(layer_manager):
             with col2:
                 surface_segments = st.slider("Mandrel Surface Detail", 10, 60, 30,
                                             help="Lower values improve performance by reducing surface complexity")
-                
-                # Create visualization tabs
-                viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
-                
-                with viz_tab1:
-                    try:
-                        from modules.trajectory_visualization import create_3d_trajectory_visualization, display_trajectory_metrics
-                        
-                        # Create layer info for visualization
-                        layer_info = {
-                            'layer_type': selected_traj['layer_type'],
-                            'winding_angle': selected_traj['winding_angle'],
-                            'layer_id': selected_traj['layer_id']
-                        }
-                        
-                        # Generate 3D plot with performance optimization
-                        fig = create_3d_trajectory_visualization(
-                            selected_traj['trajectory_data'],
-                            st.session_state.vessel_geometry,
-                            layer_info,
-                            decimation_factor=decimation_factor,
-                            surface_segments=surface_segments
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                    except Exception as e:
-                        st.error(f"Error creating 3D visualization: {str(e)}")
-                        st.info("3D visualization temporarily unavailable - trajectory data is still valid for manufacturing")
+            
+            # Create visualization tabs
+            viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
+            
+            with viz_tab1:
+                try:
+                    from modules.trajectory_visualization import create_3d_trajectory_visualization, display_trajectory_metrics
+                    
+                    # Create layer info for visualization
+                    layer_info = {
+                        'layer_type': selected_traj['layer_type'],
+                        'winding_angle': selected_traj['winding_angle'],
+                        'layer_id': selected_traj['layer_id']
+                    }
+                    
+                    # Generate 3D plot with performance optimization
+                    fig = create_3d_trajectory_visualization(
+                        selected_traj['trajectory_data'],
+                        st.session_state.vessel_geometry,
+                        layer_info,
+                        decimation_factor=decimation_factor,
+                        surface_segments=surface_segments
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                except Exception as e:
+                    st.error(f"Error creating 3D visualization: {str(e)}")
+                    st.info("3D visualization temporarily unavailable - trajectory data is still valid for manufacturing")
                 
                 with viz_tab2:
                     try:
