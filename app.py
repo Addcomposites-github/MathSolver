@@ -11,10 +11,8 @@ from modules.calculations import VesselCalculations
 from modules.visualizations import VesselVisualizer
 from modules.advanced_analysis import AdvancedAnalysisEngine
 from modules.layer_manager import LayerStackManager, LayerDefinition
-from modules.winding_patterns import WindingPatternCalculator
-from modules.turnaround_kinematics import RobustTurnaroundCalculator
-from modules.path_continuity import PathContinuityManager
-from modules.non_geodesic_kinematics import NonGeodesicKinematicsCalculator
+from modules.unified_pattern_calculator import PatternCalculator
+# Removed legacy modules - functionality integrated into unified system
 from data.material_database import FIBER_MATERIALS, RESIN_MATERIALS
 
 # Import new unified trajectory system
