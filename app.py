@@ -374,6 +374,109 @@ def layer_stack_definition_page():
         else:
             st.success("✅ All layers have been applied to mandrel geometry")
     
+    # Advanced Pattern Analysis section
+    if stack_summary['layers_applied_to_mandrel'] > 0:
+        st.subheader("🔬 Advanced Pattern Analysis")
+        
+        with st.expander("📊 Koussios Pattern Optimization", expanded=False):
+            st.markdown("**Optimize winding patterns using Koussios Chapter 8 theory**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                pattern_angle = st.number_input("Target Winding Angle (°)", 
+                                              min_value=10.0, max_value=85.0, 
+                                              value=45.0, step=1.0,
+                                              help="Target angle at equator for pattern analysis")
+                
+                fiber_vf = st.slider("Fiber Volume Fraction", 
+                                   min_value=0.4, max_value=0.8, 
+                                   value=0.6, step=0.05,
+                                   help="Fiber volume fraction for resin inclusion calculations")
+            
+            with col2:
+                roving_width_range = st.slider("Roving Width Range (mm)", 
+                                             min_value=1.0, max_value=10.0, 
+                                             value=(2.0, 6.0), step=0.1,
+                                             help="Range to optimize roving width")
+                
+                num_layers_pattern = st.number_input("Layers for Pattern", 
+                                                   min_value=1, max_value=5, 
+                                                   value=1,
+                                                   help="Number of layers for complete pattern closure")
+            
+            if st.button("🔍 Calculate Optimal Pattern", type="primary"):
+                # Initialize pattern calculator
+                pattern_calc = WindingPatternCalculator(
+                    fiber_volume_fraction=fiber_vf,
+                    pattern_tolerance=0.02
+                )
+                
+                # Get current mandrel geometry for pattern calculations
+                current_mandrel = manager.get_current_mandrel_for_trajectory()
+                mandrel_geom = {
+                    'polar_opening_radius_mm': stack_summary['current_polar_radius_mm'],
+                    'equatorial_radius_mm': stack_summary['current_equatorial_radius_mm']
+                }
+                
+                # Optimize pattern
+                with st.spinner("Calculating optimal winding pattern..."):
+                    optimization_result = pattern_calc.optimize_roving_width_for_pattern(
+                        mandrel_geom, pattern_angle, num_layers_pattern, roving_width_range
+                    )
+                
+                if optimization_result['pattern_parameters']:
+                    params = optimization_result['pattern_parameters']
+                    
+                    st.success(f"✅ Optimal Pattern Found!")
+                    
+                    # Display pattern metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Optimal Width", f"{optimization_result['optimal_width_mm']:.2f} mm")
+                    with col2:
+                        st.metric("Coverage", f"{params.coverage_efficiency:.1f}%")
+                    with col3:
+                        st.metric("Required Windings", params.nd_windings)
+                    with col4:
+                        st.metric("Pattern Score", f"{optimization_result['optimization_score']:.1f}")
+                    
+                    # Pattern details
+                    st.subheader("📈 Pattern Details")
+                    
+                    pattern_data = {
+                        'Parameter': [
+                            'Pattern Constants (p, k)',
+                            'Effective Roving Width (B_eff)',
+                            'Dimensionless Eq. Radius (Y_eq)',
+                            'Angular Advancement (°)',
+                            'Total Angular Propagation (°)',
+                            'Pattern Feasible'
+                        ],
+                        'Value': [
+                            f"p={params.p_constant}, k={params.k_constant}",
+                            f"{params.B_eff_dimensionless:.4f}",
+                            f"{params.Y_eq_dimensionless:.2f}",
+                            f"{math.degrees(params.delta_phi_pattern_rad):.2f}°",
+                            f"{math.degrees(params.delta_phi_total_rad):.2f}°",
+                            "✅ Yes" if params.pattern_feasible else "❌ No"
+                        ]
+                    }
+                    
+                    pattern_df = pd.DataFrame(pattern_data)
+                    st.dataframe(pattern_df, use_container_width=True, hide_index=True)
+                    
+                    # Store optimal parameters for trajectory planning
+                    st.session_state.optimal_pattern_params = {
+                        'roving_width_mm': optimization_result['optimal_width_mm'],
+                        'target_angle_deg': pattern_angle,
+                        'pattern_parameters': params,
+                        'mandrel_geometry': mandrel_geom
+                    }
+                    
+                    st.info("💡 Optimal pattern parameters saved for trajectory planning!")
+                else:
+                    st.warning("⚠️ No feasible pattern found in the specified range")
+
     # Export current mandrel for trajectory planning
     if stack_summary['layers_applied_to_mandrel'] > 0:
         st.subheader("🎯 Ready for Trajectory Planning")
