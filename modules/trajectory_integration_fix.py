@@ -24,10 +24,14 @@ def generate_layer_trajectory_safe(layer_manager, layer_index: int, roving_width
         z_mm = profile['z_mm']
         r_mm = profile['r_inner_mm']
         
-        # Find cylinder section and total length
-        cylinder_mask = (np.abs(z_mm) <= np.max(np.abs(z_mm)) * 0.6)
+        # Find cylinder section and total length - use actual vessel geometry
+        cylinder_mask = (np.abs(z_mm) <= np.max(np.abs(z_mm)) * 0.3)  # More precise cylinder identification
         cylinder_length = np.max(z_mm) - np.min(z_mm)
-        cylinder_radius = np.mean(r_mm[cylinder_mask]) if np.any(cylinder_mask) else 100.0
+        
+        # Use the actual cylinder radius from the current mandrel state
+        cylinder_radius = current_mandrel.get('equatorial_radius_mm', np.max(r_mm))
+        if cylinder_radius < 50:  # Fallback to profile max if value seems too small
+            cylinder_radius = np.max(r_mm)
         
         trajectory_data['path_points'] = []
         

@@ -1,0 +1,287 @@
+"""
+Multi-Layer Trajectory Orchestrator
+Robust integration between LayerStackManager and StreamlinedTrajectoryPlanner
+Ensures each layer's trajectory is planned on the correct evolved mandrel surface
+"""
+
+import numpy as np
+import streamlit as st
+from typing import Dict, List, Tuple, Optional
+from modules.geometry import VesselGeometry
+from modules.trajectories_streamlined import StreamlinedTrajectoryPlanner
+from modules.winding_patterns import WindingPatternCalculator
+from modules.trajectory_visualization import create_3d_trajectory_visualization
+
+
+class MultiLayerTrajectoryOrchestrator:
+    """
+    Orchestrates trajectory planning for multi-layer composite vessels.
+    Ensures each layer uses the correct evolved mandrel surface.
+    """
+    
+    def __init__(self, layer_manager):
+        """Initialize with LayerStackManager instance"""
+        self.layer_manager = layer_manager
+        self.pattern_calculator = WindingPatternCalculator()
+        self.generated_trajectories = []
+        
+    def generate_all_layer_trajectories(self, roving_width_mm: float = 3.0, 
+                                      roving_thickness_mm: float = 0.125) -> List[Dict]:
+        """
+        Generate trajectories for all layers with proper mandrel evolution.
+        
+        Parameters:
+        -----------
+        roving_width_mm : float
+            Roving width in millimeters
+        roving_thickness_mm : float
+            Roving thickness in millimeters
+            
+        Returns:
+        --------
+        List[Dict] : Generated trajectory data for all layers
+        """
+        all_trajectories = []
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for layer_index, layer_def in enumerate(self.layer_manager.layer_stack):
+            status_text.text(f"Planning trajectory for Layer {layer_def.layer_set_id} "
+                           f"({layer_def.layer_type} at {layer_def.winding_angle_deg}°)...")
+            
+            try:
+                # Get current mandrel surface for this layer
+                trajectory_data = self._generate_single_layer_trajectory(
+                    layer_index, layer_def, roving_width_mm, roving_thickness_mm
+                )
+                
+                if trajectory_data:
+                    # Wrap in expected format for visualization
+                    wrapped_trajectory = {
+                        'layer_id': layer_def.layer_set_id,
+                        'layer_type': layer_def.layer_type,
+                        'winding_angle': layer_def.winding_angle_deg,
+                        'trajectory_data': trajectory_data,
+                        'mandrel_state': self.layer_manager.get_current_mandrel_for_trajectory()
+                    }
+                    all_trajectories.append(wrapped_trajectory)
+                    st.success(f"✅ Layer {layer_def.layer_set_id} trajectory generated")
+                
+                # Apply layer to mandrel for next iteration
+                self.layer_manager.apply_layer_to_mandrel(layer_index)
+                
+            except Exception as e:
+                st.error(f"❌ Error generating trajectory for Layer {layer_def.layer_set_id}: {str(e)}")
+                continue
+            
+            progress_bar.progress((layer_index + 1) / len(self.layer_manager.layer_stack))
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ All layer trajectories generated!")
+        
+        self.generated_trajectories = all_trajectories
+        return all_trajectories
+    
+    def _generate_single_layer_trajectory(self, layer_index: int, layer_def, 
+                                        roving_width_mm: float, roving_thickness_mm: float) -> Dict:
+        """
+        Generate trajectory for a single layer using current mandrel surface.
+        
+        Parameters:
+        -----------
+        layer_index : int
+            Index of layer in stack
+        layer_def : LayerDefinition
+            Layer definition object
+        roving_width_mm : float
+            Roving width in millimeters
+        roving_thickness_mm : float
+            Roving thickness in millimeters
+            
+        Returns:
+        --------
+        Dict : Trajectory data for the layer
+        """
+        # Get current mandrel surface
+        mandrel_data = self.layer_manager.get_current_mandrel_for_trajectory()
+        current_surface_profile = mandrel_data['profile_points']
+        
+        # Create temporary VesselGeometry for this layer's winding surface
+        temp_vessel = self._create_layer_vessel_geometry(mandrel_data, layer_def)
+        
+        # Set up trajectory planner for this specific layer
+        layer_planner = StreamlinedTrajectoryPlanner(
+            vessel_geometry=temp_vessel,
+            dry_roving_width_m=roving_width_mm / 1000.0,
+            dry_roving_thickness_m=layer_def.single_ply_thickness_mm / 1000.0,
+            roving_eccentricity_at_pole_m=0.0,  # Default value
+            target_cylinder_angle_deg=layer_def.winding_angle_deg,
+            mu_friction_coefficient=0.0  # Default value
+        )
+        
+        # Calculate winding pattern for this layer
+        pattern_params = self._calculate_layer_pattern(mandrel_data, layer_def, roving_width_mm)
+        
+        # Determine pattern name based on layer type
+        if layer_def.layer_type == 'hoop':
+            pattern_name = "helical_unified"  # Near-hoop pattern
+        elif layer_def.winding_angle_deg < 30:
+            pattern_name = "geodesic_spiral"  # Low-angle helical
+        else:
+            pattern_name = "non_geodesic_spiral"  # Standard helical
+        
+        # Generate trajectory
+        trajectory_data = layer_planner.generate_trajectory(
+            pattern_name=pattern_name,
+            num_total_passes=pattern_params.get('num_passes', 10),
+            coverage_option="user_defined_passes"
+        )
+        
+        return trajectory_data
+    
+    def _create_layer_vessel_geometry(self, mandrel_data: Dict, layer_def) -> VesselGeometry:
+        """
+        Create VesselGeometry object representing current winding surface.
+        
+        Parameters:
+        -----------
+        mandrel_data : Dict
+            Current mandrel geometry data
+        layer_def : LayerDefinition
+            Layer definition object
+            
+        Returns:
+        --------
+        VesselGeometry : Vessel geometry for current winding surface
+        """
+        current_surface_profile = mandrel_data['profile_points']
+        equatorial_radius = mandrel_data['equatorial_radius_mm']
+        
+        # Calculate cylinder length from profile
+        z_mm = current_surface_profile['z_mm']
+        cylinder_length = np.max(z_mm) - np.min(z_mm)
+        
+        # Create temporary vessel geometry
+        temp_vessel = VesselGeometry(
+            inner_diameter=equatorial_radius * 2,
+            wall_thickness=0.1,  # Nominal value
+            cylindrical_length=cylinder_length,
+            dome_type="Isotensoid"
+        )
+        
+        # Override profile with current winding surface
+        temp_vessel.profile_points = {
+            'z_mm': np.array(current_surface_profile['z_mm']),
+            'r_inner_mm': np.array(current_surface_profile['r_inner_mm']),
+            'r_outer_mm': np.array(current_surface_profile['r_inner_mm']) + layer_def.calculated_set_thickness_mm,
+            'dome_height_mm': current_surface_profile.get('dome_height_mm', 70.0)
+        }
+        
+        return temp_vessel
+    
+    def _calculate_layer_pattern(self, mandrel_data: Dict, layer_def, roving_width_mm: float) -> Dict:
+        """
+        Calculate winding pattern parameters for the specific layer.
+        
+        Parameters:
+        -----------
+        mandrel_data : Dict
+            Current mandrel geometry data
+        layer_def : LayerDefinition
+            Layer definition object
+        roving_width_mm : float
+            Roving width in millimeters
+            
+        Returns:
+        --------
+        Dict : Pattern parameters for the layer
+        """
+        try:
+            # Use pattern calculator with current mandrel geometry
+            pattern_results = self.pattern_calculator.calculate_pattern_parameters(
+                current_mandrel_geometry=mandrel_data,
+                target_angle_deg=layer_def.winding_angle_deg,
+                roving_width_mm=roving_width_mm,
+                coverage_requirement=95.0  # Default coverage
+            )
+            
+            # Extract number of passes from pattern results
+            num_passes = pattern_results.get('nd_windings', 10)
+            
+            return {
+                'num_passes': num_passes,
+                'delta_phi_pattern_rad': pattern_results.get('delta_phi_pattern_rad', 0.1),
+                'pattern_results': pattern_results
+            }
+            
+        except Exception as e:
+            st.warning(f"Pattern calculation failed for layer {layer_def.layer_set_id}: {str(e)}")
+            # Fallback pattern parameters
+            if layer_def.layer_type == 'hoop':
+                return {'num_passes': 20, 'delta_phi_pattern_rad': 0.314}  # Multiple wraps
+            else:
+                return {'num_passes': 8, 'delta_phi_pattern_rad': 0.785}   # Helical pattern
+    
+    def get_trajectory_summary(self) -> List[Dict]:
+        """Get summary of all generated trajectories"""
+        summary = []
+        for traj in self.generated_trajectories:
+            summary.append({
+                "Layer": f"Layer {traj['layer_id']}",
+                "Type": traj['layer_type'],
+                "Angle": f"{traj['winding_angle']}°",
+                "Points": len(traj['trajectory_data'].get('path_points', [])),
+                "Status": traj['trajectory_data'].get('status', 'Unknown')
+            })
+        return summary
+    
+    def visualize_layer_trajectory(self, layer_index: int, vessel_geometry) -> Optional:
+        """
+        Visualize specific layer trajectory with correct mandrel surface.
+        
+        Parameters:
+        -----------
+        layer_index : int
+            Index of layer to visualize
+        vessel_geometry : VesselGeometry
+            Base vessel geometry for reference
+            
+        Returns:
+        --------
+        Plotly figure or None
+        """
+        if layer_index >= len(self.generated_trajectories):
+            return None
+        
+        selected_traj = self.generated_trajectories[layer_index]
+        
+        try:
+            # Create layer info for visualization
+            layer_info = {
+                'layer_type': selected_traj['layer_type'],
+                'winding_angle': selected_traj['winding_angle'],
+                'layer_id': selected_traj['layer_id']
+            }
+            
+            # Use mandrel state at time of trajectory generation
+            mandrel_state = selected_traj['mandrel_state']
+            if mandrel_state:
+                # Create vessel geometry representing the mandrel surface this layer was planned on
+                viz_vessel = self._create_layer_vessel_geometry(mandrel_state, None)
+                return create_3d_trajectory_visualization(
+                    selected_traj['trajectory_data'],
+                    viz_vessel,
+                    layer_info
+                )
+            else:
+                # Fallback to base vessel geometry
+                return create_3d_trajectory_visualization(
+                    selected_traj['trajectory_data'],
+                    vessel_geometry,
+                    layer_info
+                )
+                
+        except Exception as e:
+            st.error(f"Visualization error for layer {layer_index}: {str(e)}")
+            return None

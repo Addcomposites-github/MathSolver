@@ -821,8 +821,9 @@ def layer_by_layer_planning(layer_manager):
     st.dataframe(layer_data, use_container_width=True, hide_index=True)
     
     if st.button("🚀 Generate All Layer Trajectories", type="primary"):
-        from modules.trajectory_integration_fix import generate_all_layers_safe
-        all_trajectories = generate_all_layers_safe(layer_manager, roving_width, roving_thickness)
+        from modules.multi_layer_trajectory_orchestrator import MultiLayerTrajectoryOrchestrator
+        orchestrator = MultiLayerTrajectoryOrchestrator(layer_manager)
+        all_trajectories = orchestrator.generate_all_layer_trajectories(roving_width, roving_thickness)
         
         if all_trajectories:
             st.session_state.all_layer_trajectories = all_trajectories
