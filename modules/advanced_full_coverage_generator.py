@@ -50,6 +50,8 @@ class AdvancedFullCoverageGenerator:
             all_circuits = []
             circuit_metadata = []
             
+            print(f"[AdvancedCoverage] Generating {total_circuits} circuits for {winding_angle}° pattern")
+            
             # Create planner instance
             planner = UnifiedTrajectoryPlanner(
                 vessel_geometry=self.vessel_geometry,
@@ -75,6 +77,11 @@ class AdvancedFullCoverageGenerator:
                         'points_count': len(fallback_circuit),
                         'quality_score': 90.0
                     })
+                    print(f"[AdvancedCoverage] Generated circuit {circuit_num + 1}/{total_circuits} with {len(fallback_circuit)} points")
+                else:
+                    print(f"[AdvancedCoverage] Failed to generate circuit {circuit_num + 1}/{total_circuits}")
+            
+            print(f"[AdvancedCoverage] Final result: {len(all_circuits)} circuits generated successfully")
             
             return {
                 'circuits': all_circuits,
