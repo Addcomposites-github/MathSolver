@@ -243,7 +243,6 @@ class ComprehensiveTrajectoryDiagnostic:
                 hasattr(st.session_state, 'layer_stack_manager')):
                 
                 orchestrator = MultiLayerTrajectoryOrchestrator(
-                    vessel_geometry=st.session_state.vessel_geometry,
                     layer_manager=st.session_state.layer_stack_manager
                 )
                 

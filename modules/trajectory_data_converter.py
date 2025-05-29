@@ -219,20 +219,60 @@ class TrajectoryDataConverter:
         return x, y, z_cart
     
     def _create_standardized_trajectory_data(self, path_points, x_points, y_points, z_points, alpha_values, original_data):
-        """Create standardized trajectory data structure"""
+        """Create standardized trajectory data structure with coordinate alignment"""
+        
+        # Apply coordinate alignment if vessel geometry is available
+        aligned_z_points = z_points
+        z_offset_applied = 0.0
+        
+        try:
+            import streamlit as st
+            if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
+                vessel = st.session_state.vessel_geometry
+                profile = vessel.get_profile_points()
+                
+                if profile and 'z_mm' in profile:
+                    # Calculate vessel coordinate center
+                    vessel_z_m = np.array(profile['z_mm']) / 1000.0
+                    vessel_z_center = (np.min(vessel_z_m) + np.max(vessel_z_m)) / 2
+                    
+                    # Calculate trajectory coordinate center
+                    traj_z_center = (np.min(z_points) + np.max(z_points)) / 2
+                    
+                    # Calculate and apply offset
+                    z_offset = vessel_z_center - traj_z_center
+                    
+                    if abs(z_offset) > 0.01:  # More than 1cm misalignment
+                        aligned_z_points = z_points + z_offset
+                        z_offset_applied = z_offset
+                        
+                        # Update path_points with aligned coordinates
+                        for i, point in enumerate(path_points):
+                            point['z_m'] = aligned_z_points[i]
+                        
+                        if self.debug_mode:
+                            st.write(f"   🎯 Coordinate alignment applied: {z_offset:.3f}m Z-offset")
+        except Exception:
+            # Silently continue if alignment fails
+            pass
+        
         return {
             'success': True,
             'total_points': len(path_points),
             'path_points': path_points,
             'x_points_m': list(x_points),
             'y_points_m': list(y_points),
-            'z_points_m': list(z_points),
+            'z_points_m': list(aligned_z_points),
             'winding_angles_deg': alpha_values,
             'coordinate_system': 'cartesian',
             'conversion_source': 'unified_trajectory_planner',
             'coverage_percentage': original_data.get('coverage_percentage', 85.0),
             'metadata': original_data.get('metadata', {}),
-            'quality_metrics': original_data.get('quality_metrics', {})
+            'quality_metrics': original_data.get('quality_metrics', {}),
+            'coordinate_alignment': {
+                'z_offset_applied': z_offset_applied,
+                'alignment_performed': abs(z_offset_applied) > 0.01
+            }
         }
     
     def _create_empty_trajectory_data(self):
