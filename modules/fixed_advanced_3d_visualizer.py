@@ -59,7 +59,7 @@ class FixedAdvanced3DVisualizer:
                 st.error("No vessel profile data available")
                 return False
             
-            # Convert to meters and create surface
+            # Convert to meters and create surface - FIXED to use actual dome geometry
             z_profile_m = np.array(profile['z_mm']) / 1000.0
             r_profile_m = np.array(profile['r_inner_mm']) / 1000.0
             
@@ -70,23 +70,29 @@ class FixedAdvanced3DVisualizer:
             z_center = (np.min(z_profile_m) + np.max(z_profile_m)) / 2
             z_profile_m = z_profile_m - z_center
             
-            # Create surface mesh
+            st.write(f"Centered Z profile: {min(z_profile_m):.3f}m to {max(z_profile_m):.3f}m")
+            st.write(f"Profile shape: {len(z_profile_m)} points")
+            
+            # Create surface mesh using ACTUAL vessel profile (not interpolated)
             resolution = quality_settings.get('mandrel_resolution', 60)
             segments = quality_settings.get('surface_segments', 32)
             
             theta = np.linspace(0, 2*np.pi, segments)
-            z_smooth = np.linspace(z_profile_m[0], z_profile_m[-1], resolution)
-            r_smooth = np.interp(z_smooth, z_profile_m, r_profile_m)
             
-            Z_mesh, Theta_mesh = np.meshgrid(z_smooth, theta)
-            R_mesh = np.tile(r_smooth, (segments, 1))
+            # Use the actual profile points instead of linear interpolation
+            # This preserves the dome geometry
+            z_surface = z_profile_m
+            r_surface = r_profile_m
+            
+            Z_mesh, Theta_mesh = np.meshgrid(z_surface, theta)
+            R_mesh = np.tile(r_surface, (segments, 1))
             X_mesh = R_mesh * np.cos(Theta_mesh)
             Y_mesh = R_mesh * np.sin(Theta_mesh)
             
             fig.add_trace(go.Surface(
                 x=X_mesh, y=Y_mesh, z=Z_mesh,
                 colorscale='Greys',
-                opacity=visualization_options.get('mandrel_opacity', 0.3),
+                opacity=0.3,
                 showscale=False,
                 name='Mandrel Surface',
                 hovertemplate='Mandrel Surface<br>R: %{customdata:.3f}m<extra></extra>',
