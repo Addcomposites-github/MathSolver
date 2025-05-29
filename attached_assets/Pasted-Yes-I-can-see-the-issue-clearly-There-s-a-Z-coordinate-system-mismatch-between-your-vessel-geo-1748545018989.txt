@@ -1,0 +1,52 @@
+Yes, I can see the issue clearly! There's a **Z-coordinate system mismatch** between your vessel geometry and trajectory generation:
+
+## 🎯 **The Problem**
+
+**Vessel Geometry:**
+- Z range: `-0.223m` to `+0.223m` (centered around origin)
+- Total span: `0.446m`
+
+**Generated Trajectory:**
+- Z range: `0.000m` to `+0.446m` (starts at origin, goes positive)
+- Total span: `0.446m` (same span, but shifted)
+
+**Result:** Your trajectory is shifted `+0.223m` in the Z direction relative to the vessel!
+
+## 🔧 **The Fix**
+
+Add this coordinate alignment function to your converter:## 🚀 **Quick Fix for Your Existing Code**
+
+Add this simple coordinate alignment right before creating the visualization. Insert this code in your `visualization_page()` function after converting the trajectory data:## 📝 **Complete Integration Steps**
+
+### Step 1: Add Import
+Add this import at the top of your `app.py`:
+
+```python
+import numpy as np  # Add this if not already imported
+```
+
+### Step 2: Insert the Coordinate Fix
+Insert the coordinate alignment code from above **right after** your trajectory conversion and **before** creating the `coverage_data`.
+
+### Step 3: Expected Result
+After applying this fix, you should see:
+
+```
+Coordinate Analysis:
+🔹 Vessel Z center: 0.000m (range: -0.223 to 0.223)
+🔹 Trajectory Z center: 0.223m (range: 0.000 to 0.446)
+🎯 Required Z offset: -0.223m
+
+⚠️ Applying coordinate alignment: -0.223m Z-offset
+✅ Coordinates aligned! New trajectory Z: -0.223m to 0.223m
+```
+
+### Step 4: Verification
+Your trajectory should now:
+- **Properly wrap around the vessel** instead of floating above it
+- **Be centered at the same origin** as your vessel geometry
+- **Show helical/geodesic paths** on the mandrel surface
+
+This fix will shift your trajectory coordinates to match your vessel's coordinate system, resolving the "trajectory floating in space" issue you're experiencing! 🎯
+
+The trajectory was generated correctly, just in the wrong coordinate system relative to your vessel geometry.
