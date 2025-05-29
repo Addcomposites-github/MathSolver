@@ -258,9 +258,26 @@ def visualization_page():
                         
                         # Debug: Show raw coordinate data
                         st.write(f"Raw coordinate arrays found:")
-                        st.write(f"  x_points_m: {len(x_points)} values, sample: {x_points[:3] if x_points else 'None'}")
-                        st.write(f"  y_points_m: {len(y_points)} values, sample: {y_points[:3] if y_points else 'None'}")
-                        st.write(f"  z_points_m: {len(z_points)} values, sample: {z_points[:3] if z_points else 'None'}")
+                        st.write(f"  x_points_m: {len(x_points)} values")
+                        if x_points:
+                            st.write(f"    X range: {min(x_points):.4f}m to {max(x_points):.4f}m")
+                        st.write(f"  y_points_m: {len(y_points)} values") 
+                        if y_points:
+                            st.write(f"    Y range: {min(y_points):.4f}m to {max(y_points):.4f}m")
+                        st.write(f"  z_points_m: {len(z_points)} values")
+                        if z_points:
+                            st.write(f"    Z range: {min(z_points):.4f}m to {max(z_points):.4f}m")
+                            
+                        # Check if coordinates are in expected vessel scale
+                        if z_points:
+                            vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+                            if vessel_profile:
+                                vessel_z_range = (max(vessel_profile['z_mm']) - min(vessel_profile['z_mm'])) / 1000.0
+                                traj_z_range = max(z_points) - min(z_points)
+                                st.write(f"    Vessel Z span: {vessel_z_range:.4f}m vs Trajectory Z span: {traj_z_range:.4f}m")
+                                
+                                if abs(traj_z_range - vessel_z_range) > 0.1:  # More than 10cm difference
+                                    st.error(f"⚠️ Trajectory scale mismatch! Using simplified generator instead of unified planner.")
                         
                         if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
                             # Convert coordinate arrays to path_points format
