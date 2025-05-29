@@ -51,6 +51,24 @@ if 'vessel_geometry' not in st.session_state:
     st.session_state.vessel_geometry = None
 if 'trajectory_data' not in st.session_state:
     st.session_state.trajectory_data = None
+if 'trajectories' not in st.session_state:
+    st.session_state.trajectories = {}
+if 'all_layer_trajectories' not in st.session_state:
+    st.session_state.all_layer_trajectories = []
+
+def sync_trajectory_data():
+    """Sync trajectory data between different storage formats for visualization"""
+    if st.session_state.all_layer_trajectories and not st.session_state.trajectories:
+        for i, traj in enumerate(st.session_state.all_layer_trajectories):
+            layer_id = traj.get('layer_id', i+1)
+            layer_type = traj.get('layer_type', 'Unknown')
+            winding_angle = traj.get('winding_angle', 'N/A')
+            
+            # Create a descriptive key
+            traj_key = f"Layer {layer_id}: {layer_type} ({winding_angle}°)"
+            
+            # Store in the format expected by visualization page
+            st.session_state.trajectories[traj_key] = traj
 
 def main():
     # Enhanced header with professional styling
@@ -183,6 +201,9 @@ def visualization_page():
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Sync trajectory data from layer generation to visualization format
+    sync_trajectory_data()
     
     # Check for required data
     if not hasattr(st.session_state, 'vessel_geometry') or st.session_state.vessel_geometry is None:
