@@ -739,27 +739,12 @@ def layer_stack_definition_page():
             )
             manager.add_layer(new_layer)
             st.success(f"Added {layer_type} layer at {winding_angle}°")
-                        
-                        # Display trajectory information
-                        st.markdown("### Trajectory Information")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Points", len(path_points))
-                        with col2:
-                            st.metric("Layer Type", selected_traj['layer_type'])
-                        with col3:
-                            st.metric("Winding Angle", f"{selected_traj['winding_angle']}°")
-                        
-                        st.success("Visualization generated from planned trajectory data")
-                        
-                    else:
-                        st.error("Selected trajectory contains no path points")
-                        
-                except Exception as e:
-                    st.error(f"Visualization error: {str(e)}")
-                    st.info("The planned trajectory data is still valid for manufacturing")
-            else:
-                st.error("Could not find corresponding layer definition")
+    
+    # Display existing layers
+    if manager.layers:
+        st.markdown("### Current Layer Stack")
+        for i, layer in enumerate(manager.layers):
+            st.write(f"Layer {i+1}: {layer.layer_type} at {layer.winding_angle_deg}°")
     
     # Mark visualization as ready
     st.session_state.visualization_ready = True
