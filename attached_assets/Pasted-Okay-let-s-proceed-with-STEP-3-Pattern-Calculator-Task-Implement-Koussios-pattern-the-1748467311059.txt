@@ -1,0 +1,332 @@
+Okay, let's proceed with **STEP 3: Pattern Calculator**.
+
+**Task**: Implement Koussios pattern theory for optimal coverage in a class `PatternCalculator`.
+
+This class will encapsulate the logic for determining winding pattern parameters based on vessel geometry, roving dimensions, and desired coverage, including solving Diophantine equations for pattern closure.
+
+Here's the Python implementation for the `PatternCalculator` class:
+
+```python
+import numpy as np
+import math
+from typing import Dict, Optional, Tuple
+
+class PatternCalculator:
+    """
+    Calculates filament winding pattern parameters based on Koussios's pattern theory
+    for optimal coverage on axisymmetric mandrels.
+    """
+
+    def __init__(self, resin_factor: float = 1.0):
+        """
+        Initializes the PatternCalculator.
+
+        Args:
+            resin_factor (w): Factor to account for resin inclusion in wet winding,
+                              affecting the effective cross-sectional area or thickness
+                              of the laid band. Typically w > 1. For dry winding, w = 1.
+                              Koussios uses 'w' such that effective thickness might be
+                              T_roving * w or area BT * w (Eq 3.33 Koussios [cite: 959]).
+                              Here, we'll consider its effect on effective band width if needed,
+                              or assume the input roving_width_m is the as-laid width.
+                              For simplicity, if roving_width_m is as-laid, this factor might not
+                              be directly used in width calculations but is important for thickness.
+        """
+        self.resin_factor = resin_factor # Corresponds to 'w' in Koussios's Eq 3.33 [cite: 959]
+
+    def calculate_basic_parameters(self,
+                                   roving_as_laid_width_m: float,
+                                   vessel_radius_at_equator_m: float,
+                                   winding_angle_at_equator_rad: float,
+                                   total_angular_propagation_per_circuit_rad: float
+                                   ) -> Dict[str, float]:
+        """
+        Calculates fundamental parameters needed for pattern determination.
+
+        Args:
+            roving_as_laid_width_m (b): The width of the fiber band as it is laid on the mandrel, in meters.
+            vessel_radius_at_equator_m (R_eq): The radius of the vessel at the equator (or reference diameter), in meters.
+            winding_angle_at_equator_rad (alpha_eq): The winding angle (with the meridian/axis)
+                                                      at the equator, in radians.
+            total_angular_propagation_per_circuit_rad (Delta_Phi_tot): The net angular advancement of the pattern
+                                                                      around the mandrel after one complete circuit
+                                                                      (e.g., pole-to-pole-to-pole), in radians.
+                                                                      This is mod(Phi_total, 2*pi)[cite: 981, 3331].
+
+        Returns:
+            Dict[str, float]: A dictionary containing:
+                'effective_band_width_at_equator_m' (B_eff)
+                'angular_width_of_band_rad' (delta_phi)
+                'ideal_bands_for_single_layer_coverage' (n_ideal_one_layer)
+                'p_approx_raw' (raw calculation for p)
+                'k_approx_raw' (raw calculation for k)
+        """
+        if not (0 < winding_angle_at_equator_rad < np.pi / 2):
+            # For pure hoop (pi/2) or pure axial (0), pattern calcs change or are not needed.
+            # Here we assume helical layers.
+            if abs(winding_angle_at_equator_rad - np.pi/2) < 1e-6 : # Hoop
+                 effective_band_width_m = roving_as_laid_width_m # B_eff = B for hoop
+            elif abs(winding_angle_at_equator_rad) < 1e-6: # Axial
+                 effective_band_width_m = np.inf # Not well defined this way
+            else: # Helical
+                effective_band_width_m = roving_as_laid_width_m / np.cos(winding_angle_at_equator_rad) # Eq 3.32 Koussios [cite: 953]
+        else: # Helical as default
+             effective_band_width_m = roving_as_laid_width_m / np.cos(winding_angle_at_equator_rad) # Eq 3.32 Koussios [cite: 953]
+
+
+        if vessel_radius_at_equator_m < 1e-6:
+            raise ValueError("Vessel radius must be positive.")
+
+        # Angular width of a single band on the equator (delta_phi)
+        # Koussios Eq 3.38 (using dimensional radius Y_eq = R_eq/c, B = b/c => delta_phi = B / sqrt(Y_eq^2 - 1))
+        # More directly: delta_phi = B_eff / R_eq
+        angular_width_of_band_rad = effective_band_width_m / vessel_radius_at_equator_m # delta_phi [cite: 977]
+
+        if angular_width_of_band_rad == 0:
+            raise ValueError("Angular width of band cannot be zero. Check roving width and vessel radius.")
+
+        # Ideal number of bands for single layer (n)
+        ideal_bands_for_single_layer_coverage = 2 * np.pi / angular_width_of_band_rad # n = 2*pi / delta_phi [cite: 983]
+
+        # Approximate p and k from Koussios Eq 3.40 [cite: 982]
+        if abs(total_angular_propagation_per_circuit_rad) < 1e-9:
+            # This would mean the pattern repeats exactly without advancing,
+            # leading to infinite p. This indicates an issue or a need for
+            # a different pattern strategy (e.g. simple hoop).
+            p_approx_raw = np.inf
+            k_approx_raw = 0 # Or handle as error
+        else:
+            p_approx_raw = (2 * np.pi) / total_angular_propagation_per_circuit_rad
+            k_approx_raw = total_angular_propagation_per_circuit_rad / angular_width_of_band_rad
+            
+        return {
+            'effective_band_width_at_equator_m': effective_band_width_m,
+            'angular_width_of_band_rad': angular_width_of_band_rad,
+            'ideal_bands_for_single_layer_coverage': ideal_bands_for_single_layer_coverage,
+            'p_approx_raw': p_approx_raw, # This is raw, needs IP for Diophantine
+            'k_approx_raw': k_approx_raw  # This is raw, needs IP for Diophantine
+        }
+
+    def solve_diophantine_closure(self,
+                                  p_approx_raw: float,
+                                  k_approx_raw: float,
+                                  num_layers_desired: int, # d
+                                  ideal_bands_for_single_layer_coverage: float, # n_ideal_one_layer
+                                  pattern_type: str = 'auto'
+                                 ) -> Optional[Dict[str, Any]]:
+        """
+        Solves the Diophantine equations for pattern closure to find integer pattern
+        parameters (p, k, nd) that provide full coverage for the desired number of layers.
+
+        Args:
+            p_approx_raw: Approximate p value (e.g., 2*pi / Delta_Phi_tot).
+            k_approx_raw: Approximate k value (e.g., Delta_Phi_tot / delta_phi).
+            num_layers_desired (d): The desired number of complete layers.
+            ideal_bands_for_single_layer_coverage (n_ideal_one_layer): Ideal (possibly non-integer)
+                                                                      number of bands for one layer.
+            pattern_type: 'leading', 'lagging', or 'auto' to try both.
+
+        Returns:
+            Optional[Dict[str, Any]]: Dictionary with 'p_actual', 'k_actual', 'nd_total_bands',
+                                      'num_actual_layers' (often same as desired), 'actual_pattern_type',
+                                      'actual_angular_propagation_rad', 'comment' if a solution is found,
+                                      None otherwise.
+                                      'nd_total_bands' is the total number of band placements at the equator
+                                      to complete 'num_actual_layers'.
+        """
+        if num_layers_desired <= 0:
+            raise ValueError("Number of layers desired must be positive.")
+
+        # Use integer part for p and ceiling for k to avoid gaps (Koussios Ch8.2 strategy)
+        # However, Koussios uses IP for p and IP for k (Eq 3.40), then searches.
+        # Let's try rounding p and k to nearest integers as a starting point for search.
+        # Or, more robustly, search around IP[p_approx_raw] and IP[k_approx_raw].
+        
+        # Koussios's nd in Eq 3.34/3.35 [cite: 974, 976] is the total number of bands for 'd' layers
+        # that would perfectly fit if the pattern parameters p,k,d lead to it.
+        # nd_target_total = ideal_bands_for_single_layer_coverage * num_layers_desired
+        
+        # We are trying to find integers p, k, and an integer nd_total_bands
+        # such that the Diophantine equation holds.
+        # The number of circuits to close 'd' layers with pattern (p,k) is 'nd_total_bands / d' if single pass makes one layer part.
+        # However, nd is the total number of effective bands over d layers.
+        # Let n_circ_per_layer = nd_total_bands / num_layers_desired. This is the number of circuits
+        # for one layer if each circuit lays one band width effectively.
+
+        # Koussios takes IP[p_approx_raw] and CE[k_approx_raw] (p, k in his notation)
+        # Let's use p_int = round(p_approx_raw) and k_int = round(k_approx_raw) as search centers
+        
+        # For searching, let's consider a small window around the approximate p and k
+        p_search_range = [max(1, math.floor(p_approx_raw) - 2), math.ceil(p_approx_raw) + 2]
+        k_search_range = [max(1, math.floor(k_approx_raw) - 2), math.ceil(k_approx_raw) + 2]
+
+        best_solution = None
+        min_coverage_error = float('inf')
+
+        for p_actual in range(p_search_range[0], p_search_range[1] + 1):
+            if p_actual == 0: continue
+            for k_actual in range(k_search_range[0], k_search_range[1] + 1):
+                if k_actual == 0: continue
+
+                nd_leading = (p_actual + 1) * k_actual * num_layers_desired - 1 # Eq 3.34 Koussios [cite: 974]
+                nd_lagging = p_actual * k_actual * num_layers_desired + 1       # Eq 3.35 Koussios [cite: 976]
+
+                solutions_to_check = []
+                if pattern_type == 'leading' or pattern_type == 'auto':
+                    solutions_to_check.append({'nd': nd_leading, 'type': 'leading', 'p_eff': p_actual + 1})
+                if pattern_type == 'lagging' or pattern_type == 'auto':
+                    solutions_to_check.append({'nd': nd_lagging, 'type': 'lagging', 'p_eff': p_actual})
+                
+                for sol_candidate in solutions_to_check:
+                    nd_total = sol_candidate['nd']
+                    p_effective = sol_candidate['p_eff'] # p+1 for leading, p for lagging in advancement formula
+                    
+                    if nd_total <= 0: continue
+
+                    # Actual angular propagation per circuit for this (p_effective, k_actual, nd_total) pattern
+                    # From Koussios Eq 3.43 [cite: 984] (adapted)
+                    # Delta_Phi = (2*pi / p_effective) * (1 +/- 1/(nd_total/num_layers_desired)) if nd_total refers to total bands for d layers.
+                    # Or, more simply, if nd_total is total circuits to lay d layers, and each circuit advances by Delta_Phi:
+                    # p_effective * Delta_Phi_actual * num_layers_desired - 2*pi*k_actual*num_layers_desired = +/- (2*pi / (nd_total/num_layers_desired) )
+                    # This is getting complicated. Let's use Koussios's basic structure:
+                    # Find integers p, k, d. nd is then fixed by the equation.
+                    # The pattern (p,k,d) will result in 'nd' total effective bands covering the equator over 'd' layers.
+                    
+                    # The number of circuits to complete one layer is 'n_actual_one_layer'
+                    n_actual_one_layer = nd_total / num_layers_desired
+                    
+                    # Coverage error: how far is n_actual_one_layer from ideal_bands_for_single_layer_coverage
+                    coverage_error = abs(n_actual_one_layer - ideal_bands_for_single_layer_coverage)
+
+                    # Calculate actual angular advancement for this integer solution
+                    # From Koussios Eq 3.43 [cite: 984]
+                    if sol_candidate['type'] == 'leading':
+                        actual_advancement_rad = (2 * np.pi / p_effective) * (1 + 1 / n_actual_one_layer)
+                    else: # lagging
+                        actual_advancement_rad = (2 * np.pi / p_effective) * (1 - 1 / n_actual_one_layer)
+                    
+                    # Check if GCD(p_effective * k_actual * num_layers_desired, nd_total) is num_layers_desired
+                    # to avoid pattern repetition within layers (Koussios Table 3.1 GCD comment)
+                    # Simplified: check GCD of effective number of "slots" p*k and "fills" n_actual_one_layer
+                    # For a single layer, GCD(p*k, n_actual_one_layer) should be 1.
+                    # For d layers, the total pattern repeats after nd_total circuits.
+                    common_divisor = math.gcd(p_effective * k_actual, round(n_actual_one_layer))
+                    # If common_divisor > 1, the pattern might repeat prematurely within a single layer's coverage.
+                    # Koussios's nd is total effective band positions over d layers.
+                    # (p+1)k or pk is number of "steps" taken by pattern.
+                    # nd is number of band positions to fill.
+                    # GCD of (p_effective * k_actual * num_layers_desired) and nd_total should be num_layers_desired.
+                    # Or effectively, GCD(p_effective*k_actual, n_actual_one_layer) == 1 if pattern does not repeat within one layer coverage
+                    
+                    if common_divisor == 1: # Good, non-repeating basic pattern
+                        if coverage_error < min_coverage_error:
+                            min_coverage_error = coverage_error
+                            best_solution = {
+                                'p_actual': p_actual, # The 'p' from Diophantine, not p_effective
+                                'k_actual': k_actual,
+                                'nd_total_bands': nd_total, # Total effective band applications over d layers
+                                'num_actual_layers': num_layers_desired, # This is assumed input d
+                                'n_actual_bands_per_layer': n_actual_one_layer,
+                                'actual_pattern_type': sol_candidate['type'],
+                                'actual_angular_propagation_rad': actual_advancement_rad,
+                                'coverage_error_metric': coverage_error,
+                                'comment': 'Solution found.'
+                            }
+        if best_solution:
+            return best_solution
+        else:
+            # Fallback: if no GCD=1 solution, return one with minimal error anyway or None
+            # This part needs more sophisticated search or relaxation of constraints
+            return None
+
+
+    def optimize_coverage_efficiency(self,
+                                     n_actual_bands_per_layer: float,
+                                     angular_band_width_rad: float,
+                                     vessel_radius_m: float
+                                    ) -> Dict[str, float]:
+        """
+        Calculates the coverage efficiency, overlap, or gap for a given pattern.
+
+        Args:
+            n_actual_bands_per_layer: Actual number of unique band positions per layer from Diophantine solution.
+            angular_band_width_rad (delta_phi): Angular width of one fiber band.
+            vessel_radius_m: Radius of the vessel where coverage is being assessed.
+
+        Returns:
+            Dict[str, float]: Dictionary with 'overlap_mm', 'gap_mm', 'coverage_percentage_per_layer'.
+        """
+        circumference_m = 2 * np.pi * vessel_radius_m
+        covered_circumference_m = n_actual_bands_per_layer * angular_band_width_rad * vessel_radius_m
+        
+        # Total width of all bands if laid side-by-side ideally for one layer
+        total_band_width_m = n_actual_bands_per_layer * (angular_band_width_rad * vessel_radius_m)
+
+        # Ideal circumstance for one layer is 2*pi*R
+        # The difference per band position:
+        discrepancy_m = total_band_width_m - circumference_m
+        
+        overlap_m = 0.0
+        gap_m = 0.0
+
+        if discrepancy_m > 1e-9: # Overall overlap
+            # Koussios Eq 8.20 (overlap_actual_width = B_eff - (2*pi*R_eq / n_actual_one_layer))
+            # This is the overlap per band if the total discrepancy is distributed
+            # Or, the total overlap is discrepancy_m
+            # If we consider the nominal band width (angular_band_width_rad * vessel_radius_m)
+            # and n_actual_bands_per_layer are placed.
+            # The space available for one band is circumference_m / n_actual_bands_per_layer
+            # Overlap per band = (angular_band_width_rad * vessel_radius_m) - (circumference_m / n_actual_bands_per_layer)
+            overlap_per_band_m = (angular_band_width_rad * vessel_radius_m) - (circumference_m / n_actual_bands_per_layer)
+            if overlap_per_band_m > 0:
+                overlap_m = overlap_per_band_m
+            else: # This case implies a gap even if total_band_width > circumference due to non-integer bands.
+                gap_m = -overlap_per_band_m
+
+        elif discrepancy_m < -1e-9: # Overall gap
+            gap_m = -discrepancy_m / n_actual_bands_per_layer # distributed gap per band position
+
+        # Coverage percentage can be tricky. If it means how much of the ideal 2*pi*R is covered by
+        # the sum of band widths (can be > 100% due to overlap).
+        coverage_percentage = (total_band_width_m / circumference_m) * 100 if circumference_m > 0 else 0
+        
+        return {
+            'overlap_mm': overlap_m * 1000, # convert to mm
+            'gap_mm': gap_m * 1000,       # convert to mm
+            'coverage_percentage_per_layer': coverage_percentage
+        }
+
+```
+
+**Explanation and Adherence to Requirements for Step 3:**
+
+1.  **`calculate_basic_parameters` Method**:
+    * Calculates the effective band width at the equator ($B_{eff}$) using the provided `roving_as_laid_width_m` and `winding_angle_at_equator_rad` (Koussios Eq 3.32 [cite: 953]).
+    * Calculates the angular width of a single band ($\Delta\phi$) at the equator ($B_{eff} / R_{eq}$)[cite: 977].
+    * Determines the ideal (possibly non-integer) number of bands needed for a single full layer of coverage ($n = 2\pi / \Delta\phi$)[cite: 983].
+    * Provides raw, non-integer approximations for $p$ and $k$ using the `total_angular_propagation_per_circuit_rad` ($\Delta\Phi_{tot}$) (Koussios Eq 3.40 [cite: 982]). These serve as a starting point for the Diophantine solver.
+
+2.  **`solve_diophantine_closure` Method**:
+    * **Diophantine Equations**: This method aims to find integer solutions $(p, k)$ and the resulting total number of effective band applications ($nd_{total\_bands}$) that satisfy Koussios's Diophantine equations for pattern closure for a desired number of layers $d$:
+        * Leading pattern: $(p+1)kd - nd = 1$ [cite: 974]
+        * Lagging pattern: $pkd - nd = -1$ [cite: 976]
+    * It searches for integer $p_{actual}$ and $k_{actual}$ in a small range around the approximate values.
+    * For each $(p_{actual}, k_{actual}, num\_layers\_desired)$, it calculates $nd_{leading}$ and $nd_{lagging}$.
+    * **Pattern Advancement**: It calculates the `actual_angular_propagation_rad` for the found integer pattern solution using Koussios Eq 3.43[cite: 984].
+    * **GCD Check**: It includes a check `math.gcd(p_effective * k_actual, round(n_actual_one_layer)) == 1`. This is a simplified interpretation of Koussios's comment on GCD to ensure the pattern doesn't repeat too early within what's considered a single layer's coverage for the purpose of laying distinct bands. A common divisor greater than 1 means the bands will effectively "stack" or repeat positions before full unique coverage of $n_{actual\_one\_layer}$ positions is achieved.
+    * It selects the solution that minimizes the difference between the actual number of bands per layer ($n_{actual\_one\_layer} = nd_{total} / d$) and the ideal number of bands.
+
+3.  **`optimize_coverage_efficiency` Method**:
+    * **Band Overlap and Spacing**: Given a closed pattern (from `solve_diophantine_closure`), this method calculates the resulting overlap or gap between adjacent bands.
+    * It computes the difference between the total width covered by all bands in one layer and the actual circumference.
+    * The Koussios formula for overlap (Eq 8.20 [cite: 3336]) is conceptually applied by calculating space per band and comparing to actual band width.
+    * Returns metrics like `overlap_mm`, `gap_mm`, and `coverage_percentage_per_layer`.
+
+**Key Implementation Focus from Prompt:**
+* **Diophantine equations**: Directly used in `solve_diophantine_closure`.
+* **Pattern advancement calculation**: Addressed in `solve_diophantine_closure` to provide the actual angular propagation for the found integer pattern.
+* **Coverage efficiency optimization**: The `solve_diophantine_closure` selects the "best" integer pattern based on minimizing deviation from ideal band count per layer. `optimize_coverage_efficiency` then quantifies the resulting overlap/gap.
+
+This structure provides the core logic for the `PatternCalculator`. The calculation of `total_angular_propagation_per_circuit_rad` (input to `calculate_basic_parameters`) is critical and would typically be an output from the `PhysicsEngine` after simulating a full reference circuit on the specific vessel geometry.
+
+Ready to proceed to **STEP 4: Continuity Manager** when you are.

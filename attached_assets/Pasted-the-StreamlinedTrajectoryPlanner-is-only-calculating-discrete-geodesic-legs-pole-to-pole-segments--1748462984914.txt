@@ -1,0 +1,180 @@
+the StreamlinedTrajectoryPlanner is only calculating discrete geodesic legs (pole-to-pole segments) and then simply offsetting the starting phi for the next leg without explicitly generating the path points during the turnaround, the resulting overall path won't be a single continuous fiber lay.
+
+You are absolutely right to look back at trajectories.py and especially trajectories_fixed.py (which was an effort to make geodesic calculations more robust). These likely contained logic to handle turnarounds as part of generating a multi-circuit pattern.
+
+Let's revise the approach for StreamlinedTrajectoryPlanner to ensure it generates a truly continuous single geodesic path for a given layer, by incorporating or adapting turnaround logic from your more mature planners.
+
+Core Problem: Missing Explicit Turnaround Path Segments
+
+The StreamlinedTrajectoryPlanner.generate_trajectory() method, in its loop for num_total_passes, correctly sets the start_phi_rad_at_pole for each geodesic leg using self.phi_advancement_rad_per_pass. However, the "path" of the fiber as it physically turns around the polar opening to achieve this new phi and reverse direction is likely not being generated and appended to the all_path_points.
+
+Revised Strategy: Integrate Turnaround Logic from TrajectoryPlannerFixed
+
+The TrajectoryPlannerFixed class in trajectories_fixed.py contains a method _generate_geodesic_turnaround_robust. This is precisely the kind of logic we need.
+
+Step-by-Step Plan to Implement Continuous Geodesic Paths:
+
+Port or Adapt _generate_geodesic_turnaround_robust:
+
+Location: This method should be moved from trajectories_fixed.py into your StreamlinedTrajectoryPlanner class or, ideally, into the UnifiedTrajectoryCore class within trajectory_utils.py if it's a general utility for geodesic paths. Let's assume we'll adapt it within StreamlinedTrajectoryPlanner for now, naming it something like _generate_turnaround_segment_geodesic.
+Adaptation:
+The original method in TrajectoryPlannerFixed likely uses its own internal profile representation (self.processed_profile_fixed_). Adapt it to use the self.processed_profile_ available in StreamlinedTrajectoryPlanner (which comes from TrajectoryProfileProcessor).
+Ensure it takes necessary parameters:
+current_pole_z_m: The z-coordinate of the pole where the turnaround occurs.
+current_pole_rho_m: The radial coordinate where the fiber turns (this should be self.processed_profile_['effective_polar_opening_radius_m']).
+phi_at_leg_end_rad: The absolute phi angle (on the mandrel) where the previous geodesic leg ended at this pole.
+phi_advancement_for_turn_rad: The amount of phi advancement this turnaround segment must achieve (this will be self.phi_advancement_rad_per_pass).
+current_direction_sign (from the previous leg) might be useful to determine the natural turning direction or if the fiber angle needs to be explicitly managed.
+num_turn_points: Number of points to generate for the turnaround arc.
+Logic of _generate_geodesic_turnaround_robust (from trajectories_fixed.py): It likely generates a simple arc at the current_pole_rho_m (effective polar opening radius). The points on this arc will have a constant z_m = current_pole_z_m and rho_m = current_pole_rho_m. The phi will vary from phi_at_leg_end_rad to phi_at_leg_end_rad + phi_advancement_for_turn_rad. The fiber angle (alpha_deg_profile) during this turn is typically very close to 0° (hoop-like) as it's circumferential.
+Return Value: The method should return a list of path point dictionaries (matching the structure used in all_path_points) and the final phi_rad after the turnaround.
+Integrate Turnaround Generation into StreamlinedTrajectoryPlanner.generate_trajectory() Loop:
+
+Python
+
+# In StreamlinedTrajectoryPlanner.generate_trajectory
+
+# ... (initialization of all_path_points, current_start_pole, current_direction_sign) ...
+
+# This variable will track the phi angle at which the next geodesic leg should START at its pole.
+# It's updated by the turnaround segment.
+phi_for_next_leg_start_at_pole = 0.0 
+
+for pass_idx in range(num_total_passes):
+    st.write(f"  Planning leg {pass_idx + 1}/{num_total_passes}, Start Pole: {current_start_pole}, Initial Leg Phi: {math.degrees(phi_for_next_leg_start_at_pole):.2f}°")
+
+    # 1. Generate the main geodesic leg (pole-to-pole)
+    # _solve_geodesic_segment_unified should return the list of points AND
+    # a dictionary or object describing the state at the end of the leg, especially
+    # the exact (z_m, rho_m, phi_rad_profile, alpha_deg_profile) of the last point.
+    leg_points, leg_end_state = self._solve_geodesic_segment_unified(
+        start_pole=current_start_pole,
+        start_phi_rad_at_pole=phi_for_next_leg_start_at_pole, 
+        direction_sign=current_direction_sign
+    )
+
+    if not leg_points:
+        st.error(f"    StreamlinedPlanner: Failed to generate geodesic leg {pass_idx + 1}. Stopping layer.")
+        # Add more context from leg_end_state if it contains error info
+        # self.trajectory_data = TrajectoryOutputStandardizer.format_trajectory_output_standard(...) # Format error output
+        return self.trajectory_data # Or however you handle errors
+
+    all_path_points.extend(leg_points)
+
+    # Extract details from the end of the just-generated leg
+    last_leg_point_data = leg_points[-1] # This is a dict like {'x_m': ..., 'phi_rad_profile': ...}
+
+    # Determine the pole where this leg ended and turnaround will occur
+    turnaround_pole_name = 'aft' if current_start_pole == 'front' else 'front'
+    # Get z-coordinate of this pole from processed_profile
+    pole_z_coords = self.processed_profile_['pole_z_coords_m']
+    z_at_turnaround_pole = pole_z_coords[turnaround_pole_name]
+    rho_at_turnaround_pole = self.processed_profile_['effective_polar_opening_radius_m']
+
+
+    # 2. If not the very last pass, generate and append the turnaround segment
+    if pass_idx < num_total_passes - 1:
+        st.write(f"    StreamlinedPlanner: Generating turnaround at {turnaround_pole_name} after leg {pass_idx + 1}. Adv: {math.degrees(self.phi_advancement_rad_per_pass):.2f}°")
+
+        turnaround_points, phi_after_turnaround = self._ported_generate_geodesic_turnaround_robust(
+            current_pole_z_m=z_at_turnaround_pole,
+            current_pole_rho_m=rho_at_turnaround_pole, # The radius at which turning happens
+            phi_at_leg_end_rad=last_leg_point_data['phi_rad_profile'], # Phi where the leg actually ended
+            phi_advancement_for_turn_rad=self.phi_advancement_rad_per_pass,
+            current_direction_sign_of_leg_ending=current_direction_sign # Useful for turn direction logic
+            # num_turn_points can be a class attribute or passed
+        )
+
+        if turnaround_points:
+            all_path_points.extend(turnaround_points)
+            phi_for_next_leg_start_at_pole = phi_after_turnaround % (2 * math.pi)
+        else:
+            st.warning(f"    StreamlinedPlanner: Turnaround generation failed after leg {pass_idx + 1}. Path will be discontinuous.")
+            # Fallback: just advance phi conceptually for the next leg
+            phi_for_next_leg_start_at_pole = (last_leg_point_data['phi_rad_profile'] + 
+                                              self.phi_advancement_rad_per_pass) % (2 * math.pi)
+
+    # 3. Prepare for the next geodesic leg
+    current_start_pole = 'aft' if current_start_pole == 'front' else 'front'
+    current_direction_sign *= -1
+
+# After all passes, format the output
+self.trajectory_data = TrajectoryOutputStandardizer.format_trajectory_output_standard(
+    path_points=all_path_points,
+    pattern_name=pattern_name, # Make sure pattern_name is correctly passed or determined
+    metadata={
+        'num_total_passes': num_total_passes,
+        'phi_advancement_rad_per_pass': self.phi_advancement_rad_per_pass,
+        'target_cylinder_angle_deg': self.target_cylinder_angle_deg,
+        'clairauts_constant_m': self.clairauts_constant_for_path_m,
+        'final_phi_rad': phi_for_next_leg_start_at_pole # Or the phi of the very last point
+    }
+)
+return self.trajectory_data
+Implement the Adapted _ported_generate_geodesic_turnaround_robust:
+This method would look similar to the one in trajectories_fixed.py:
+
+Python
+
+# Inside StreamlinedTrajectoryPlanner class
+
+def _ported_generate_geodesic_turnaround_robust(
+        self, 
+        current_pole_z_m: float, 
+        current_pole_rho_m: float, # This is the effective polar opening radius
+        phi_at_leg_end_rad: float,
+        phi_advancement_for_turn_rad: float,
+        current_direction_sign_of_leg_ending: int, # Can be used to ensure turn direction if needed
+        num_turn_points: int = 10  # Make this configurable if needed
+    ) -> Tuple[List[Dict], float]:
+    """
+    Generates points for a simplified arc-like turnaround at the pole.
+    This makes the mandrel contact path continuous.
+    """
+    turnaround_points_list = []
+
+    if num_turn_points < 2:
+        # Not enough points for a segment, just return the advanced phi
+        return [], (phi_at_leg_end_rad + phi_advancement_for_turn_rad) % (2 * math.pi)
+
+    # Phi coordinates for the turn: from end of last leg to start of next leg's phi
+    # The advancement is applied during this turn.
+    phi_start_turn = phi_at_leg_end_rad
+    phi_end_turn = (phi_at_leg_end_rad + phi_advancement_for_turn_rad) % (2 * math.pi)
+
+    # Linspace might choose a shorter path if phi_end_turn < phi_start_turn after modulo.
+    # We need to ensure the advancement direction.
+    # If phi_advancement_for_turn_rad is always positive for a standard pattern progression:
+    phi_coords_turn = np.linspace(phi_start_turn, 
+                                  phi_start_turn + phi_advancement_for_turn_rad, # Use the raw advancement before modulo for linspace
+                                  num_turn_points)
+
+    # Assume fiber angle is nearly hoop-like (0 deg w.r.t hoop, 90 deg w.r.t meridian) during this polar turn
+    # This is a simplification; a true geodesic turn maintains Clairaut's constant.
+    # But for _contact_ path continuity, this is often acceptable.
+    alpha_during_turn_deg_wrt_hoop = 0.1 # Nearly hoop
+
+    for phi_val in phi_coords_turn:
+        # Points are on the mandrel surface at the polar opening
+        x_m = current_pole_rho_m * math.cos(phi_val)
+        y_m = current_pole_rho_m * math.sin(phi_val)
+        z_m = current_pole_z_m 
+
+        turnaround_points_list.append({
+            'x_m': x_m, 'y_m': y_m, 'z_m': z_m,
+            'rho_m': current_pole_rho_m,
+            'phi_rad_profile': phi_val % (2 * math.pi), # Ensure phi is in [0, 2pi)
+            'alpha_deg_profile': alpha_during_turn_deg_wrt_hoop 
+            # Add other keys like 'segment_type': 'turnaround' if useful
+        })
+
+    final_phi_after_turn = turnaround_points_list[-1]['phi_rad_profile'] if turnaround_points_list else phi_end_turn
+
+    return turnaround_points_list, final_phi_after_turn
+Important Considerations:
+
+_solve_geodesic_segment_unified Return Value: Ensure this core ODE solving method not only returns the leg_points but also a dictionary or dataclass (leg_end_state) containing the precise phi_rad_profile of its last point and other state variables (like fiber angle if needed by a more sophisticated turnaround calculator). The last point in leg_points usually has this information.
+Feed-Eye Path vs. Mandrel Contact Path: The _ported_generate_geodesic_turnaround_robust described above generates mandrel contact points for the turnaround. A more advanced RobustTurnaroundCalculator would generate feed-eye machine coordinates. For now, ensuring the mandrel contact path is continuous will be a big visual and conceptual improvement.
+Robustness of RobustTurnaroundCalculator: The TODO in your turnaround_kinematics.py indicates its generate_smooth_turnaround is not fully implemented. The _ported_generate_geodesic_turnaround_robust is a simpler, direct way to achieve path continuity for the mandrel contact points based on logic that was likely in TrajectoryPlannerFixed. If RobustTurnaroundCalculator becomes fully functional for feed-eye kinematics, it would be superior.
+Output Format: The TrajectoryOutputStandardizer should be able to handle the all_path_points list which now includes both geodesic leg points and turnaround points.
+By making these changes, the StreamlinedTrajectoryPlanner will produce a list of points that represents a single, continuous fiber path on the mandrel, including the turns at the poles. This should directly address your observation that the planning "does not have continuous single path geodesic path calculations.

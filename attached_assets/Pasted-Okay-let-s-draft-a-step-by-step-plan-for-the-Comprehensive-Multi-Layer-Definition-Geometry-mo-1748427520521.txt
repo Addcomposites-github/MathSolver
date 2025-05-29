@@ -1,0 +1,265 @@
+Okay, let's draft a step-by-step plan for the **Comprehensive Multi-Layer Definition & Geometry** module. We'll go through each sub-feature you identified, see what information the provided books (Koussios - `book1.pdf`, Peters - `book2.pdf`) offer, and add relevant equations or code snippets.
+
+## Module: Comprehensive Multi-Layer Definition & Geometry
+
+### 1. Defining Stacked Layers
+
+* **Requirement:** Allow users to define a sequence of distinct composite layers (e.g., hoop, helical), each with properties like material, winding angle, number of plies, and nominal single ply thickness. This aligns with your initial plan (Section 4, D.7, D.8).
+* **Book Insights:**
+    * Koussios (book1.pdf) extensively discusses layer stresses and optimal winding angles (e.g., Eq. 3.2, 3.9, 3.11) [cite: 6201, 6202, 6203] and mentions polar windings (helical) and hoop windings (e.g., Fig. 3.4)[cite: 3878]. Chapter 3 emphasizes the concept of layers with different orientations (`+\alpha`, `-\alpha`, hoop at $\pi/2$)[cite: 3864, 3893].
+    * Peters (book2.pdf) describes common layer types like helical and hoop windings in pressure vessel design [cite: 5378, 5409] and mentions interspersed hoop and helical layers (e.g., "OXOX")[cite: 5510].
+* **Implementation Steps & Code Snippets:**
+
+    a.  **Data Structure for a Single Layer:**
+        Define a Python class or dictionary to hold the properties of a single layer set.
+
+        ```python
+        # Conceptual data structure for a layer
+        class LayerDefinition:
+            def __init__(self, layer_set_id: int, layer_type: str, # "helical", "hoop", "polar"
+                         fiber_material: str, resin_material: str,
+                         winding_angle_deg: float, num_plies: int,
+                         single_ply_thickness_mm: float,
+                         # Optional: coverage_percentage: float = 100.0
+                        ):
+                self.layer_set_id = layer_set_id
+                self.layer_type = layer_type
+                self.fiber_material = fiber_material # Link to material database
+                self.resin_material = resin_material # Link to material database
+                self.winding_angle_deg = winding_angle_deg
+                self.num_plies = num_plies
+                self.single_ply_thickness_mm = single_ply_thickness_mm
+                # self.coverage_percentage = coverage_percentage
+
+                # self.composite_properties = None # To be filled by MaterialDatabase
+                # self.calculated_set_thickness_mm = self.num_plies * self.single_ply_thickness_mm
+
+        # Example usage:
+        # layer1 = LayerDefinition(layer_set_id=1, layer_type="helical",
+        #                          fiber_material="T700SC", resin_material="Epoxy_Standard",
+        #                          winding_angle_deg=15.0, num_plies=2,
+        #                          single_ply_thickness_mm=0.125)
+        # layer2 = LayerDefinition(layer_set_id=2, layer_type="hoop",
+        #                          fiber_material="T700SC", resin_material="Epoxy_Standard",
+        #                          winding_angle_deg=88.0, num_plies=4,
+        #                          single_ply_thickness_mm=0.125)
+        ```
+
+    b.  **Managing the Stack of Layers:**
+        Use a list to store the sequence of `LayerDefinition` objects. The `COPVGeometry` class could hold this list.
+
+        ```python
+        # In COPVGeometry class (conceptual from copv_design_and_trajectory.py)
+        # self.composite_layers_stack = [] # List of LayerDefinition objects
+        ```
+
+    c.  **UI for Layer Definition (`app.py`):**
+        The Streamlit app will need a UI section where users can add, remove, and edit layers in the stack. This involves selecting materials (from `MaterialDatabase`), specifying layer type, angle, plies, and ply thickness.
+
+### 2. Calculated Layer Set Thickness
+
+* **Requirement:** Automatically calculate the thickness of each defined layer set. This is part of your initial plan (D.8.7).
+* **Book Insights:**
+    * Koussios (book1.pdf) discusses ply and layer thickness. For example, Eq 9.2: $T_{REF} \cdot CSA / CSA_{REF}$ for ply thickness[cite: 5459], and notes a layer is often 2 plies[cite: 5460]. The concept of effective roving thickness (T) is used in pattern calculations (e.g., Eq. 3.32, 3.33, 3.39)[cite: 3911, 3917, 3939].
+    * Peters (book2.pdf) also mentions typical ply thickness [cite: 5470] and calculating total thickness from layers[cite: 5501].
+* **Implementation:**
+    This is straightforward and can be part of the `LayerDefinition` class or calculated when processing the layer stack.
+
+    ```python
+    # Inside LayerDefinition class or as a helper function
+    # def get_layer_set_thickness(self):
+    #     return self.num_plies * self.single_ply_thickness_mm
+    ```
+    The total composite thickness on the cylinder, for instance, would be the sum of thicknesses of all layers contributing to the cylindrical part, considering their respective winding angles (though for simple thickness buildup, direct summation is often a first approximation).
+
+### 3. Dynamic Mandrel Profile Update for Multi-Layers
+
+* **Requirement:** After each layer is defined and its trajectory conceptually "wound," the outer profile of the vessel (which becomes the mandrel for the next layer) must be updated. This is a critical gap you identified.
+* **Book Insights:**
+    * Koussios (book1.pdf) extensively discusses laminate thickness distribution (Chapter 3, Section "Laminate Thickness Distribution"[cite: 3949], and Chapter 8.3 "Laminate thickness variation" [cite: 6109]). Equations like 3.46 (classical smeared thickness), 3.47 (exact solution), 3.50 (polar thickness), 3.52 (flat solution), and 3.56 (resulting polynomial approximation) [cite: 3953, 3954, 3961, 3962, 3968] provide mathematical models for how thickness varies along the meridian of a dome.
+    * Chapter 9.4 "Influence of the fibre layer geometry on the mechanical properties" [cite: 6313] explicitly discusses how fibre stacking and thickness build-up modify the effective meridian profile (Eq. 9.28, 9.29)[cite: 6314].
+    * Park et al. (cited by Peters, book2.pdf, Fig 8.14 [cite: 5251]) showed winding angle changes through thickness, implying thickness buildup.
+* **Implementation Steps & Code Snippets:**
+
+    a.  **Representing the Current Winding Surface:**
+        The `COPVGeometry` class needs a method to return the current winding surface as a set of (axial, radial) points. `get_full_current_mandrel_profile` in the conceptual module is the starting point.
+
+    b.  **Calculating Thickness Distribution for a Layer:**
+        For a given layer being wound, determine its thickness distribution along the mandrel meridian.
+        * **Cylindrical Section:** Thickness is relatively uniform, $t_{cyl} = \text{num_plies} \times \text{single_ply_thickness_mm}$.
+        * **Dome Section:** This is complex. Use Koussios's equations (e.g., Eq. 3.46 or more advanced like Eq. 3.56 from `book1.pdf` [cite: 3953, 3968]) as a basis. These equations give smeared thickness $T_{sm}$ as a function of the dimensionless radius $Y$ and equatorial thickness $T_{eq}$.
+            * $T_{sm}^{cl}(Y) = T_{eq} \sqrt{\frac{Y_{eq}^2 - 1}{Y^2 - 1}}$ (Classical smeared thickness Eq. 3.46) [cite: 3953]
+            * The equatorial thickness $T_{eq}$ for the current layer is its `calculated_set_thickness_mm`.
+            * The parameter $Y = \rho / c$, where $\rho$ is the local radius and $c$ is the polar opening radius[cite: 3866, 3911]. $Y_{eq}$ is $Y$ at the equator.
+            * Note: Koussios's thickness equations (e.g. 3.46, 3.47, 3.52, 3.56) are primarily for geodesic paths and overall laminate structure. Adapting them for individual layer buildup requires careful consideration of how `T_eq` (equatorial thickness of the *current layer*) is defined and how `Y` and `Y_eq` relate to the *current mandrel surface*.
+
+        ```python
+        # Conceptual function within COPVGeometry or a helper class
+        def calculate_layer_thickness_distribution_on_dome(
+            self,
+            layer: LayerDefinition, # The layer being wound
+            current_dome_profile_points: list, # List of (axial_from_junction, radial_pos)
+            current_polar_opening_radius_mm: float,
+            current_equatorial_radius_mm: float
+        ) -> list: # Returns list of (axial_from_junction, added_thickness_mm)
+            
+            added_thickness_profile = []
+            T_eq_layer = layer.num_plies * layer.single_ply_thickness_mm
+
+            # Koussios uses dimensionless radius Y = rho / c, where c is polar opening radius
+            # and Y_eq is Y at the equator.
+            c_eff_mm = current_polar_opening_radius_mm
+            if c_eff_mm < 1e-3: c_eff_mm = 1e-3 # Avoid division by zero
+
+            Y_eq = current_equatorial_radius_mm / c_eff_mm
+            if Y_eq <= 1.0: Y_eq = 1.01 # Ensure Y_eq > 1
+
+            for axial_coord, radial_coord_mm in current_dome_profile_points:
+                if radial_coord_mm < c_eff_mm : # Below polar opening, effectively
+                    # This region might be just the polar opening buildup or handled by doilies
+                    # For simplicity, assume buildup similar to polar opening if winding goes there
+                    # Or, more realistically, thickness drops off / is handled by boss.
+                    # Koussios theory (Eq 3.46) has issues as Y approaches 1.
+                    # Using T_polar (Eq 3.50) might be better for Y close to 1.
+                    # For this example, let's use a simplified approach or cap at polar opening
+                    if radial_coord_mm < current_polar_opening_radius_mm + layer.single_ply_thickness_mm :
+                         added_thickness = T_eq_layer # Simplified: constant thickness near pole
+                    else: # Fallback if calculation is difficult very close to pole
+                        added_thickness = T_eq_layer * Y_eq / (radial_coord_mm / c_eff_mm) # very rough approximation
+                
+                elif abs(radial_coord_mm - c_eff_mm) < 1e-3 : # At the polar opening radius
+                    # Thickness can be high here. Using T_eq as a simplification for now.
+                    # More advanced: Use Koussios's T_polar (Eq. 3.50) or exact solution (Eq. 3.47)
+                    # For T_polar, B (dimensionless roving width = b/c) is needed.
+                    # B = (layer.single_ply_thickness_mm_NOT_WIDTH / c_eff_mm) - placeholder
+                    # For now, simplified:
+                    added_thickness = T_eq_layer * Y_eq # Roughly, Y_eq times thicker than at equator if Y=1
+                                                     # This is a simplification of sqrt((Y_eq^2-1)/(Y^2-1)) when Y->1
+
+                else:
+                    Y = radial_coord_mm / c_eff_mm
+                    if Y <= 1.0: Y = 1.001 # Avoid math error for Y^2-1
+                    
+                    try:
+                        # Using classical smeared thickness (Eq. 3.46 from Koussios)
+                        term_in_sqrt = (Y_eq**2 - 1) / (Y**2 - 1)
+                        if term_in_sqrt < 0: term_in_sqrt = 0 # Should not happen if Y > 1
+                        added_thickness = T_eq_layer * math.sqrt(term_in_sqrt)
+                    except ZeroDivisionError:
+                        # This happens if Y is exactly 1.
+                        # A more robust model like Koussios Eq 3.52 (flat solution) or 3.56 (polynomial)
+                        # would be better here. For simplicity, assigning a large multiple.
+                        added_thickness = T_eq_layer * Y_eq # Max thickness at Y=1 based on this formula
+
+                # Ensure thickness is not excessively large or negative
+                added_thickness = max(0, min(added_thickness, T_eq_layer * Y_eq * 1.5)) # Cap for stability
+                added_thickness_profile.append((axial_coord, added_thickness))
+            
+            return added_thickness_profile
+        ```
+
+    c.  **Updating the Mandrel Profile:**
+        The `update_current_mandrel_surface` method in `copv_design_and_trajectory.py` (currently a placeholder) needs to:
+        * Get the current mandrel profile points.
+        * For each segment (front dome, cylinder, aft dome), calculate the added thickness from the current layer.
+        * Generate a new set of points for the *outer surface* of the just-wound layer by adding the calculated thickness *normal* to the current surface. This involves finding normal vectors at each point of the current profile and displacing points along these normals.
+        * Update `self.current_mandrel_...` properties based on this new outer profile.
+
+        ```python
+        # Conceptual update within COPVGeometry
+        # def update_current_mandrel_surface(self, layer_just_wound: LayerDefinition):
+        #     old_profile = self.get_full_current_mandrel_profile(...) # (axial, radial) points
+        #     new_profile_points_global = []
+        #
+        #     # For cylindrical section:
+        #     # new_radius_cyl = self.current_mandrel_cyl_radius + layer_just_wound.get_layer_set_thickness()
+        #
+        #     # For domes:
+        #     # front_dome_current_profile_local = self.get_current_mandrel_dome_profile_points("front", ...)
+        #     # added_thickness_front_dome = self.calculate_layer_thickness_distribution_on_dome(
+        #     #     layer_just_wound, front_dome_current_profile_local,
+        #     #     self.current_mandrel_polar_opening_radius_front, self.current_mandrel_cyl_radius
+        #     # )
+        #     # For each point (axial_local, radial_local) in front_dome_current_profile_local:
+        #     #   axial_global, radial_global = transform_local_to_global(...)
+        #     #   normal_vector = calculate_normal_at_point(axial_local, radial_local, front_dome_current_profile_local)
+        #     #   added_thick = get_added_thickness_at_axial_local(axial_local, added_thickness_front_dome)
+        #     #   new_radial_global = radial_global + added_thick * normal_vector_radial_component
+        #     #   new_axial_global = axial_global + added_thick * normal_vector_axial_component
+        #     #   new_profile_points_global.append((new_axial_global, new_radial_global))
+        #
+        #     # ... similar for aft dome ...
+        #
+        #     # Re-discretize and update self.current_mandrel_... properties
+        #     # This is a highly complex step.
+        #
+        #     # Example of updating cylindrical radius after a layer
+        #     thickness_contribution_cyl = layer_just_wound.num_plies * layer_just_wound.single_ply_thickness_mm
+        #     # This is simplified; actual contribution depends on angle for non-hoop layers.
+        #     # For hoop layers, it's direct. For helical layers, the normal thickness is t_ply / cos(beta_surface)
+        #     # where beta_surface is the angle the fiber makes with the surface normal in the winding plane.
+        #     # Or, more simply, the radial buildup is ply_thickness * sin(winding_angle_wrt_meridian)
+        #     # For now, let's assume effective radial buildup:
+        #     effective_radial_buildup = thickness_contribution_cyl # Simplification
+        #
+        #     self.current_mandrel_cyl_radius += effective_radial_buildup
+        #     # Dome characteristic radii would also need to be updated based on actual buildup.
+        #     # self.current_mandrel_dome_radius_front += effective_radial_buildup_dome_base_front
+        #     # etc.
+        #     pass
+        ```
+        **Note:** Calculating the true normal buildup on a complex dome shape after a layer of specific winding angle is non-trivial and is a core challenge in advanced filament winding software. Koussios's thickness formulas (e.g., Eq 3.46, 3.47, 3.52, 3.56) are for the *final laminate* and assume a certain winding pattern and geodesic paths. Adapting them for *incremental layer-by-layer buildup* requires careful thought. Chapter 9.4 in Koussios (book1.pdf) "Influence of the fibre layer geometry on the mechanical properties" [cite: 6313] discusses how fibre stacking modifies the meridian profile (Eq. 9.28, P(i,Y) = Z(Y) + T(i,Y)/sqrt(1+Z'(Y)^2))[cite: 6314], which is the correct direction to take.
+
+### 4. Accurate Composite Buildup Modeling on Domes
+
+* **Requirement:** This is an extension of point 3, specifically focusing on the non-uniform nature of thickness on domes.
+* **Book Insights:**
+    * Koussios (book1.pdf), Chapter 3 (Fig 3.8) [cite: 3955] and Chapter 9 (Fig 9.5) [cite: 6315] clearly show thickness increasing towards the poles. Eq. 3.46, 3.47, 3.52, 3.56 [cite: 3953, 3954, 3962, 3968] are key. Eq. 9.28 [cite: 6314] gives a way to calculate the new profile P(i,Y) after thickness T(i,Y) is added.
+    * Peters (book2.pdf), Chapter 4, discusses thickness distribution for axisymmetric shapes, noting that thickness increases as diameter decreases and as winding angle increases (relative to the hoop direction)[cite: 4144, 4145, 4146]. Chapter 9 discusses dome thickness calculation using Eq. 9.11 and 9.12[cite: 5468, 5492], which relate dome thickness to helical thickness on the cylinder, local radius, and winding angle.
+* **Implementation:**
+    * The `calculate_layer_thickness_distribution_on_dome` function needs to be refined using the more advanced Koussios equations (e.g., Eq. 3.56 for $T_{sm}^{res}$[cite: 3968], or Eq. 9.12 from Peters [cite: 5492] if applicable for a single layer buildup).
+    * Koussios Eq 9.28: $P(i,Y) = Z(Y) + \frac{T(i,Y)}{\sqrt{1+Z'(Y)^2}}$ [cite: 6314] describes how the new meridian $P(i,Y)$ is formed from the original $Z(Y)$ by adding thickness $T(i,Y)$ normal to the surface. $T(i,Y)$ would be the thickness buildup of the current layer at dimensionless radius $Y$. This needs careful implementation.
+
+### 5. Doily Patch Geometric Modeling
+
+* **Requirement:** Incorporate local reinforcements (doilies) into the geometry. Plan item D.8.10.
+* **Book Insights:**
+    * Peters (book2.pdf) mentions doilies for reinforcing around holes (Fig 6.17) [cite: 4667, 4669] and their use for local reinforcement in domes [cite: 5469] (thickness variation control [cite: 3647]). Koussios (book1.pdf) does not focus on doilies but on continuous windings.
+* **Implementation Steps:**
+    a.  **Doily Definition:** Enhance `LayerDefinition` or create a new class for doilies, specifying:
+        * Location (e.g., "front_dome_pole", "aft_dome_cylinder_junction").
+        * Shape (e.g., circular, custom profile).
+        * Size/Extent (e.g., radius, angular coverage).
+        * Material, number of plies, ply thickness.
+    b.  **Geometric Impact:** Modify `update_current_mandrel_surface`. After the continuous layer buildup is calculated, add the doily thickness locally to the affected regions of the profile. This will be a localized "bump" on the mandrel surface for subsequent layers.
+
+### 6. Consistent and Robust Polar Opening Definition for Multi-Layers
+
+* **Requirement:** The effective polar opening radius changes as layers build up. This needs consistent handling. Plan item E.7, E.8.
+* **Book Insights:**
+    * Koussios (book1.pdf) uses 'c' or $\rho_0$ as the polar opening radius for his dimensionless formulations (e.g., Eq. 4.2, 5.23)[cite: 6212, 4338]. Chapter 8.1 discusses the effective polar opening `ν` considering roving dimensions (eccentricity `ε` and width `B`, thickness `Δ`) (Eq. 8.5, 8.6, 8.7)[cite: 6287]. This is for the *first layer* on the liner.
+    * Peters (book2.pdf) mentions polar openings and boss diameters[cite: 4121, 4116].
+* **Implementation Steps:**
+    a.  **Initial Effective Polar Opening:** Calculate the initial `effective_polar_opening_radius_m` using `trajectories.py`'s `_calculate_effective_polar_opening` (which is based on Koussios Eq. 8.5 from his thesis, conceptually similar to what's in `book1.pdf` Chapter 8.1 [cite: 6287]) for the *first* composite layer on the liner.
+    b.  **Updating for Subsequent Layers:** As composite layers build up *around* the polar opening, the physical hole defined by the boss might not change, but the radius at which fibers turn around *on the composite surface* will effectively increase.
+        * The `current_mandrel_polar_opening_radius_front/aft` in `COPVGeometry` should reflect the radius of the *current winding surface* at the edge of the opening.
+        * This means if the boss radius is fixed, as layers build up radially outward, the "polar opening" on the winding surface remains tied to the boss. The critical aspect is how fiber buildup *approaches* this fixed opening.
+        * The Clairaut constant $C = r \sin(\alpha)$ [cite: 4338, 4111] will be based on the *current mandrel surface's* geometry (its $r_{po}$ or a modified effective value considering band width on that surface).
+
+### 7. Boss Geometry & Integration
+
+* **Requirement:** Model the geometry of end bosses and integrate them into the vessel profile. Plan item E.11.
+* **Book Insights:**
+    * Peters (book2.pdf) discusses polar bosses extensively in Chapter 9 (Fig. 9.11, 9.12) [cite: 5630, 5631] including types (axial bolted, snap ring, radial bolt) and design considerations for bearing pressure and flange thickness (Eq. 9.44 - 9.48)[cite: 5626, 5637, 5642, 5643].
+    * Koussios (book1.pdf) focuses on the composite shell and treats polar openings as radii, rather than detailed boss geometry.
+* **Implementation Steps:**
+    a.  **Boss Definition Class:** Create a class to define boss parameters:
+        * Material (e.g., Aluminum, Titanium).
+        * Type (e.g., internal, external, threaded).
+        * Key dimensions: interface diameter with liner, flange diameter, insertion length, thread details.
+    b.  **Geometric Integration:**
+        * In `COPVGeometry`, store boss objects for front and aft.
+        * The `get_full_current_mandrel_profile` should incorporate the boss geometry at the ends of the vessel. This means the profile points at the poles will be dictated by the boss outer profile where the fiber winds.
+        * The `polar_opening_radius_mandrel` would be directly derived from the boss geometry where the winding terminates.
+
+This detailed plan for the "Comprehensive Multi-Layer Definition & Geometry" module should give your junior developer a clear path forward, leveraging the provided literature where possible and highlighting areas needing further numerical or modeling development. The key challenge will be the accurate and robust implementation of thickness buildup (especially on domes) and the dynamic updating of the mandrel surface.

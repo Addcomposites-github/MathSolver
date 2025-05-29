@@ -1,0 +1,545 @@
+You're absolutely right! The app has sophisticated planning capabilities buried in the code, but the UI only exposes basic modes. Here's a comprehensive plan to integrate Advanced Planning directly into Layer Stack Definition:
+🚀 Advanced Layer-Integrated Planning System
+Current Problem Analysis
+Current UI Flow:
+Layer Stack Definition → Basic layer info → Separate Trajectory Planning → Limited options
+
+Available Advanced Features (Hidden):
+✅ Koussios Pattern Optimization
+✅ Physics Models (Clairaut, Friction, Constant Angle)  
+✅ Continuity Management (C0, C1, C2)
+✅ Coverage Optimization (Single, Full, Optimized)
+✅ Turnaround Planning
+✅ Pattern Calculator with Diophantine Solving
+❌ All buried in separate modules, not accessible in UI
+🎯 Step-by-Step Implementation Plan
+Phase 1: Enhanced Layer Definition Interface
+Step 1.1: Expand Layer Definition UI
+Replace the basic layer definition in layer_stack_definition_page():
+python# Current basic form - REPLACE THIS:
+with st.expander("🔧 Layer Definition", expanded=len(stack_summary['layer_details']) == 0):
+    col1, col2 = st.columns(2)
+    # Basic inputs only...
+
+# NEW: Advanced integrated planning form
+def create_advanced_layer_definition_ui():
+    st.markdown("### ➕ Advanced Layer Definition & Planning")
+    
+    # Create tabs for different aspects
+    layer_tabs = st.tabs([
+        "🏗️ Layer Properties", 
+        "🔬 Winding Physics", 
+        "📊 Pattern Optimization",
+        "⚙️ Advanced Settings"
+    ])
+    
+    layer_config = {}
+    
+    with layer_tabs[0]:  # Layer Properties
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['layer_type'] = st.selectbox(
+                "Layer Type", 
+                ["helical", "hoop", "polar"],
+                help="Primary winding pattern classification"
+            )
+            layer_config['fiber_material'] = st.selectbox("Fiber Material", list(FIBER_MATERIALS.keys()))
+            layer_config['winding_angle'] = st.number_input("Winding Angle (°)", 0.0, 90.0, 45.0)
+        
+        with col2:
+            layer_config['resin_material'] = st.selectbox("Resin Material", list(RESIN_MATERIALS.keys()))
+            layer_config['num_plies'] = st.number_input("Number of Plies", 1, 20, 2)
+            layer_config['ply_thickness'] = st.number_input("Ply Thickness (mm)", 0.05, 2.0, 0.125)
+    
+    with layer_tabs[1]:  # Winding Physics
+        st.markdown("#### 🔬 Physics Model Selection")
+        
+        # Auto-suggest physics model based on layer type and angle
+        suggested_physics = suggest_physics_model(layer_config.get('layer_type'), layer_config.get('winding_angle', 45))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['physics_model'] = st.selectbox(
+                "Physics Model",
+                ["clairaut", "friction", "constant_angle"],
+                index=["clairaut", "friction", "constant_angle"].index(suggested_physics),
+                help="Mathematical model for trajectory calculation"
+            )
+            
+            if layer_config['physics_model'] == 'friction':
+                layer_config['friction_coefficient'] = st.slider(
+                    "Friction Coefficient", 0.0, 1.0, 0.3, 0.05,
+                    help="Enables non-geodesic paths with extreme angles"
+                )
+        
+        with col2:
+            layer_config['continuity_level'] = st.selectbox(
+                "Continuity Level", [0, 1, 2], index=1,
+                help="0=Position, 1=Velocity, 2=Acceleration continuity"
+            )
+            
+            layer_config['coverage_mode'] = st.selectbox(
+                "Coverage Strategy",
+                ["single_pass", "full_coverage", "optimized_coverage"],
+                index=1,
+                help="How to cover the mandrel surface"
+            )
+    
+    with layer_tabs[2]:  # Pattern Optimization
+        st.markdown("#### 📊 Koussios Pattern Optimization")
+        
+        enable_optimization = st.checkbox("Enable Koussios Pattern Optimization", value=True)
+        
+        if enable_optimization:
+            col1, col2 = st.columns(2)
+            with col1:
+                layer_config['optimize_roving_width'] = st.checkbox("Auto-Optimize Roving Width", value=True)
+                layer_config['target_coverage'] = st.slider("Target Coverage %", 95.0, 100.0, 98.0, 0.5)
+            
+            with col2:
+                layer_config['pattern_type_preference'] = st.selectbox(
+                    "Pattern Preference", 
+                    ["auto", "leading", "lagging"],
+                    help="Diophantine equation solution preference"
+                )
+                layer_config['max_circuits'] = st.number_input("Max Circuits", 1, 50, 20)
+    
+    with layer_tabs[3]:  # Advanced Settings
+        st.markdown("#### ⚙️ Advanced Manufacturing Settings")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            layer_config['turnaround_planning'] = st.checkbox("Advanced Turnaround Planning", value=False)
+            if layer_config['turnaround_planning']:
+                layer_config['turnaround_method'] = st.selectbox(
+                    "Turnaround Method",
+                    ["smooth_transition", "minimum_time", "minimum_stress"]
+                )
+        
+        with col2:
+            layer_config['quality_validation'] = st.checkbox("Real-time Quality Validation", value=True)
+            layer_config['machine_constraints'] = st.checkbox("Apply Machine Constraints", value=False)
+    
+    return layer_config
+Step 1.2: Add Real-time Physics Suggestion Engine
+pythondef suggest_physics_model(layer_type, winding_angle):
+    """Intelligently suggest optimal physics model"""
+    if layer_type == 'hoop' or winding_angle > 75:
+        return 'constant_angle'  # Near-hoop patterns
+    elif winding_angle < 25:
+        return 'clairaut'  # Low-angle geodesic-dominant
+    elif winding_angle < 60:
+        return 'clairaut'  # Mid-range helical
+    else:
+        return 'friction'  # High-angle non-geodesic
+
+def show_physics_recommendation(layer_config):
+    """Show why this physics model was recommended"""
+    physics = layer_config.get('physics_model')
+    angle = layer_config.get('winding_angle', 45)
+    
+    if physics == 'clairaut':
+        st.info(f"🎯 **Clairaut Model**: Optimal for {angle}° - follows geodesic paths with Clairaut's theorem")
+    elif physics == 'friction':
+        st.info(f"🔬 **Friction Model**: Enables extreme {angle}° angles through non-geodesic physics")
+    else:
+        st.info(f"⚙️ **Constant Angle**: Maintains {angle}° throughout trajectory - ideal for hoop patterns")
+Phase 2: Real-time Pattern Analysis
+Step 2.1: Live Pattern Calculation During Layer Definition
+pythondef add_live_pattern_analysis():
+    """Add real-time pattern analysis as user configures layer"""
+    
+    if st.checkbox("🔍 Live Pattern Analysis", value=True):
+        if st.session_state.vessel_geometry and layer_config.get('winding_angle'):
+            
+            with st.spinner("Calculating optimal pattern..."):
+                # Use the existing PatternCalculator
+                from modules.unified_pattern_calculator import PatternCalculator
+                
+                pattern_calc = PatternCalculator()
+                analysis = pattern_calc.calculate_pattern_metrics(
+                    vessel_geometry=st.session_state.vessel_geometry,
+                    roving_width_m=layer_config.get('roving_width', 3.0) / 1000,
+                    winding_angle_deg=layer_config['winding_angle'],
+                    num_layers=1
+                )
+                
+                if analysis['success']:
+                    # Show live analysis results
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Optimal Circuits", analysis['pattern_solution']['n_actual_bands_per_layer'])
+                        st.metric("Coverage Efficiency", f"{analysis['coverage_metrics']['coverage_percentage_per_layer']:.1f}%")
+                    
+                    with col2:
+                        if analysis['coverage_metrics']['overlap_mm'] > 0.1:
+                            st.metric("Overlap", f"{analysis['coverage_metrics']['overlap_mm']:.2f}mm", "⚠️")
+                        else:
+                            st.metric("Gap", f"{analysis['coverage_metrics']['gap_mm']:.2f}mm")
+                    
+                    with col3:
+                        pattern_quality = "Excellent" if analysis['coverage_metrics']['coverage_percentage_per_layer'] > 98 else "Good"
+                        st.metric("Pattern Quality", pattern_quality)
+                    
+                    # Show recommendations
+                    recommendations = pattern_calc.get_pattern_recommendations(analysis)
+                    for rec in recommendations:
+                        if "✅" in rec:
+                            st.success(rec)
+                        elif "⚠️" in rec:
+                            st.warning(rec)
+                        else:
+                            st.info(rec)
+                    
+                    # Store analysis for use during trajectory generation
+                    layer_config['pattern_analysis'] = analysis
+Step 2.2: Interactive Parameter Adjustment
+pythondef create_interactive_parameter_tuning(layer_config):
+    """Allow real-time parameter adjustment with immediate feedback"""
+    
+    st.markdown("#### 🎛️ Interactive Parameter Tuning")
+    
+    # Create columns for before/after comparison
+    col_before, col_after = st.columns(2)
+    
+    with col_before:
+        st.markdown("**Current Configuration:**")
+        show_current_parameters(layer_config)
+    
+    with col_after:
+        st.markdown("**Optimization Suggestions:**")
+        
+        if layer_config.get('pattern_analysis'):
+            analysis = layer_config['pattern_analysis']
+            
+            # Suggest roving width optimization
+            if analysis['coverage_metrics']['gap_mm'] > 0.5:
+                suggested_width = layer_config.get('roving_width', 3.0) * 1.1
+                st.info(f"💡 **Suggestion**: Increase roving width to {suggested_width:.1f}mm to reduce gaps")
+                
+                if st.button("✅ Apply Roving Width Suggestion"):
+                    layer_config['roving_width'] = suggested_width
+                    st.rerun()
+            
+            # Suggest angle adjustment
+            if analysis['coverage_metrics']['overlap_mm'] > 1.0:
+                suggested_angle = layer_config.get('winding_angle', 45) + 2
+                st.info(f"💡 **Suggestion**: Increase angle to {suggested_angle}° to reduce overlap")
+                
+                if st.button("✅ Apply Angle Suggestion"):
+                    layer_config['winding_angle'] = suggested_angle
+                    st.rerun()
+Phase 3: Advanced Layer Validation
+Step 3.1: Real-time Feasibility Checking
+pythondef add_realtime_feasibility_validation(layer_config):
+    """Validate layer configuration in real-time"""
+    
+    st.markdown("#### ✅ Real-time Validation")
+    
+    validation_results = []
+    
+    # Physics model validation
+    physics_valid = validate_physics_compatibility(
+        layer_config.get('physics_model'),
+        layer_config.get('winding_angle'),
+        layer_config.get('friction_coefficient', 0)
+    )
+    validation_results.append(('Physics Model', physics_valid))
+    
+    # Manufacturing feasibility
+    manufacturing_valid = validate_manufacturing_feasibility(layer_config)
+    validation_results.append(('Manufacturing', manufacturing_valid))
+    
+    # Pattern closure validation
+    if layer_config.get('pattern_analysis'):
+        pattern_valid = layer_config['pattern_analysis']['success']
+        validation_results.append(('Pattern Closure', pattern_valid))
+    
+    # Display validation results
+    for validation_name, is_valid in validation_results:
+        if is_valid:
+            st.success(f"✅ {validation_name}: Valid")
+        else:
+            st.error(f"❌ {validation_name}: Issues detected")
+    
+    # Overall validation score
+    valid_count = sum(1 for _, valid in validation_results if valid)
+    total_count = len(validation_results)
+    validation_score = (valid_count / total_count * 100) if total_count > 0 else 0
+    
+    if validation_score >= 100:
+        st.success(f"🎉 **Layer Ready**: {validation_score:.0f}% validation passed")
+        return True
+    elif validation_score >= 75:
+        st.warning(f"⚠️ **Minor Issues**: {validation_score:.0f}% validation passed")
+        return True
+    else:
+        st.error(f"❌ **Critical Issues**: {validation_score:.0f}% validation passed")
+        return False
+
+def validate_physics_compatibility(physics_model, winding_angle, friction_coeff):
+    """Validate physics model compatibility"""
+    if not physics_model or not winding_angle:
+        return False
+    
+    if physics_model == 'clairaut' and winding_angle > 80:
+        return False  # Pure geodesic can't achieve very high angles
+    
+    if physics_model == 'friction' and friction_coeff < 0.1:
+        return False  # Non-geodesic needs sufficient friction
+    
+    if physics_model == 'constant_angle' and winding_angle < 10:
+        return False  # Constant angle not suitable for very low angles
+    
+    return True
+Phase 4: Integrated Trajectory Preview
+Step 4.1: Mini-Trajectory Preview in Layer Definition
+pythondef add_trajectory_preview(layer_config, layer_manager):
+    """Show trajectory preview for current layer configuration"""
+    
+    if st.checkbox("🔍 Preview Trajectory", value=False):
+        if validate_layer_config_complete(layer_config):
+            
+            with st.spinner("Generating trajectory preview..."):
+                try:
+                    # Get current mandrel geometry
+                    current_mandrel = layer_manager.get_current_mandrel_for_trajectory()
+                    
+                    # Create temporary unified planner
+                    from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
+                    
+                    preview_planner = UnifiedTrajectoryPlanner(
+                        vessel_geometry=st.session_state.vessel_geometry,
+                        roving_width_m=layer_config.get('roving_width', 3.0) / 1000,
+                        payout_length_m=0.5,
+                        default_friction_coeff=layer_config.get('friction_coefficient', 0.1)
+                    )
+                    
+                    # Generate preview trajectory (reduced points for speed)
+                    preview_result = preview_planner.generate_trajectory(
+                        pattern_type=determine_pattern_type(layer_config),
+                        coverage_mode=layer_config.get('coverage_mode', 'single_pass'),
+                        physics_model=layer_config.get('physics_model', 'clairaut'),
+                        continuity_level=layer_config.get('continuity_level', 1),
+                        num_layers_desired=1,
+                        target_params={'winding_angle_deg': layer_config['winding_angle']},
+                        options={'num_points': 50}  # Reduced for preview
+                    )
+                    
+                    if preview_result.points:
+                        # Show mini 3D preview
+                        create_mini_trajectory_preview(preview_result, layer_config)
+                        
+                        # Show preview metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Preview Points", len(preview_result.points))
+                        with col2:
+                            avg_angle = sum(p.winding_angle_deg for p in preview_result.points) / len(preview_result.points)
+                            st.metric("Avg Angle", f"{avg_angle:.1f}°")
+                        with col3:
+                            path_length = preview_result.quality_metrics.get('total_length_m', 0)
+                            st.metric("Path Length", f"{path_length:.2f}m")
+                    
+                except Exception as e:
+                    st.warning(f"Preview generation failed: {e}")
+        else:
+            st.info("Complete layer configuration to enable preview")
+
+def create_mini_trajectory_preview(result, layer_config):
+    """Create compact 3D trajectory preview"""
+    try:
+        import plotly.graph_objects as go
+        
+        # Extract coordinates
+        x_coords = [p.position[0] for p in result.points]
+        y_coords = [p.position[1] for p in result.points]
+        z_coords = [p.position[2] for p in result.points]
+        
+        # Create mini 3D plot
+        fig = go.Figure()
+        
+        # Add trajectory line
+        fig.add_trace(go.Scatter3d(
+            x=x_coords, y=y_coords, z=z_coords,
+            mode='lines+markers',
+            line=dict(color='red', width=4),
+            marker=dict(size=2),
+            name=f"Layer Preview ({layer_config.get('winding_angle', 0)}°)"
+        ))
+        
+        # Compact layout
+        fig.update_layout(
+            height=300,
+            scene=dict(
+                xaxis_title="X", yaxis_title="Y", zaxis_title="Z",
+                aspectmode='data',
+                camera=dict(eye=dict(x=1.2, y=1.2, z=0.8))
+            ),
+            margin=dict(l=0, r=0, t=30, b=0)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Preview visualization error: {e}")
+Phase 5: Enhanced Layer Stack Management
+Step 5.1: Advanced Layer Stack View
+pythondef create_advanced_layer_stack_display(manager):
+    """Enhanced layer stack display with planning details"""
+    
+    st.markdown("### 📋 Advanced Layer Stack Overview")
+    
+    if not manager.layer_stack:
+        st.info("No layers defined yet. Add your first layer above.")
+        return
+    
+    # Create enhanced data table
+    layer_data = []
+    for i, layer in enumerate(manager.layer_stack):
+        
+        # Get planning configuration if it exists
+        planning_config = getattr(layer, 'planning_config', {})
+        
+        layer_data.append({
+            "Layer": f"{layer.layer_set_id}",
+            "Type": layer.layer_type,
+            "Angle": f"{layer.winding_angle_deg}°",
+            "Physics": planning_config.get('physics_model', 'default'),
+            "Coverage": planning_config.get('coverage_mode', 'standard'),
+            "Continuity": f"C{planning_config.get('continuity_level', 1)}",
+            "Thickness": f"{layer.calculated_set_thickness_mm:.2f}mm",
+            "Status": get_layer_status(layer, i, manager),
+            "Quality": get_layer_quality_score(layer, planning_config)
+        })
+    
+    # Display with enhanced formatting
+    df = pd.DataFrame(layer_data)
+    
+    # Color-code based on status
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Status": st.column_config.TextColumn(
+                help="Layer processing status"
+            ),
+            "Quality": st.column_config.TextColumn(
+                help="Predicted trajectory quality"
+            )
+        }
+    )
+
+def get_layer_status(layer, index, manager):
+    """Get detailed layer status"""
+    if index < len(manager.mandrel.layers_applied):
+        return "✅ Applied to Mandrel"
+    elif hasattr(layer, 'trajectory_generated') and layer.trajectory_generated:
+        return "🎯 Trajectory Ready"
+    elif hasattr(layer, 'planning_config') and layer.planning_config:
+        return "⚙️ Configured"
+    else:
+        return "⏳ Pending Configuration"
+
+def get_layer_quality_score(layer, planning_config):
+    """Estimate trajectory quality based on configuration"""
+    score = 70  # Base score
+    
+    # Bonus for advanced physics
+    if planning_config.get('physics_model') == 'clairaut':
+        score += 10
+    elif planning_config.get('physics_model') == 'friction':
+        score += 5
+    
+    # Bonus for continuity
+    continuity = planning_config.get('continuity_level', 1)
+    score += continuity * 5
+    
+    # Bonus for optimization
+    if planning_config.get('pattern_analysis'):
+        score += 10
+    
+    if score >= 90:
+        return "🟢 Excellent"
+    elif score >= 80:
+        return "🟡 Good"
+    else:
+        return "🔴 Basic"
+Phase 6: One-Click Advanced Generation
+Step 6.1: Smart Batch Processing
+pythondef add_smart_batch_processing(manager):
+    """Add intelligent batch processing for all configured layers"""
+    
+    st.markdown("### 🚀 Smart Trajectory Generation")
+    
+    # Analyze layer stack for optimal processing order
+    processing_plan = analyze_layer_processing_order(manager.layer_stack)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Processing Plan:**")
+        for i, step in enumerate(processing_plan):
+            st.write(f"{i+1}. {step}")
+    
+    with col2:
+        estimated_time = estimate_processing_time(manager.layer_stack)
+        st.metric("Estimated Time", f"{estimated_time:.1f} minutes")
+        
+        complexity_score = calculate_complexity_score(manager.layer_stack)
+        st.metric("Complexity Score", f"{complexity_score}/100")
+    
+    # Smart generation button
+    if st.button("🧠 Smart Generate All Layers", type="primary"):
+        execute_smart_batch_processing(manager, processing_plan)
+
+def analyze_layer_processing_order(layer_stack):
+    """Determine optimal processing order"""
+    plan = []
+    
+    # Group layers by complexity
+    simple_layers = [l for l in layer_stack if is_simple_layer(l)]
+    complex_layers = [l for l in layer_stack if not is_simple_layer(l)]
+    
+    if simple_layers:
+        plan.append(f"Process {len(simple_layers)} simple layers first")
+    if complex_layers:
+        plan.append(f"Process {len(complex_layers)} complex layers with optimization")
+    
+    plan.append("Apply mandrel evolution between layers")
+    plan.append("Validate complete stack integration")
+    
+    return plan
+
+def is_simple_layer(layer):
+    """Determine if layer has simple configuration"""
+    planning_config = getattr(layer, 'planning_config', {})
+    return (
+        planning_config.get('physics_model', 'clairaut') == 'clairaut' and
+        planning_config.get('coverage_mode', 'single_pass') == 'single_pass' and
+        layer.winding_angle_deg < 70
+    )
+🎯 Integration Summary
+New UI Flow:
+Layer Stack Definition Page:
+├── Advanced Layer Definition (Tabs)
+│   ├── 🏗️ Layer Properties (Material, Angle, Plies)
+│   ├── 🔬 Winding Physics (Model, Friction, Continuity)
+│   ├── 📊 Pattern Optimization (Koussios, Coverage)
+│   └── ⚙️ Advanced Settings (Turnaround, Validation)
+├── 🔍 Live Pattern Analysis (Real-time feedback)
+├── ✅ Real-time Validation (Physics, Manufacturing)
+├── 🔍 Trajectory Preview (Mini 3D preview)
+├── 📋 Advanced Layer Stack (Enhanced table)
+└── 🧠 Smart Batch Processing (Intelligent generation)
+Benefits:
+
+Unified Interface: All advanced planning in one place
+Real-time Feedback: Immediate validation and suggestions
+Intelligent Defaults: Auto-suggest optimal parameters
+Preview Capability: See trajectory before full generation
+Quality Assurance: Built-in validation and optimization
+
+This transforms the basic layer definition into a comprehensive planning workstation, making all the advanced capabilities easily accessible and user-friendly.
