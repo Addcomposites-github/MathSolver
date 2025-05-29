@@ -874,28 +874,46 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
             }
             
             # Check if trajectories exist from trajectory planning workflow
-            trajectory_key = f"layer_{layer_idx}_trajectory"
-            if (hasattr(st.session_state, 'layer_trajectories') and 
-                layer_idx in st.session_state.layer_trajectories and
-                st.session_state.layer_trajectories[layer_idx]):
+            # First check the correct session state variable used by trajectory planning
+            planned_trajectories = None
+            
+            if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+                # Find the trajectory for this specific layer
+                for traj in st.session_state.all_layer_trajectories:
+                    if traj.get('layer_id') == layer_idx + 1 or traj.get('layer_id') == str(layer_idx + 1):
+                        planned_trajectories = traj
+                        break
+            
+            if planned_trajectories:
+                # Convert existing planned trajectory to visualization format
+                trajectory_data = planned_trajectories.get('trajectory_data', {})
                 
-                # Use existing planned trajectories from workflow
-                planned_data = st.session_state.layer_trajectories[layer_idx]
+                # Extract trajectory points and convert to circuits format for visualization
+                path_points = trajectory_data.get('path_points', [])
                 
-                # Convert planned trajectories to visualization format
-                coverage_data = {
-                    'circuits': planned_data.get('circuits', []),
-                    'circuit_metadata': planned_data.get('metadata', []),
-                    'total_circuits': len(planned_data.get('circuits', [])),
-                    'coverage_percentage': planned_data.get('coverage_stats', {}).get('coverage_percentage', 0),
-                    'pattern_info': {
-                        'actual_pattern_type': selected_layer.layer_type,
-                        'winding_angle': selected_layer.winding_angle_deg
-                    },
-                    'quality_settings': {'mode': quality_level},
-                    'source': 'planned_trajectory'
-                }
-                st.success(f"Using planned trajectories: {coverage_data['total_circuits']} circuits from trajectory planning workflow")
+                if path_points:
+                    # Convert single trajectory to circuits format expected by visualization
+                    coverage_data = {
+                        'circuits': [path_points],  # Single circuit from planned trajectory
+                        'circuit_metadata': [{
+                            'circuit_number': 1,
+                            'start_phi_deg': 0.0,
+                            'points_count': len(path_points),
+                            'quality_score': 95.0
+                        }],
+                        'total_circuits': 1,
+                        'coverage_percentage': trajectory_data.get('coverage_percentage', 85.0),
+                        'pattern_info': {
+                            'actual_pattern_type': planned_trajectories['layer_type'],
+                            'winding_angle': planned_trajectories['winding_angle']
+                        },
+                        'quality_settings': {'mode': quality_level},
+                        'source': 'planned_trajectory'
+                    }
+                    st.success(f"Using planned trajectory: {len(path_points)} points from trajectory planning workflow")
+                else:
+                    st.error("Planned trajectory exists but contains no path points.")
+                    return
                 
             else:
                 # No planned trajectories - show error and workflow guidance
