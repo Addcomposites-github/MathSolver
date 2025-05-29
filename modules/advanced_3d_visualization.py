@@ -363,7 +363,16 @@ class Advanced3DVisualizer:
                 angles = []
                 
                 for p in circuit_points:
-                    if hasattr(p, 'position') and len(p.position) >= 3:
+                    # Handle both dictionary format and object format
+                    if isinstance(p, dict):
+                        # Dictionary format from planned trajectories
+                        if 'x_m' in p and 'y_m' in p and 'z_m' in p:
+                            x_coords.append(p['x_m'])
+                            y_coords.append(p['y_m'])
+                            z_coords.append(p['z_m'])
+                            angles.append(p.get('alpha_deg', 45.0))
+                    elif hasattr(p, 'position') and len(p.position) >= 3:
+                        # Object format from other trajectory sources
                         x_coords.append(p.position[0])
                         y_coords.append(p.position[1])
                         z_coords.append(p.position[2])
