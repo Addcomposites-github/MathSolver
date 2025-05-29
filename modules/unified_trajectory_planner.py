@@ -173,34 +173,27 @@ class UnifiedTrajectoryPlanner:
                 )
                 metadata_log['estimated_angular_propagation_rad'] = estimated_propagation_rad
                 
-                # Use simple, robust full coverage calculation first
-                circuits_to_generate = self._calculate_circuits_for_full_coverage(
-                    vessel_radius_m, target_angle_deg
-                )
-                pattern_advancement_rad = (2 * np.pi) / circuits_to_generate if circuits_to_generate > 1 else 0.0
-                
-                self._log_message(f"Simple calculation: {circuits_to_generate} circuits, {np.degrees(pattern_advancement_rad):.2f}° advancement")
-                
-                # Fallback to complex pattern calculation only if simple method gives too few circuits
-                if circuits_to_generate <= 2:
-                    try:
-                        pattern_metrics = self.pattern_calc.calculate_pattern_metrics(
-                            vessel_geometry=self.vessel_geometry,
-                            roving_width_m=self.roving_width_m,
-                            winding_angle_deg=target_angle_deg,
-                            num_layers=num_layers_desired
-                        )
-                        
-                        if pattern_metrics['success'] and pattern_metrics['pattern_solution']:
-                            pattern_info = pattern_metrics['pattern_solution']
-                            complex_circuits = max(1, int(pattern_info.get('n_actual_bands_per_layer', 1)))
-                            if complex_circuits > circuits_to_generate:
-                                circuits_to_generate = complex_circuits
-                                pattern_advancement_rad = pattern_info.get('actual_angular_propagation_rad', pattern_advancement_rad)
-                                metadata_log['pattern_calculation'] = pattern_metrics
-                                self._log_message(f"Complex calculation: {circuits_to_generate} circuits")
-                    except Exception as e:
-                        self._log_message(f"Complex pattern calculation failed: {e}, using simple calculation")
+                # Calculate pattern parameters
+                try:
+                    pattern_metrics = self.pattern_calc.calculate_pattern_metrics(
+                        vessel_geometry=self.vessel_geometry,
+                        roving_width_m=self.roving_width_m,
+                        winding_angle_deg=target_angle_deg,
+                        num_layers=num_layers_desired
+                    )
+                    
+                    if pattern_metrics['success'] and pattern_metrics['pattern_solution']:
+                        pattern_info = pattern_metrics['pattern_solution']
+                        circuits_to_generate = max(1, int(pattern_info.get('n_actual_bands_per_layer', 1)))
+                        pattern_advancement_rad = pattern_info.get('actual_angular_propagation_rad', estimated_propagation_rad)
+                        metadata_log['pattern_calculation'] = pattern_metrics
+                        self._log_message(f"Pattern solution: {circuits_to_generate} circuits, {np.degrees(pattern_advancement_rad):.2f}° advancement")
+                    else:
+                        self._log_message("Pattern calculation failed, using single pass")
+                        circuits_to_generate = 1
+                except Exception as e:
+                    self._log_message(f"Pattern calculation error: {e}, using single pass")
+                    circuits_to_generate = 1
 
             # Generate trajectory circuits
             current_phi_rad = start_phi_rad
