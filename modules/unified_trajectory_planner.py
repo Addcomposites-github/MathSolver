@@ -155,7 +155,9 @@ class UnifiedTrajectoryPlanner:
         try:
             # Get basic parameters
             vessel_radius_m = self._get_vessel_radius()
-            target_angle_deg = target_params.get('winding_angle_deg', 30.0) if target_params else 30.0
+            target_angle_deg = target_params.get('winding_angle_deg') if target_params else None
+            if target_angle_deg is None:
+                raise ValueError("winding_angle_deg is required in target_params")
             
             # Initialize starting conditions
             start_phi_rad = initial_conditions.get('start_phi_rad', 0.0) if initial_conditions else 0.0
