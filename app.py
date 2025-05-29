@@ -249,12 +249,18 @@ def visualization_page():
                     trajectory_data = selected_traj  # The trajectory data IS the selected_traj
                     path_points = trajectory_data.get('path_points', [])
                     
+                    # Debug: Show what data we have
+                    st.write(f"DEBUG: Trajectory data keys: {list(trajectory_data.keys())}")
+                    st.write(f"DEBUG: Path points found: {len(path_points)}")
+                    
                     # If path_points is empty, convert from coordinate arrays
                     if not path_points:
                         x_points = trajectory_data.get('x_points_m', [])
                         y_points = trajectory_data.get('y_points_m', [])
                         z_points = trajectory_data.get('z_points_m', [])
                         winding_angles = trajectory_data.get('winding_angles_deg', [])
+                        
+                        st.write(f"DEBUG: Found {len(x_points)} x_points, {len(y_points)} y_points, {len(z_points)} z_points")
                         
                         if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
                             # Convert coordinate arrays to path_points format
@@ -270,6 +276,8 @@ def visualization_page():
                                     'arc_length_m': i * 0.01  # Simple approximation
                                 })
                             st.write(f"✅ Converted {len(path_points)} coordinate points to visualization format")
+                        else:
+                            st.error(f"DEBUG: Coordinate arrays mismatch or empty: x={len(x_points)}, y={len(y_points)}, z={len(z_points)}")
                     
                     if path_points:
                         coverage_data = {
