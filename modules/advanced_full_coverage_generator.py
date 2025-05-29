@@ -64,22 +64,59 @@ class AdvancedFullCoverageGenerator:
                 # Calculate starting phi for this circuit
                 start_phi = circuit_num * angular_advancement
                 
-                # Generate fallback circuit for complete vessel coverage
-                # Always use fallback for reliable full coverage visualization
-                fallback_circuit = self._generate_fallback_circuit(
-                    circuit_num, start_phi, quality_settings['points_per_circuit']
-                )
-                if fallback_circuit:
-                    all_circuits.append(fallback_circuit)
-                    circuit_metadata.append({
-                        'circuit_number': circuit_num + 1,
-                        'start_phi_deg': math.degrees(start_phi),
-                        'points_count': len(fallback_circuit),
-                        'quality_score': 90.0
-                    })
-                    print(f"[AdvancedCoverage] Generated circuit {circuit_num + 1}/{total_circuits} with {len(fallback_circuit)} points")
-                else:
-                    print(f"[AdvancedCoverage] Failed to generate circuit {circuit_num + 1}/{total_circuits}")
+                # Use the UnifiedTrajectoryPlanner for authentic trajectory generation
+                try:
+                    trajectory_result = planner.generate_trajectory(
+                        pattern_type='helical' if winding_angle < 85 else 'hoop',
+                        coverage_mode='full_coverage',
+                        physics_model=self.layer_config.get('physics_model', 'clairaut'),
+                        target_angle_deg=winding_angle,
+                        start_phi_offset=start_phi
+                    )
+                    
+                    if trajectory_result and trajectory_result.get('success', False):
+                        trajectory_points = trajectory_result.get('path_points', [])
+                        if trajectory_points:
+                            all_circuits.append(trajectory_points)
+                            circuit_metadata.append({
+                                'circuit_number': circuit_num + 1,
+                                'start_phi_deg': math.degrees(start_phi),
+                                'points_count': len(trajectory_points),
+                                'quality_score': trajectory_result.get('quality_score', 85.0)
+                            })
+                            print(f"[AdvancedCoverage] Generated circuit {circuit_num + 1}/{total_circuits} with {len(trajectory_points)} points using UnifiedPlanner")
+                        else:
+                            print(f"[AdvancedCoverage] UnifiedPlanner returned empty trajectory for circuit {circuit_num + 1}")
+                    else:
+                        print(f"[AdvancedCoverage] UnifiedPlanner failed for circuit {circuit_num + 1}, using fallback")
+                        # Only use fallback if unified planner fails
+                        fallback_circuit = self._generate_fallback_circuit(
+                            circuit_num, start_phi, quality_settings['points_per_circuit']
+                        )
+                        if fallback_circuit:
+                            all_circuits.append(fallback_circuit)
+                            circuit_metadata.append({
+                                'circuit_number': circuit_num + 1,
+                                'start_phi_deg': math.degrees(start_phi),
+                                'points_count': len(fallback_circuit),
+                                'quality_score': 75.0
+                            })
+                            print(f"[AdvancedCoverage] Used fallback for circuit {circuit_num + 1} with {len(fallback_circuit)} points")
+                
+                except Exception as e:
+                    print(f"[AdvancedCoverage] Error generating circuit {circuit_num + 1}: {e}")
+                    # Use fallback on error
+                    fallback_circuit = self._generate_fallback_circuit(
+                        circuit_num, start_phi, quality_settings['points_per_circuit']
+                    )
+                    if fallback_circuit:
+                        all_circuits.append(fallback_circuit)
+                        circuit_metadata.append({
+                            'circuit_number': circuit_num + 1,
+                            'start_phi_deg': math.degrees(start_phi),
+                            'points_count': len(fallback_circuit),
+                            'quality_score': 70.0
+                        })
             
             print(f"[AdvancedCoverage] Final result: {len(all_circuits)} circuits generated successfully")
             
