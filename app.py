@@ -1325,7 +1325,7 @@ def layer_by_layer_planning(layer_manager):
 
     # 3D Visualization section - independent of generation button
     if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:
-        st.markdown("### 🎯 3D Trajectory Visualization")
+        st.markdown("### 📊 Standard Trajectory Visualization")
         all_trajectories = st.session_state.all_layer_trajectories
         
         # Layer selection for visualization

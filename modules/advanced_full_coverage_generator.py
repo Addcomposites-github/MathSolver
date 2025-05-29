@@ -189,9 +189,14 @@ class AdvancedFullCoverageGenerator:
             r_profile = np.array(profile['r_inner_mm']) / 1000  # Convert to meters
             z_profile = np.array(profile['z_mm']) / 1000
             
-            # Generate points along the vessel profile
-            z_points = np.linspace(z_profile[0], z_profile[-1], num_points)
-            r_points = np.interp(z_points, z_profile, r_profile)
+            # Generate points along the complete vessel profile (including both domes)
+            # Create symmetric profile for full vessel
+            z_full = np.concatenate([-z_profile[::-1], z_profile])  # Mirror for bottom dome
+            r_full = np.concatenate([r_profile[::-1], r_profile])   # Mirror radii
+            
+            # Generate points along the complete vessel profile
+            z_points = np.linspace(z_full[0], z_full[-1], num_points)
+            r_points = np.interp(z_points, z_full, r_full)
             
             # Create helical trajectory
             angle = self.layer_config['winding_angle']
