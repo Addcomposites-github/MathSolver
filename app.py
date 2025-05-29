@@ -228,7 +228,7 @@ def visualization_page():
         with col2:
             show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
         
-        # Generate visualization using the existing full coverage system
+        # Generate visualization using the fixed visualization system
         if st.button("Generate 3D Visualization", type="primary"):
             layer_manager = st.session_state.layer_stack_manager
             
@@ -241,9 +241,8 @@ def visualization_page():
             
             if layer_def:
                 try:
-                    # Use the existing visualization system but with planned trajectory data
-                    from modules.advanced_3d_visualization import Advanced3DVisualizer
-                    from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
+                    # Use the FIXED visualization system with proper data handling
+                    from modules.fixed_advanced_3d_visualizer import FixedAdvanced3DVisualizer
                     
                     # Convert planned trajectory to expected format
                     trajectory_data = selected_traj.get('trajectory_data', {})  # Get the nested trajectory_data
@@ -357,8 +356,15 @@ def visualization_page():
                             'show_all_circuits': True
                         }
                         
-                        # Create visualization
-                        visualizer = Advanced3DVisualizer()
+                        # Create visualization using FIXED visualizer
+                        visualization_options.update({
+                            'show_mandrel': show_mandrel,
+                            'mandrel_opacity': 0.3,
+                            'circuit_line_width': 4,
+                            'show_start_end_points': True
+                        })
+                        
+                        visualizer = FixedAdvanced3DVisualizer()
                         fig = visualizer.create_full_coverage_visualization(
                             coverage_data,
                             st.session_state.vessel_geometry,

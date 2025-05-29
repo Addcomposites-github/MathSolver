@@ -1,0 +1,108 @@
+Looking at your code, I can see the issue. The 3D visualization is showing the mandrel correctly, but the trajectory data isn't being displayed properly. This is happening due to several data format and pipeline issues. Let me provide a comprehensive fix:The issue you're experiencing is due to several data pipeline and format conversion problems between the trajectory generation and visualization systems. Here are the main fixes:
+
+## **Key Issues Identified:**
+
+1. **Data Format Mismatch**: Trajectory data from the unified system isn't being converted properly for visualization
+2. **Coordinate Conversion Problems**: Issues converting between cylindrical (rho, phi, z) and Cartesian (x, y, z) coordinates
+3. **Silent Failures**: The visualization fails quietly when data is invalid
+4. **Missing Debug Information**: Hard to diagnose what's going wrong
+
+## **Immediate Debugging Steps:**
+
+1. **Check Trajectory Data Format**: In your visualization page, add this debug code to see what data you actually have:
+
+```python
+# Add this to visualization_page() after loading trajectories
+st.write("🔍 **Detailed Debug Information:**")
+for i, traj in enumerate(trajectories):
+    st.write(f"**Trajectory {i+1}:**")
+    traj_data = traj.get('trajectory_data', {})
+    st.write(f"  - Keys: {list(traj_data.keys())}")
+    
+    if 'x_points_m' in traj_data:
+        x_len = len(traj_data['x_points_m'])
+        if x_len > 0:
+            st.write(f"  - X range: {min(traj_data['x_points_m']):.3f} to {max(traj_data['x_points_m']):.3f}")
+            st.write(f"  - Y range: {min(traj_data['y_points_m']):.3f} to {max(traj_data['y_points_m']):.3f}")
+            st.write(f"  - Z range: {min(traj_data['z_points_m']):.3f} to {max(traj_data['z_points_m']):.3f}")
+    
+    if 'path_points' in traj_data and len(traj_data['path_points']) > 0:
+        first_point = traj_data['path_points'][0]
+        st.write(f"  - First path point: {first_point}")
+```
+
+2. **Quick Fix for Missing Trajectories**: Replace your `FixedAdvanced3DVisualizer` class with the one in the artifact above.
+
+3. **Alternative Simple Visualization**: If the advanced system still fails, add this simple backup:
+
+```python
+# Add this as a fallback in visualization_page()
+if st.button("🔧 Simple Trajectory Plot (Backup)", type="secondary"):
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        
+        # Add mandrel outline
+        vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+        if vessel_profile:
+            r_mm = vessel_profile['r_inner_mm']
+            z_mm = vessel_profile['z_mm']
+            
+            # Convert to meters and center
+            r_m = np.array(r_mm) / 1000.0
+            z_m = np.array(z_mm) / 1000.0
+            z_m = z_m - np.mean(z_m)  # Center
+            
+            # Simple circular sections
+            theta = np.linspace(0, 2*np.pi, 32)
+            for i in range(0, len(z_m), 10):  # Every 10th point
+                x_circle = r_m[i] * np.cos(theta)
+                y_circle = r_m[i] * np.sin(theta)
+                z_circle = np.full_like(x_circle, z_m[i])
+                
+                fig.add_trace(go.Scatter3d(
+                    x=x_circle, y=y_circle, z=z_circle,
+                    mode='lines',
+                    line=dict(color='lightgray', width=1),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+        
+        # Add trajectory if data exists
+        traj_data = trajectories[selected_idx]['trajectory_data']
+        if 'x_points_m' in traj_data:
+            fig.add_trace(go.Scatter3d(
+                x=traj_data['x_points_m'],
+                y=traj_data['y_points_m'],
+                z=traj_data['z_points_m'],
+                mode='lines+markers',
+                line=dict(color='red', width=4),
+                marker=dict(size=3),
+                name='Trajectory'
+            ))
+        
+        fig.update_layout(
+            title="Simple 3D View",
+            scene=dict(aspectmode='data')
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Simple plot failed: {e}")
+```
+
+## **Apply the Fixes:**
+
+1. Replace your `visualization_page()` function with the fixed version
+2. Add the `FixedAdvanced3DVisualizer` class 
+3. Update the trajectory generation to ensure proper coordinate output
+
+## **Expected Results:**
+
+After applying these fixes, you should see:
+- ✅ Debug information showing actual trajectory data
+- ✅ 3D trajectories displayed as red lines on the mandrel
+- ✅ Start/end markers on the trajectory
+- ✅ Proper coordinate system with vessel centered at origin
+
+Try the debug code first to see what trajectory data you actually have, then apply the fixes accordingly. Let me know what the debug output shows!
