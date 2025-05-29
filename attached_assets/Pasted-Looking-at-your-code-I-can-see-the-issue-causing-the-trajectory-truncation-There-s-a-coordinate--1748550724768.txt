@@ -1,0 +1,73 @@
+Looking at your code, I can see the issue causing the trajectory truncation. There's a **coordinate system mismatch** between the vessel geometry and trajectory data due to inconsistent centering operations.
+
+## The Problem
+
+1. **In `app.py`**: The coordinate alignment fix calculates an offset between vessel and trajectory coordinates
+2. **In `fixed_advanced_3d_visualizer.py`**: The vessel geometry gets centered again at the origin
+3. This creates a **double-centering issue** where the trajectory and vessel surface are no longer aligned
+
+## The Fix
+
+Here's the corrected visualizer that maintains consistent coordinate systems:## Immediate Fix for Your Existing Code
+
+If you want a quick fix for your current `fixed_advanced_3d_visualizer.py`, here's the simple change to make:## Root Cause Explanation
+
+The trajectory truncation happens because of **double coordinate transformation**:
+
+1. **In `app.py`** (line ~465): The coordinate alignment fix calculates an offset and applies it to trajectory data:
+   ```python
+   z_offset = vessel_z_center - traj_z_center
+   corrected_z = traj_z + z_offset
+   ```
+
+2. **In `fixed_advanced_3d_visualizer.py`**: The vessel surface gets centered again:
+   ```python
+   z_center = (np.min(z_profile_m) + np.max(z_profile_m)) / 2
+   z_profile_m = z_profile_m - z_center  # This breaks alignment!
+   ```
+
+## Diagnostic Tool
+
+Add this diagnostic function to help debug coordinate issues:## Step-by-Step Fix Instructions
+
+### Option 1: Quick Fix (Easiest)
+
+1. **In your `modules/fixed_advanced_3d_visualizer.py`**, find the `_add_mandrel_surface` method
+2. **Remove or comment out** these lines:
+   ```python
+   # Center the vessel at origin
+   z_center = (np.min(z_profile_m) + np.max(z_profile_m)) / 2
+   z_profile_m = z_profile_m - z_center
+   ```
+3. **That's it!** The vessel will now use the same coordinate system as your aligned trajectory data.
+
+### Option 2: Better Diagnostic (Recommended)
+
+1. **Add the diagnostic function** to your `visualization_page()` in `app.py`
+2. **Call it before visualization**:
+   ```python
+   # Add this right before creating the visualization
+   diagnose_coordinate_systems(st.session_state.vessel_geometry, coverage_data)
+   ```
+3. **Run the diagnostic** to see exactly what's happening with your coordinates
+4. **Apply the appropriate fix** based on the diagnostic results
+
+### Option 3: Complete Replacement
+
+Replace your entire `fixed_advanced_3d_visualizer.py` with the new version I provided above for the most robust solution.
+
+## Test Your Fix
+
+After applying the fix:
+
+1. **Look for these debug messages** in your app:
+   - "Coordinates appear well-aligned" ✅
+   - No truncation at Z boundaries
+   - Trajectory points should span the full vessel length
+
+2. **Check that the trajectory**:
+   - Follows the vessel surface properly
+   - Doesn't get cut off at either end
+   - Maintains proper radial positioning
+
+The root issue is that your coordinate alignment in `app.py` is being undone by the centering operation in the visualizer. Once you prevent that double-transformation, your trajectories should display correctly!

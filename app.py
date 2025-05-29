@@ -228,6 +228,19 @@ def visualization_page():
         with col2:
             show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
         
+        # Add coordinate diagnostic button
+        if st.button("🔍 Run Coordinate Diagnostic", type="secondary"):
+            from modules.coordinate_diagnostic import diagnose_coordinate_systems
+            
+            # Get trajectory data for diagnostic
+            trajectory_data = selected_traj.get('trajectory_data', {})
+            if 'path_points' in trajectory_data:
+                path_points = trajectory_data['path_points']
+                coverage_data = {'circuits': [path_points]}
+                diagnose_coordinate_systems(st.session_state.vessel_geometry, coverage_data)
+            else:
+                st.warning("No path points available for coordinate diagnostic")
+
         # Generate visualization with coordinate conversion fix
         if st.button("Generate 3D Visualization", type="primary"):
             
@@ -274,7 +287,7 @@ def visualization_page():
                         converted_data = None
                     
                     # Use the FIXED visualization system with proper data handling
-                    from modules.fixed_advanced_3d_visualizer import FixedAdvanced3DVisualizer
+                    from modules.fixed_coordinate_visualizer import FixedAdvanced3DVisualizer
                     
                     # Use converted data if available, otherwise fall back to direct extraction
                     if converted_data and converted_data.get('success'):
