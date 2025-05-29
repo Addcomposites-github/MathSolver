@@ -1,0 +1,149 @@
+Key Issue: Correct Mandrel Surface for Each Layer's Visualization
+The main problem seems to be ensuring that when a specific layer (selected_layer at layer_idx) is visualized:
+
+The trajectory for selected_layer is planned (or re-planned for visualization if necessary) on the mandrel surface that existed just before selected_layer was wound.
+The 3D visualization renders this same mandrel surface along with the trajectory.
+The snippet in app.py for generate_and_display_full_coverage (lines 706-770) attempts to get the correct vessel_geometry. However, the method manager.get_mandrel_geometry_at_layer(layer_idx) is noted as missing, and the fallback logic could lead to using an incorrect mandrel state, especially for previously applied layers.
+
+Recommended Solution Steps:
+1. Robust Retrieval of Mandrel Surface for Visualization
+
+Modify the generate_and_display_full_coverage function in app.py to more accurately determine the mandrel profile on which the selected_layer (at layer_idx) should be visualized and planned.
+
+You need to obtain the profile of the mandrel as it was before the selected layer was applied.
+
+Python
+
+# In app.py, within generate_and_display_full_coverage function:
+
+            # ... (after selecting layer_idx and selected_layer) ...
+
+            # Determine the profile the selected_layer (at layer_idx) was/will be wound upon.
+            profile_for_layer_winding_surface = {}
+
+            manager = st.session_state.layer_stack_manager # Get the manager
+
+            if layer_idx == 0: # First layer in the stack
+                initial_mandrel_profile = manager.mandrel.initial_profile
+                profile_for_layer_winding_surface['z_mm'] = np.array(initial_mandrel_profile['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(initial_mandrel_profile['r_inner_mm'])
+            elif layer_idx > 0 and layer_idx < len(manager.winding_sequence) + 1 :
+                # If visualizing a layer whose state might be in winding_sequence
+                # winding_sequence[k] stores state *after* layer_stack[k] was applied.
+                # So, surface *before* layer_stack[layer_idx] is state *after* layer_stack[layer_idx-1].
+                # The 'r_current_mm' in winding_sequence[layer_idx-1]['mandrel_state'] is the r_outer
+                # of the mandrel after layer (layer_idx-1) was applied, which is r_inner for layer (layer_idx).
+                prev_layer_mandrel_state = manager.winding_sequence[layer_idx-1]['mandrel_state']
+                profile_for_layer_winding_surface['z_mm'] = np.array(prev_layer_mandrel_state['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(prev_layer_mandrel_state['r_current_mm'])
+            elif layer_idx >= len(manager.mandrel.layers_applied): # Pending layer
+                # Use the latest fully evolved mandrel surface from LayerStackManager
+                latest_mandrel_data = manager.get_current_mandrel_for_trajectory()
+                profile_for_layer_winding_surface['z_mm'] = np.array(latest_mandrel_data['profile_points']['z_mm'])
+                # r_inner_mm from get_current_mandrel_for_trajectory IS the current winding surface
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(latest_mandrel_data['profile_points']['r_inner_mm'])
+            else: # Fallback or error condition
+                st.error(f"Could not reliably determine mandrel surface for layer index {layer_idx}. Using initial mandrel.")
+                initial_mandrel_profile = manager.mandrel.initial_profile
+                profile_for_layer_winding_surface['z_mm'] = np.array(initial_mandrel_profile['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(initial_mandrel_profile['r_inner_mm'])
+
+            if not profile_for_layer_winding_surface or profile_for_layer_winding_surface['r_inner_mm'].size == 0:
+                st.error("Failed to retrieve a valid mandrel profile for visualization.")
+                return
+
+            # Create a new VesselGeometry instance for this specific state
+            # Use current equatorial radius from the determined profile for inner_diameter
+            current_equatorial_radius = np.max(profile_for_layer_winding_surface['r_inner_mm'])
+            # Use z-range from the profile for cylindrical length approximation
+            current_cyl_len = np.max(profile_for_layer_winding_surface['z_mm']) - np.min(profile_for_layer_winding_surface['z_mm'])
+
+            # Use properties of the base vessel for dome_type, and a nominal wall_thickness
+            # as the profile_points will define the actual surface.
+            base_vessel = st.session_state.vessel_geometry
+            vessel_for_this_layer_viz = VesselGeometry(
+                inner_diameter=current_equatorial_radius * 2,
+                wall_thickness=base_vessel.wall_thickness, # Or a nominal 0.1
+                cylindrical_length=current_cyl_len,
+                dome_type=base_vessel.dome_type
+            )
+            # CRITICAL: Set the profile_points to represent the surface this layer is WOUND ON.
+            # For visualization, r_outer_mm can be the same as r_inner_mm if we are only showing that surface.
+            vessel_for_this_layer_viz.profile_points = {
+                'z_mm': profile_for_layer_winding_surface['z_mm'],
+                'r_inner_mm': profile_for_layer_winding_surface['r_inner_mm'], # Surface layer is wound on
+                'r_outer_mm': profile_for_layer_winding_surface['r_inner_mm']  # For visualizer, mandrel surface is this.
+            }
+            # If the layer_config for AdvancedFullCoverageGenerator or Advanced3DVisualizer
+            # needs r_outer_mm to represent the surface *after* the current layer, adjust accordingly.
+            # But for drawing the mandrel *underneath* the layer, r_inner_mm is key.
+
+            # Prepare layer configuration for the generator
+            layer_config = {
+                'layer_type': selected_layer.layer_type,
+                'winding_angle': selected_layer.winding_angle_deg,
+                'roving_width': getattr(selected_layer, 'roving_width_mm', 3.0), # Ensure LayerDefinition has this
+                'physics_model': getattr(selected_layer, 'advanced_config', {}).get('physics_model', 'clairaut'),
+                'friction_coefficient': getattr(selected_layer, 'advanced_config', {}).get('friction_coefficient', 0.1),
+                'continuity_level': getattr(selected_layer, 'advanced_config', {}).get('continuity_level', 1)
+            }
+
+            # Pass vessel_for_this_layer_viz to the generator and visualizer
+            from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
+            from modules.advanced_3d_visualization import Advanced3DVisualizer
+
+            coverage_generator = AdvancedFullCoverageGenerator(vessel_for_this_layer_viz, layer_config)
+            coverage_data = coverage_generator.generate_complete_coverage(quality_level)
+
+            if coverage_data['circuits']:
+                st.success(f"✅ Generated {coverage_data['total_circuits']} circuits for complete coverage!")
+                # ... (rest of the metrics display from your existing code) ...
+
+                visualizer = Advanced3DVisualizer()
+                visualization_options = {
+                    'show_mandrel': show_mandrel_mesh,
+                    'mandrel_opacity': 0.3,
+                    'circuit_line_width': 3,
+                    'show_start_end_points': True,
+                    'color_by_circuit': color_by_circuit,
+                    'show_surface_mesh': True # Assuming this uses the mandrel surface
+                }
+                fig = visualizer.create_full_coverage_visualization(
+                    coverage_data,
+                    vessel_for_this_layer_viz, # Pass the correctly defined vessel
+                    layer_config,
+                    visualization_options
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                # ... (rest of your expanders for detailed analysis) ...
+            else:
+                st.error("❌ Failed to generate coverage pattern. Check layer configuration and console for errors.")
+
+        # except Exception as e: ... (your existing exception handling) ...
+Explanation of Changes:
+
+The logic to determine profile_for_layer_winding_surface now correctly attempts to fetch the mandrel state relevant to layer_idx from manager.mandrel.initial_profile or manager.winding_sequence.
+A new VesselGeometry instance (vessel_for_this_layer_viz) is created using this specific profile. This avoids modifying st.session_state.vessel_geometry and ensures the correct geometry is passed down.
+r_inner_mm of vessel_for_this_layer_viz.profile_points is set to the actual surface the layer is wound upon. The Advanced3DVisualizer uses this r_inner_mm to render the mandrel.
+The AdvancedFullCoverageGenerator is initialized with this vessel_for_this_layer_viz, so its internal UnifiedTrajectoryPlanner should also use this correct surface profile.
+2. Verify Planner's Surface Adherence
+
+If trajectories still don't precisely match the visualized mandrel (even after the above fix), the issue might be deeper within how UnifiedTrajectoryPlanner or PhysicsEngine interprets or uses the provided vessel_geometry.profile_points:
+
+Spline Fitting: The PhysicsEngine creates splines from the meridian points. If the evolved mandrel surface has sharp local changes in curvature (common after many layers), the spline might smooth over these, causing the calculated path to deviate slightly. This is harder to fix and might require more sophisticated surface handling or denser point representation in the profile.
+Clairaut's Constant/Physics Parameters: Ensure the planner (e.g., UnifiedTrajectoryPlanner) and its PhysicsEngine are correctly calculating or using Clairaut's constant and other physics parameters (like polar opening) based strictly on the provided vessel_for_this_layer_viz.profile_points and not falling back to any parameters from the original base vessel.
+3. Fallback Circuit Accuracy
+
+Your advanced_full_coverage_generator.py uses _generate_fallback_circuit. Ensure this fallback logic is robust:
+
+It correctly uses self.vessel_geometry.get_profile_points()['r_inner_mm'] (which will be the correct evolved surface passed to it).
+The interpolation r_points = np.interp(z_points, z_full, r_full) should accurately place points on this surface. If this fallback is consistently used and there's a mismatch, the issue might be in how z_full and r_full are constructed or how Advanced3DVisualizer plots the surface versus how the fallback plots points.
+4. Simple Test Case
+
+To isolate the problem:
+
+Define only one simple layer (e.g., a hoop layer at a known Z-coordinate on the cylinder).
+Use the "Full Coverage Visualization" for this single layer.
+Check if this simple hoop trajectory lies exactly on the visualized initial mandrel.
+If yes, the mandrel drawing and basic trajectory point plotting are likely correct, and the issue appears with more complex paths or evolved mandrels.
+If no, there's a more fundamental issue in coordinate systems, units, or how the visualizer plots the mandrel vs. points.

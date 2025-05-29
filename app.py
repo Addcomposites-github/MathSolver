@@ -797,23 +797,49 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
             # Get stack summary for current state
             stack_summary = manager.get_layer_stack_summary()
             
-            # Get appropriate mandrel geometry for this layer
-            if layer_idx < len(manager.mandrel.layers_applied):
-                # Layer is applied - use mandrel geometry at this layer
-                try:
-                    vessel_geometry = manager.get_mandrel_geometry_at_layer(layer_idx)
-                except:
-                    # Fallback to current mandrel state
-                    current_mandrel = manager.get_current_mandrel_for_trajectory()
-                    vessel_geometry = st.session_state.vessel_geometry
-                    if hasattr(vessel_geometry, 'profile_points'):
-                        vessel_geometry.profile_points = current_mandrel['profile_points']
+            # Determine the correct mandrel surface for this layer's visualization
+            # We need the mandrel surface that existed BEFORE this layer was applied
+            profile_for_layer_winding_surface = {}
+            
+            if layer_idx == 0:
+                # First layer - use initial mandrel profile
+                initial_mandrel_profile = manager.mandrel.initial_profile
+                profile_for_layer_winding_surface['z_mm'] = np.array(initial_mandrel_profile['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(initial_mandrel_profile['r_inner_mm'])
+            elif layer_idx > 0 and layer_idx <= len(manager.winding_sequence):
+                # Use mandrel state after previous layer was applied
+                prev_layer_mandrel_state = manager.winding_sequence[layer_idx-1]['mandrel_state']
+                profile_for_layer_winding_surface['z_mm'] = np.array(prev_layer_mandrel_state['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(prev_layer_mandrel_state['r_current_mm'])
             else:
-                # Layer not applied yet - use current mandrel state
-                current_mandrel = manager.get_current_mandrel_for_trajectory()
-                vessel_geometry = st.session_state.vessel_geometry
-                if hasattr(vessel_geometry, 'profile_points'):
-                    vessel_geometry.profile_points = current_mandrel['profile_points']
+                # Pending layer - use current evolved mandrel surface
+                latest_mandrel_data = manager.get_current_mandrel_for_trajectory()
+                profile_for_layer_winding_surface['z_mm'] = np.array(latest_mandrel_data['profile_points']['z_mm'])
+                profile_for_layer_winding_surface['r_inner_mm'] = np.array(latest_mandrel_data['profile_points']['r_inner_mm'])
+            
+            if not profile_for_layer_winding_surface or profile_for_layer_winding_surface['r_inner_mm'].size == 0:
+                st.error("Failed to retrieve a valid mandrel profile for visualization.")
+                return
+            
+            # Create a new VesselGeometry instance for this specific layer's mandrel state
+            current_equatorial_radius = np.max(profile_for_layer_winding_surface['r_inner_mm'])
+            current_cyl_len = np.max(profile_for_layer_winding_surface['z_mm']) - np.min(profile_for_layer_winding_surface['z_mm'])
+            
+            # Use properties from base vessel but with correct surface profile
+            base_vessel = st.session_state.vessel_geometry
+            vessel_geometry = VesselGeometry(
+                inner_diameter=current_equatorial_radius * 2,
+                wall_thickness=base_vessel.wall_thickness,
+                cylindrical_length=current_cyl_len,
+                dome_type=base_vessel.dome_type
+            )
+            
+            # Set the correct profile points for the mandrel surface this layer winds on
+            vessel_geometry.profile_points = {
+                'z_mm': profile_for_layer_winding_surface['z_mm'],
+                'r_inner_mm': profile_for_layer_winding_surface['r_inner_mm'],
+                'r_outer_mm': profile_for_layer_winding_surface['r_inner_mm']  # For visualization
+            }
             
             # Prepare layer configuration
             layer_config = {
