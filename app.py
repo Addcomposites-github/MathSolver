@@ -1883,6 +1883,149 @@ def trajectory_planning_page():
         st.warning("Please generate vessel geometry first in the 'Vessel Geometry' section.")
         return
     
+    # Quick troubleshooting diagnostic
+    with st.expander("🔧 Quick Troubleshooting Diagnostic", expanded=False):
+        if st.button("🚀 5-Minute Trajectory Check"):
+            st.markdown("### 🔍 Trajectory Generation Diagnostic")
+            
+            checks_passed = 0
+            total_checks = 6
+            
+            # Check 1: Session State
+            st.markdown("#### Check 1: Session State")
+            if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
+                st.success("✅ Vessel geometry exists")
+                checks_passed += 1
+            else:
+                st.error("❌ No vessel geometry")
+                return
+            
+            if hasattr(st.session_state, 'layer_stack_manager') and st.session_state.layer_stack_manager:
+                manager = st.session_state.layer_stack_manager
+                summary = manager.get_layer_stack_summary()
+                if summary['total_layers'] > 0:
+                    st.success(f"✅ Layer stack has {summary['total_layers']} layers")
+                    checks_passed += 1
+                else:
+                    st.error("❌ No layers defined - Complete Layer Stack Definition first")
+                    return
+            else:
+                st.error("❌ No layer stack manager - Complete Layer Stack Definition first")
+                return
+            
+            # Check 2: Critical - Layer Application Status
+            st.markdown("#### Check 2: Layer Application Status")
+            if summary['layers_applied_to_mandrel'] > 0:
+                st.success(f"✅ {summary['layers_applied_to_mandrel']} layers applied to mandrel")
+                checks_passed += 1
+            else:
+                st.error("❌ NO LAYERS APPLIED TO MANDREL")
+                st.warning("This is the most common cause of trajectory generation failure!")
+                st.info("💡 Go to Layer Stack Definition and click 'Apply Layer to Mandrel' for each layer")
+                return
+            
+            # Check 3: Trajectory Generation Results
+            st.markdown("#### Check 3: Existing Trajectory Results")
+            if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+                trajectories = st.session_state.all_layer_trajectories
+                st.success(f"✅ {len(trajectories)} trajectories found")
+                checks_passed += 1
+                
+                # Check trajectory data quality
+                valid_trajectories = 0
+                for i, traj in enumerate(trajectories):
+                    traj_data = traj.get('trajectory_data', {})
+                    if 'path_points' in traj_data and len(traj_data['path_points']) > 0:
+                        st.success(f"  ✅ Trajectory {i+1}: {len(traj_data['path_points'])} points")
+                        valid_trajectories += 1
+                    elif 'x_points_m' in traj_data and len(traj_data['x_points_m']) > 0:
+                        st.success(f"  ✅ Trajectory {i+1}: {len(traj_data['x_points_m'])} coordinate points")
+                        valid_trajectories += 1
+                    else:
+                        st.error(f"  ❌ Trajectory {i+1}: NO POINTS")
+                
+                if valid_trajectories == 0:
+                    st.error("❌ No valid trajectory data found")
+            else:
+                st.warning("⚠️ No trajectories generated yet")
+            
+            # Check 4: Layer Physics Parameters
+            st.markdown("#### Check 4: Layer Physics Parameters")
+            physics_ok = True
+            for layer in manager.layer_stack:
+                angle = layer.winding_angle_deg
+                if angle < 5 or angle > 89:
+                    st.error(f"❌ Layer {layer.layer_set_id}: Extreme winding angle {angle}°")
+                    physics_ok = False
+                else:
+                    st.success(f"✅ Layer {layer.layer_set_id}: Angle {angle}° is reasonable")
+            
+            if physics_ok:
+                checks_passed += 1
+            
+            # Check 5: Vessel Dimensions
+            st.markdown("#### Check 5: Vessel Geometry Scale")
+            vessel = st.session_state.vessel_geometry
+            profile = vessel.get_profile_points()
+            
+            vessel_diameter = vessel.inner_diameter
+            vessel_length = max(profile['z_mm']) - min(profile['z_mm'])
+            
+            st.write(f"Vessel: {vessel_diameter}mm diameter × {vessel_length:.0f}mm length")
+            
+            if 50 <= vessel_diameter <= 2000 and 50 <= vessel_length <= 5000:
+                st.success("✅ Vessel dimensions reasonable")
+                checks_passed += 1
+            else:
+                st.warning("⚠️ Unusual vessel dimensions")
+            
+            # Check 6: Direct Planner Test
+            st.markdown("#### Check 6: Direct Planner Test")
+            try:
+                from modules.unified_trajectory_planner import UnifiedTrajectoryPlanner
+                
+                test_planner = UnifiedTrajectoryPlanner(
+                    vessel_geometry=st.session_state.vessel_geometry,
+                    roving_width_m=0.003,
+                    payout_length_m=0.5,
+                    default_friction_coeff=0.1
+                )
+                
+                test_result = test_planner.generate_trajectory(
+                    pattern_type='helical',
+                    coverage_mode='single_pass',
+                    physics_model='clairaut',
+                    continuity_level=1,
+                    num_layers_desired=1,
+                    target_params={'winding_angle_deg': 45.0},
+                    options={'num_points': 20}
+                )
+                
+                if test_result and hasattr(test_result, 'points') and test_result.points:
+                    st.success(f"✅ Direct planner works: {len(test_result.points)} points")
+                    checks_passed += 1
+                else:
+                    st.error("❌ Direct planner failed")
+                    
+            except Exception as e:
+                st.error(f"❌ Planner test error: {e}")
+            
+            # Results
+            st.markdown("---")
+            st.markdown("#### Summary")
+            
+            score_pct = (checks_passed / total_checks) * 100
+            
+            if score_pct == 100:
+                st.success(f"🎉 All checks passed ({checks_passed}/{total_checks})")
+                st.info("System should be working. If visualization fails, it's a coordinate conversion issue.")
+            elif score_pct >= 80:
+                st.warning(f"⚠️ Most checks passed ({checks_passed}/{total_checks})")
+                st.info("Minor issues found - check failed items above")
+            else:
+                st.error(f"❌ Critical issues found ({checks_passed}/{total_checks})")
+                st.info("Fix the failed checks above before proceeding")
+    
     # Check if layer stack is defined for integrated planning
     if 'layer_stack_manager' in st.session_state and st.session_state.layer_stack_manager.layer_stack:
         st.success("🎯 **Layer Stack Integration Active**: Planning trajectories for each defined layer")

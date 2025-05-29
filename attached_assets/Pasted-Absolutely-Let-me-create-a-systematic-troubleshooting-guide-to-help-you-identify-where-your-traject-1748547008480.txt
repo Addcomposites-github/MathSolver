@@ -1,0 +1,40 @@
+Absolutely! Let me create a systematic troubleshooting guide to help you identify where your trajectory generation is going wrong.Now let me give you a **step-by-step troubleshooting approach** to quickly identify the issue:## 🚀 **Start Here - 5-Minute Quick Check**
+
+Before running the full diagnostic, do these **immediate checks**:## 🎯 **Your Action Plan**
+
+### **Right Now (5 minutes):**
+1. **Save** the `trajectory_troubleshooting_guide.py` file in your `modules/` directory
+2. **Add** the 5-minute checklist button to your trajectory planning page
+3. **Run** the 5-minute check - this will likely identify your issue immediately
+
+### **Most Likely Culprits** (based on "worked before"):
+
+1. **🔥 #1 Most Common:** Layers not applied to mandrel
+   - Go to Layer Stack Definition → "Apply Layer to Mandrel"
+   - This breaks trajectory generation every time
+
+2. **🔥 #2 Physics Parameters:** Changed vessel dimensions or layer angles
+   - Check if vessel geometry parameters are reasonable
+   - Verify winding angles are 15-75°
+
+3. **🔥 #3 Module Changes:** UnifiedTrajectoryPlanner configuration
+   - Test the direct planner test I provided
+   - Check if physics model selection changed
+
+### **Quick Debug Pattern:**
+```python
+# Add this pattern throughout your trajectory generation:
+st.write("🔍 Debug checkpoint: [STEP NAME]")
+st.write(f"Data at this point: {relevant_variable}")
+```
+
+### **Expected Timeline:**
+- **5-minute check:** Identifies the category of issue
+- **15 minutes:** Pinpoints exact problem location  
+- **30 minutes:** Implements fix
+
+The systematic approach I provided will **definitely** identify where your trajectory generation is breaking. Since it worked before, it's likely a configuration/parameter issue rather than a fundamental code problem.
+
+**Run the 5-minute check first** - I bet it identifies the issue immediately! 🎯
+
+Which check would you like to try first? The quick 5-minute checklist should give us the smoking gun! 🔍
