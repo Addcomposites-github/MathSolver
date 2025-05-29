@@ -72,25 +72,76 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Progress indicators
-    progress_status = {
-        "Vessel Geometry": "✅" if st.session_state.vessel_geometry else "⭕",
-        "Material Properties": "✅" if 'material_selection' in st.session_state else "⭕",
-        "Layer Stack Definition": "✅" if 'layer_stack_manager' in st.session_state else "⭕",
-        "Trajectory Planning": "✅" if st.session_state.trajectory_data else "⭕",
-        "Configuration & Settings": "🚀" if UNIFIED_SYSTEM_AVAILABLE else "⭕",
-        "Performance Analysis": "⭕",
-        "Manufacturing Simulation": "✅" if 'layer_manager' in st.session_state else "⭕",
-        "Export Results": "⭕"
-    }
+    # Define sequential workflow steps
+    workflow_steps = [
+        {
+            "name": "Vessel Geometry",
+            "key": "vessel_geometry",
+            "required": True,
+            "prerequisite": None
+        },
+        {
+            "name": "Layer Stack Definition", 
+            "key": "layer_stack_manager",
+            "required": True,
+            "prerequisite": "vessel_geometry"
+        },
+        {
+            "name": "Trajectory Planning",
+            "key": "all_layer_trajectories", 
+            "required": True,
+            "prerequisite": "layer_stack_manager"
+        },
+        {
+            "name": "Visualization",
+            "key": "visualization_ready",
+            "required": False,
+            "prerequisite": "all_layer_trajectories"
+        }
+    ]
     
-    pages = ["Vessel Geometry", "Material Properties", "Layer Stack Definition", "Trajectory Planning", "Configuration & Settings", "Performance Analysis", "Manufacturing Simulation", "Export Results"]
+    # Calculate progress and status for each step
+    def get_step_status(step):
+        if step["key"] in st.session_state and st.session_state[step["key"]]:
+            return "✅"
+        elif step["prerequisite"] and (step["prerequisite"] not in st.session_state or not st.session_state[step["prerequisite"]]):
+            return "🔒"  # Locked due to missing prerequisite
+        else:
+            return "⭕"  # Available but not completed
     
-    # Create enhanced navigation with status indicators
-    st.sidebar.markdown("### Navigation Menu")
-    for i, page_name in enumerate(pages):
-        status = progress_status[page_name]
-        if st.sidebar.button(f"{status} {page_name}", key=f"nav_{i}", use_container_width=True):
+    def can_access_step(step):
+        if not step["prerequisite"]:
+            return True
+        return step["prerequisite"] in st.session_state and st.session_state[step["prerequisite"]]
+    
+    # Create sequential workflow navigation
+    st.sidebar.markdown("### Design Workflow")
+    st.sidebar.markdown("*Complete steps in order*")
+    
+    for i, step in enumerate(workflow_steps):
+        status = get_step_status(step)
+        can_access = can_access_step(step)
+        
+        button_style = "use_container_width=True"
+        if not can_access:
+            button_label = f"{status} {step['name']} (Complete previous step)"
+            button_disabled = True
+        else:
+            button_label = f"{status} {step['name']}"
+            button_disabled = False
+            
+        if not button_disabled and st.sidebar.button(button_label, key=f"nav_{i}", disabled=button_disabled, use_container_width=True):
+            st.session_state.current_page = step['name']
+        elif button_disabled:
+            st.sidebar.button(button_label, key=f"nav_{i}", disabled=True, use_container_width=True)
+    
+    # Add secondary navigation for advanced features
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Advanced Features")
+    advanced_pages = ["Material Properties", "Performance Analysis", "Manufacturing Simulation", "Export Results"]
+    
+    for page_name in advanced_pages:
+        if st.sidebar.button(f"⚙️ {page_name}", key=f"adv_{page_name}", use_container_width=True):
             st.session_state.current_page = page_name
     
     # Get current page
@@ -107,6 +158,8 @@ def main():
         layer_stack_definition_page()
     elif page == "Trajectory Planning":
         trajectory_planning_page()
+    elif page == "Visualization":
+        visualization_page()
     elif page == "Configuration & Settings":
         configuration_settings_page()
     elif page == "Performance Analysis":
@@ -115,6 +168,155 @@ def main():
         manufacturing_simulation_page()
     elif page == "Export Results":
         export_results_page()
+
+def visualization_page():
+    """Dedicated visualization page that only displays planned trajectories"""
+    st.markdown("""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
+        <h2 style="color: #1e3c72; margin: 0;">📊 3D Visualization</h2>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">View and analyze your planned trajectories in 3D</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Check workflow prerequisites
+    if not hasattr(st.session_state, 'vessel_geometry') or not st.session_state.vessel_geometry:
+        st.error("Complete Vessel Geometry first")
+        if st.button("Go to Vessel Geometry"):
+            st.session_state.current_page = "Vessel Geometry"
+            st.rerun()
+        return
+    
+    if not hasattr(st.session_state, 'layer_stack_manager') or not st.session_state.layer_stack_manager:
+        st.error("Complete Layer Stack Definition first")
+        if st.button("Go to Layer Stack Definition"):
+            st.session_state.current_page = "Layer Stack Definition"
+            st.rerun()
+        return
+    
+    if not hasattr(st.session_state, 'all_layer_trajectories') or not st.session_state.all_layer_trajectories:
+        st.error("Complete Trajectory Planning first")
+        if st.button("Go to Trajectory Planning"):
+            st.session_state.current_page = "Trajectory Planning"
+            st.rerun()
+        return
+    
+    # Display planned trajectories
+    st.success("All prerequisites completed - ready for visualization")
+    
+    # Layer selection
+    trajectories = st.session_state.all_layer_trajectories
+    layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
+                    for traj in trajectories]
+    
+    selected_idx = st.selectbox(
+        "Select Layer to Visualize",
+        range(len(layer_options)),
+        format_func=lambda x: layer_options[x]
+    )
+    
+    if selected_idx is not None:
+        selected_traj = trajectories[selected_idx]
+        
+        # Visualization options
+        col1, col2 = st.columns(2)
+        with col1:
+            quality_level = st.selectbox(
+                "Visualization Quality",
+                ("Standard", "High Definition"),
+                help="High Definition shows more detail but renders slower"
+            )
+        with col2:
+            show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
+        
+        # Generate visualization using the existing full coverage system
+        if st.button("Generate 3D Visualization", type="primary"):
+            layer_manager = st.session_state.layer_stack_manager
+            
+            # Find the corresponding layer definition
+            layer_def = None
+            for layer in layer_manager.layer_stack:
+                if layer.layer_set_id == selected_traj['layer_id']:
+                    layer_def = layer
+                    break
+            
+            if layer_def:
+                try:
+                    # Use the existing visualization system but with planned trajectory data
+                    from modules.advanced_3d_visualization import Advanced3DVisualizer
+                    from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
+                    
+                    # Convert planned trajectory to expected format
+                    trajectory_data = selected_traj.get('trajectory_data', {})
+                    path_points = trajectory_data.get('path_points', [])
+                    
+                    if path_points:
+                        coverage_data = {
+                            'circuits': [path_points],
+                            'circuit_metadata': [{
+                                'circuit_number': 1,
+                                'start_phi_deg': 0.0,
+                                'points_count': len(path_points),
+                                'quality_score': 95.0
+                            }],
+                            'total_circuits': 1,
+                            'coverage_percentage': trajectory_data.get('coverage_percentage', 85.0),
+                            'pattern_info': {
+                                'actual_pattern_type': selected_traj['layer_type'],
+                                'winding_angle': selected_traj['winding_angle']
+                            },
+                            'quality_settings': {'mode': quality_level.lower()},
+                            'source': 'planned_trajectory'
+                        }
+                        
+                        layer_config = {
+                            'layer_type': layer_def.layer_type,
+                            'winding_angle_deg': layer_def.winding_angle_deg,
+                            'physics_model': getattr(layer_def, 'physics_model', 'clairaut'),
+                            'roving_width': 3.0,
+                            'coverage_mode': 'full_coverage'
+                        }
+                        
+                        visualization_options = {
+                            'quality_level': quality_level.lower(),
+                            'show_mandrel_mesh': show_mandrel,
+                            'color_by_circuit': True,
+                            'show_all_circuits': True
+                        }
+                        
+                        # Create visualization
+                        visualizer = Advanced3DVisualizer()
+                        fig = visualizer.create_full_coverage_visualization(
+                            coverage_data,
+                            st.session_state.vessel_geometry,
+                            layer_config,
+                            visualization_options
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Display trajectory information
+                        st.markdown("### Trajectory Information")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Points", len(path_points))
+                        with col2:
+                            st.metric("Layer Type", selected_traj['layer_type'])
+                        with col3:
+                            st.metric("Winding Angle", f"{selected_traj['winding_angle']}°")
+                        
+                        st.success("Visualization generated from planned trajectory data")
+                        
+                    else:
+                        st.error("Selected trajectory contains no path points")
+                        
+                except Exception as e:
+                    st.error(f"Visualization error: {str(e)}")
+                    st.info("The planned trajectory data is still valid for manufacturing")
+            else:
+                st.error("Could not find corresponding layer definition")
+    
+    # Mark visualization as ready
+    st.session_state.visualization_ready = True
 
 def vessel_geometry_page():
     # Professional page header
@@ -730,8 +932,9 @@ def layer_stack_definition_page():
                         'mandrel_geometry': mandrel_geom
                     }
 
-    # Add the Advanced 3D Full Coverage Visualization section
-    add_full_coverage_visualization_section(manager)
+    # Visualization has been moved to dedicated Visualization page
+    st.markdown("---")
+    st.info("💡 **Next Step**: Complete trajectory planning, then proceed to the Visualization section for 3D display")
 
 def add_full_coverage_visualization_section(manager):
     """Add comprehensive 3D visualization section to layer stack page"""
