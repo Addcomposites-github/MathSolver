@@ -66,10 +66,23 @@ class AdvancedFullCoverageGenerator:
                 
                 # Use the UnifiedTrajectoryPlanner for authentic trajectory generation
                 try:
+                    # Extract all required parameters for unified trajectory planner
+                    continuity_level = self.layer_config.get('continuity_level', 1)
+                    physics_model = self.layer_config.get('physics_model', 'clairaut')
+                    pattern_type = 'helical' if winding_angle < 85 else 'hoop'
+                    
+                    print(f"[AdvancedCoverage] Circuit {circuit_num + 1}: Using UnifiedPlanner with:")
+                    print(f"  - Pattern: {pattern_type}")
+                    print(f"  - Physics: {physics_model}")
+                    print(f"  - Angle: {winding_angle}°")
+                    print(f"  - Continuity: C{continuity_level}")
+                    print(f"  - Start Phi: {math.degrees(start_phi):.1f}°")
+                    
                     trajectory_result = planner.generate_trajectory(
-                        pattern_type='helical' if winding_angle < 85 else 'hoop',
+                        pattern_type=pattern_type,
                         coverage_mode='full_coverage',
-                        physics_model=self.layer_config.get('physics_model', 'clairaut'),
+                        physics_model=physics_model,
+                        continuity_level=continuity_level,
                         target_angle_deg=winding_angle,
                         start_phi_offset=start_phi
                     )
