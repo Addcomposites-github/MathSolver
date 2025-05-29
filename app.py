@@ -850,8 +850,17 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
             vessel_geometry.profile_points = {
                 'z_mm': profile_for_layer_winding_surface['z_mm'],
                 'r_inner_mm': profile_for_layer_winding_surface['r_inner_mm'],
-                'r_outer_mm': profile_for_layer_winding_surface['r_inner_mm']  # For visualization
+                'r_outer_mm': profile_for_layer_winding_surface['r_inner_mm'],  # For visualization
+                'dome_height_mm': base_vessel.profile_points.get('dome_height_mm', 70.0) if hasattr(base_vessel, 'profile_points') else 70.0
             }
+            
+            # Copy dome parameters from base vessel to ensure proper dome geometry
+            if hasattr(base_vessel, 'q_factor'):
+                vessel_geometry.q_factor = base_vessel.q_factor
+                vessel_geometry.r_factor = base_vessel.r_factor
+                vessel_geometry.s_factor = base_vessel.s_factor
+            if hasattr(base_vessel, 'aspect_ratio'):
+                vessel_geometry.aspect_ratio = base_vessel.aspect_ratio
             
             # Prepare layer configuration
             layer_config = {
