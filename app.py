@@ -246,7 +246,7 @@ def visualization_page():
                     from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
                     
                     # Convert planned trajectory to expected format
-                    trajectory_data = selected_traj  # The trajectory data IS the selected_traj
+                    trajectory_data = selected_traj.get('trajectory_data', {})  # Get the nested trajectory_data
                     path_points = trajectory_data.get('path_points', [])
                     
                     # Debug: Show what data we have
