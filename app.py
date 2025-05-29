@@ -228,8 +228,18 @@ def visualization_page():
         with col2:
             show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
         
-        # Generate visualization using the fixed visualization system
+        # Generate visualization with coordinate conversion fix
         if st.button("Generate 3D Visualization", type="primary"):
+            
+            # Import the coordinate converter
+            try:
+                from modules.trajectory_data_converter import TrajectoryDataConverter
+                converter = TrajectoryDataConverter()
+                st.success("Trajectory converter loaded")
+            except ImportError:
+                st.error("Trajectory converter not found - coordinate conversion may fail")
+                converter = None
+            
             layer_manager = st.session_state.layer_stack_manager
             
             # Find the corresponding layer definition
@@ -241,80 +251,73 @@ def visualization_page():
             
             if layer_def:
                 try:
+                    # Get the raw trajectory data
+                    raw_trajectory_data = selected_traj.get('trajectory_data', {})
+                    
+                    if not raw_trajectory_data:
+                        st.error("No trajectory data found for selected layer")
+                        return
+                    
+                    # Convert trajectory data if converter is available
+                    if converter:
+                        st.markdown("### Trajectory Data Conversion")
+                        st.write("Converting trajectory data for visualization...")
+                        converted_data = converter.convert_unified_trajectory_to_visualization_format(raw_trajectory_data)
+                        
+                        if not converted_data or not converted_data.get('success', False):
+                            st.error("Trajectory data conversion failed")
+                            st.write("Falling back to direct coordinate extraction...")
+                            converted_data = None
+                        else:
+                            st.success(f"Converted {converted_data['total_points']} trajectory points")
+                    else:
+                        converted_data = None
+                    
                     # Use the FIXED visualization system with proper data handling
                     from modules.fixed_advanced_3d_visualizer import FixedAdvanced3DVisualizer
                     
-                    # Convert planned trajectory to expected format
-                    trajectory_data = selected_traj.get('trajectory_data', {})  # Get the nested trajectory_data
-                    path_points = trajectory_data.get('path_points', [])
-                    
-                    # If path_points is empty, convert from coordinate arrays
-                    if not path_points:
-                        x_points = trajectory_data.get('x_points_m', [])
-                        y_points = trajectory_data.get('y_points_m', [])
-                        z_points = trajectory_data.get('z_points_m', [])
-                        winding_angles = trajectory_data.get('winding_angles_deg', [])
+                    # Use converted data if available, otherwise fall back to direct extraction
+                    if converted_data and converted_data.get('success'):
+                        path_points = converted_data['path_points']
+                        st.write(f"Using converted trajectory data with {len(path_points)} points")
                         
-                        # Debug: Show raw coordinate data
-                        st.write(f"Raw coordinate arrays found:")
-                        st.write(f"  x_points_m: {len(x_points)} values")
-                        if x_points:
-                            st.write(f"    X range: {min(x_points):.4f}m to {max(x_points):.4f}m")
-                        st.write(f"  y_points_m: {len(y_points)} values") 
-                        if y_points:
-                            st.write(f"    Y range: {min(y_points):.4f}m to {max(y_points):.4f}m")
-                        st.write(f"  z_points_m: {len(z_points)} values")
-                        if z_points:
-                            st.write(f"    Z range: {min(z_points):.4f}m to {max(z_points):.4f}m")
-                            
-                        # Check if coordinates are in expected vessel scale
-                        if z_points:
-                            vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                            if vessel_profile:
-                                vessel_z_range = (max(vessel_profile['z_mm']) - min(vessel_profile['z_mm'])) / 1000.0
-                                traj_z_range = max(z_points) - min(z_points)
-                                st.write(f"    Vessel Z span: {vessel_z_range:.4f}m vs Trajectory Z span: {traj_z_range:.4f}m")
-                                
-                                if abs(traj_z_range - vessel_z_range) > 0.1:  # More than 10cm difference
-                                    st.error(f"⚠️ Trajectory scale mismatch! Using simplified generator instead of unified planner.")
+                        # Display coordinate ranges from converted data
+                        x_vals = converted_data['x_points_m']
+                        y_vals = converted_data['y_points_m']
+                        z_vals = converted_data['z_points_m']
                         
-                        if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
-                            # Convert coordinate arrays to path_points format
-                            path_points = []
-                            for i in range(len(x_points)):
-                                path_points.append({
-                                    'x_m': x_points[i],
-                                    'y_m': y_points[i],
-                                    'z_m': z_points[i],
-                                    'rho_m': np.sqrt(x_points[i]**2 + y_points[i]**2),
-                                    'phi_rad': np.arctan2(y_points[i], x_points[i]),
-                                    'alpha_deg': winding_angles[i] if i < len(winding_angles) else 45.0,
-                                    'arc_length_m': i * 0.01  # Simple approximation
-                                })
-                            st.success(f"Using planned trajectory with {len(path_points)} points")
+                        st.write(f"Converted coordinate ranges:")
+                        st.write(f"  X: {min(x_vals):.3f}m to {max(x_vals):.3f}m")
+                        st.write(f"  Y: {min(y_vals):.3f}m to {max(y_vals):.3f}m")
+                        st.write(f"  Z: {min(z_vals):.3f}m to {max(z_vals):.3f}m")
+                        
+                    else:
+                        # Fallback to direct coordinate extraction  
+                        trajectory_data = selected_traj.get('trajectory_data', {})
+                        path_points = trajectory_data.get('path_points', [])
+                        
+                        if not path_points:
+                            x_points = trajectory_data.get('x_points_m', [])
+                            y_points = trajectory_data.get('y_points_m', [])
+                            z_points = trajectory_data.get('z_points_m', [])
+                            winding_angles = trajectory_data.get('winding_angles_deg', [])
                             
-                            # Debug: Check coordinate ranges to verify this is unified planner data
-                            x_vals = [p['x_m'] for p in path_points]
-                            y_vals = [p['y_m'] for p in path_points]
-                            z_vals = [p['z_m'] for p in path_points]
-                            
-                            st.write(f"Trajectory coordinate ranges:")
-                            st.write(f"  X: {min(x_vals):.3f}m to {max(x_vals):.3f}m")
-                            st.write(f"  Y: {min(y_vals):.3f}m to {max(y_vals):.3f}m") 
-                            st.write(f"  Z: {min(z_vals):.3f}m to {max(z_vals):.3f}m")
-                            
-                            # Check if this matches vessel geometry
-                            vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                            if vessel_profile:
-                                z_vessel = vessel_profile['z_mm'] / 1000.0  # Convert to meters
-                                st.write(f"Vessel Z range: {min(z_vessel):.3f}m to {max(z_vessel):.3f}m")
-                                
-                                # Check for coordinate system mismatch
-                                z_traj_range = max(z_vals) - min(z_vals)
-                                z_vessel_range = max(z_vessel) - min(z_vessel)
-                                st.write(f"Trajectory span: {z_traj_range:.3f}m, Vessel span: {z_vessel_range:.3f}m")
-                        else:
-                            st.error("Unable to find trajectory coordinate data")
+                            if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
+                                # Convert coordinate arrays to path_points format
+                                path_points = []
+                                for i in range(len(x_points)):
+                                    path_points.append({
+                                        'x_m': x_points[i],
+                                        'y_m': y_points[i],
+                                        'z_m': z_points[i],
+                                        'rho_m': np.sqrt(x_points[i]**2 + y_points[i]**2),
+                                        'phi_rad': np.arctan2(y_points[i], x_points[i]),
+                                        'alpha_deg': winding_angles[i] if i < len(winding_angles) else 45.0,
+                                        'arc_length_m': i * 0.01
+                                    })
+                                st.write(f"Using fallback coordinate extraction with {len(path_points)} points")
+                            else:
+                                st.error("Unable to extract trajectory coordinate data")
                     
                     if path_points:
                         coverage_data = {

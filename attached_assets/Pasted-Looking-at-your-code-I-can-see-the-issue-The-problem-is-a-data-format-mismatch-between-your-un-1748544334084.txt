@@ -1,0 +1,50 @@
+Looking at your code, I can see the issue! The problem is a **data format mismatch** between your unified trajectory planner and the visualization system. Let me help you fix this.
+
+## Root Cause Analysis
+
+Your unified trajectory planner generates `TrajectoryPoint` objects with **cylindrical coordinates** (`rho`, `z`, `phi`), but your visualization system expects **Cartesian coordinates** (`x`, `y`, `z`) in specific array formats.Here's the fix! Create a new file to handle the coordinate conversion and data format issues:Now, let's update your visualization code to use this converter. Add this updated visualization function to your `app.py`:## How to Apply the Fix
+
+### Step 1: Save the Converter
+Save the `trajectory_data_converter.py` file in your `modules/` directory.
+
+### Step 2: Replace Your Visualization Function
+Replace the `visualization_page()` function in your `app.py` with the fixed version above.
+
+### Step 3: Test the Fix
+Add this test function to verify everything works:## What This Fix Does
+
+### 🔧 **Root Cause Resolution**
+1. **Coordinate System Mismatch**: Your unified trajectory planner generates cylindrical coordinates (`rho`, `z`, `phi`), but your visualizer expects Cartesian coordinates (`x`, `y`, `z`).
+
+2. **Data Format Conversion**: The converter handles multiple trajectory data formats and standardizes them for visualization.
+
+3. **Proper Mathematical Conversion**: Uses the correct formulas:
+   - `x = rho * cos(phi)`
+   - `y = rho * sin(phi)` 
+   - `z = z` (unchanged)
+
+### 🎯 **Expected Results**
+After applying this fix, you should see:
+
+1. **Trajectory paths visible** in your 3D viewport alongside the mandrel
+2. **Proper scaling** - trajectories should wrap around your vessel geometry
+3. **Debug information** showing successful coordinate conversion
+4. **Multiple visualization options** working correctly
+
+### 🚨 **If You Still See Only the Mandrel**
+If trajectories still don't appear, the issue might be:
+
+1. **No trajectory data generated** - Check that trajectory planning actually produced points
+2. **Scale mismatch** - Trajectories might be too small/large compared to mandrel
+3. **Coordinate system issues** - May need vessel geometry coordinate adjustment
+
+Run the test function first to verify the converter works, then try the full visualization workflow.
+
+### 📊 **Debug Information**
+The fixed visualization page provides extensive debug output to help identify any remaining issues:
+- Raw trajectory data structure analysis
+- Coordinate conversion results  
+- Scale comparison with vessel geometry
+- Validation checks
+
+This should resolve your "only seeing mandrel CAD" issue and properly display your filament winding trajectories in 3D! 🎉
