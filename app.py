@@ -246,8 +246,30 @@ def visualization_page():
                     from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
                     
                     # Convert planned trajectory to expected format
-                    trajectory_data = selected_traj.get('trajectory_data', {})
+                    trajectory_data = selected_traj  # The trajectory data IS the selected_traj
                     path_points = trajectory_data.get('path_points', [])
+                    
+                    # If path_points is empty, convert from coordinate arrays
+                    if not path_points:
+                        x_points = trajectory_data.get('x_points_m', [])
+                        y_points = trajectory_data.get('y_points_m', [])
+                        z_points = trajectory_data.get('z_points_m', [])
+                        winding_angles = trajectory_data.get('winding_angles_deg', [])
+                        
+                        if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
+                            # Convert coordinate arrays to path_points format
+                            path_points = []
+                            for i in range(len(x_points)):
+                                path_points.append({
+                                    'x_m': x_points[i],
+                                    'y_m': y_points[i],
+                                    'z_m': z_points[i],
+                                    'rho_m': np.sqrt(x_points[i]**2 + y_points[i]**2),
+                                    'phi_rad': np.arctan2(y_points[i], x_points[i]),
+                                    'alpha_deg': winding_angles[i] if i < len(winding_angles) else 45.0,
+                                    'arc_length_m': i * 0.01  # Simple approximation
+                                })
+                            st.write(f"✅ Converted {len(path_points)} coordinate points to visualization format")
                     
                     if path_points:
                         coverage_data = {
