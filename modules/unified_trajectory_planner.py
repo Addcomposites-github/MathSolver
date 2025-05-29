@@ -365,13 +365,19 @@ class UnifiedTrajectoryPlanner:
                 # Simple helical progression - use z_min_m as reference instead of start_z
                 phi = start_phi_rad + (z - z_min_m) * np.tan(np.radians(target_angle_deg)) / vessel_radius_m
                 
+                # Convert cylindrical to Cartesian coordinates for correct TrajectoryPoint format
+                x = vessel_radius_m * np.cos(phi)
+                y = vessel_radius_m * np.sin(phi)
+                
                 point = TrajectoryPoint(
-                    rho=vessel_radius_m,
-                    z=z,
-                    phi=phi,
-                    s_path=i * (cylinder_length / num_points),
-                    alpha_deg=target_angle_deg,
-                    local_curvature=0.0
+                    position=np.array([x, y, z]),
+                    winding_angle_deg=target_angle_deg,
+                    surface_coords={
+                        'rho': vessel_radius_m,
+                        'z_cyl': z,
+                        'phi_cyl': phi,
+                        's_meridian': i * ((z_max_m - z_min_m) / num_points)
+                    }
                 )
                 circuit_points.append(point)
                 

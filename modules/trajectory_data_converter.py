@@ -37,7 +37,7 @@ class TrajectoryDataConverter:
         # Strategy 1: Handle UnifiedTrajectoryPlanner output with TrajectoryResult
         if 'points' in trajectory_data and trajectory_data['points']:
             sample_point = trajectory_data['points'][0]
-            if hasattr(sample_point, 'rho'):
+            if hasattr(sample_point, 'position') or hasattr(sample_point, 'rho'):
                 converted_data = self._convert_from_trajectory_points(trajectory_data)
             
         # Strategy 2: Handle coordinate arrays (x_points_m, y_points_m, z_points_m)
@@ -86,30 +86,44 @@ class TrajectoryDataConverter:
             
             st.write(f"   🔄 Converting {len(points)} TrajectoryPoint objects")
             
-            # Extract cylindrical coordinates from TrajectoryPoint objects
-            rho_values = []
+            # Extract coordinates from TrajectoryPoint objects (new format with position arrays)
+            x_values = []
+            y_values = []
             z_values = []
-            phi_values = []
             alpha_values = []
             
             for point in points:
-                if hasattr(point, 'rho') and hasattr(point, 'z') and hasattr(point, 'phi'):
-                    rho_values.append(point.rho)
+                # Handle new format with position array
+                if hasattr(point, 'position') and hasattr(point, 'winding_angle_deg'):
+                    position = point.position
+                    if len(position) >= 3:
+                        x_values.append(position[0])
+                        y_values.append(position[1])
+                        z_values.append(position[2])
+                        alpha_values.append(point.winding_angle_deg)
+                    else:
+                        st.warning(f"Position array incomplete: {position}")
+                        continue
+                # Handle old format with rho, z, phi
+                elif hasattr(point, 'rho') and hasattr(point, 'z') and hasattr(point, 'phi'):
+                    x = point.rho * np.cos(point.phi)
+                    y = point.rho * np.sin(point.phi)
+                    x_values.append(x)
+                    y_values.append(y)
                     z_values.append(point.z)
-                    phi_values.append(point.phi)
                     alpha_values.append(getattr(point, 'alpha_deg', 45.0))
                 else:
-                    st.warning(f"Point missing required attributes: {dir(point)}")
+                    st.warning(f"Point missing required attributes. Available: {[attr for attr in dir(point) if not attr.startswith('_')]}")
                     continue
             
-            if not rho_values:
+            if not x_values:
                 st.error("No valid trajectory points found")
                 return None
             
-            # Convert cylindrical to Cartesian coordinates
-            x_points, y_points, z_points = self._cylindrical_to_cartesian(
-                np.array(rho_values), np.array(z_values), np.array(phi_values)
-            )
+            # Use already extracted Cartesian coordinates
+            x_points = np.array(x_values)
+            y_points = np.array(y_values)
+            z_points = np.array(z_values)
             
             # Create path_points format
             path_points = []
