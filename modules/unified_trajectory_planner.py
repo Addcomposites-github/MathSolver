@@ -101,7 +101,9 @@ class UnifiedTrajectoryPlanner:
         # Simplified estimation based on pattern type
         if pattern_type == 'helical':
             # For helical, advancement depends on winding angle and geometry
-            winding_angle = params.get('winding_angle_deg', 30.0)
+            winding_angle = params.get('winding_angle_deg')
+            if winding_angle is None:
+                raise ValueError("winding_angle_deg is required for helical patterns")
             # Simple estimate: steeper angles = more advancement
             return np.radians(10 + winding_angle * 0.5)
         elif pattern_type == 'geodesic':

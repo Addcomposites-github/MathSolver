@@ -6,8 +6,9 @@ Fixes the "Pattern calculation failed" issue in unified trajectory planner
 import numpy as np
 import math
 from typing import Dict, Optional, Tuple, Any, List
+from .unified_pattern_calculator import PatternCalculator
 
-class RobustPatternCalculator:
+class RobustPatternCalculator(PatternCalculator):
     """
     Enhanced pattern calculator with comprehensive error handling and validation
     """
