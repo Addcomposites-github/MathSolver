@@ -2028,12 +2028,25 @@ def trajectory_planning_page():
         
         # Comprehensive diagnostic option
         st.markdown("---")
-        if st.button("🔬 Run Comprehensive Diagnostic"):
-            try:
-                from modules.comprehensive_trajectory_diagnostic import run_comprehensive_diagnostic
-                run_comprehensive_diagnostic()
-            except ImportError:
-                st.error("Comprehensive diagnostic module not available")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔬 Run Comprehensive Diagnostic"):
+                try:
+                    from modules.comprehensive_trajectory_diagnostic import run_comprehensive_diagnostic
+                    run_comprehensive_diagnostic()
+                except ImportError:
+                    st.error("Comprehensive diagnostic module not available")
+        
+        with col2:
+            if st.button("⚡ Quick Reality Check"):
+                from modules.geodesic_validation_tests import quick_geodesic_reality_check
+                quick_geodesic_reality_check()
+        
+        with col3:
+            if st.button("🎯 Test 45° Case"):
+                from modules.focused_45_degree_debug import test_45_degree_case_now
+                test_45_degree_case_now()
     
     # Check if layer stack is defined for integrated planning
     if 'layer_stack_manager' in st.session_state and st.session_state.layer_stack_manager.layer_stack:
