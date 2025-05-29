@@ -730,6 +730,9 @@ def layer_stack_definition_page():
                         'mandrel_geometry': mandrel_geom
                     }
 
+    # Add the Advanced 3D Full Coverage Visualization section
+    add_full_coverage_visualization_section(manager)
+
 def add_full_coverage_visualization_section(manager):
     """Add comprehensive 3D visualization section to layer stack page"""
     
