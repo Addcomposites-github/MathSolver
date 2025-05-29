@@ -191,52 +191,54 @@ class AdvancedFullCoverageGenerator:
             z_points = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], num_points)
             r_points = np.interp(z_points, z_profile_sorted, r_profile_sorted)
             
-            # Create proper dome trajectory coverage
+            # Generate authentic multi-pass pole-to-pole filament winding trajectory
             angle = self.layer_config['winding_angle']
             
-            # Calculate dome regions for proper trajectory generation
-            z_min, z_max = z_profile_sorted[0], z_profile_sorted[-1]
-            vessel_length = z_max - z_min
-            cylinder_start = z_min + vessel_length * 0.3  # Approximate cylinder start
-            cylinder_end = z_max - vessel_length * 0.3    # Approximate cylinder end
+            # Calculate number of pole-to-pole passes for this circuit
+            if angle >= 85:  # Near-hoop patterns
+                num_passes = 8   # More passes for hoop patterns
+            elif angle >= 60:  # High angle helical
+                num_passes = 6   # Medium passes
+            else:  # Low angle helical
+                num_passes = 4   # Fewer passes but still multiple
             
-            # Separate into dome and cylinder regions
-            aft_dome_mask = z_points <= cylinder_start
-            cylinder_mask = (z_points > cylinder_start) & (z_points < cylinder_end)
-            forward_dome_mask = z_points >= cylinder_end
+            # Generate points for complete pole-to-pole winding cycles
+            total_trajectory_points = num_passes * 200  # ~200 points per pass
             
-            # Generate trajectory points with proper dome coverage
-            phi_points = np.zeros(num_points)
+            z_full = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], total_trajectory_points)
+            r_full = np.interp(z_full, z_profile_sorted, r_profile_sorted)
             
-            # Aft dome: geodesic paths
-            if np.any(aft_dome_mask):
-                aft_indices = np.where(aft_dome_mask)[0]
-                phi_range_aft = math.pi if angle < 60 else 2 * math.pi
-                phi_points[aft_indices] = np.linspace(start_phi, start_phi + phi_range_aft, len(aft_indices))
+            # Create back-and-forth pole-to-pole motion
+            phi_points = np.zeros(total_trajectory_points)
+            current_phi = start_phi
             
-            # Cylinder: helical pattern
-            if np.any(cylinder_mask):
-                cyl_indices = np.where(cylinder_mask)[0]
-                if angle >= 85:  # Near-hoop
-                    phi_range_cyl = 6 * math.pi  # Multiple wraps
-                else:  # Helical
-                    phi_range_cyl = 2 * math.pi * (90 - angle) / 45  # More wraps for lower angles
+            points_per_pass = total_trajectory_points // num_passes
+            for pass_num in range(num_passes):
+                start_idx = pass_num * points_per_pass
+                end_idx = start_idx + points_per_pass if pass_num < num_passes - 1 else total_trajectory_points
                 
-                if len(cyl_indices) > 0:
-                    start_phi_cyl = phi_points[aft_indices[-1]] if len(aft_indices) > 0 else start_phi
-                    phi_points[cyl_indices] = np.linspace(start_phi_cyl, start_phi_cyl + phi_range_cyl, len(cyl_indices))
+                # Alternate direction for each pass (forward/backward)
+                if pass_num % 2 == 0:  # Forward pass (aft to forward)
+                    z_pass = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], end_idx - start_idx)
+                    phi_increment = 2 * math.pi * math.sin(math.radians(angle)) / (end_idx - start_idx)
+                else:  # Backward pass (forward to aft)
+                    z_pass = np.linspace(z_profile_sorted[-1], z_profile_sorted[0], end_idx - start_idx)
+                    phi_increment = -2 * math.pi * math.sin(math.radians(angle)) / (end_idx - start_idx)
+                
+                # Update z coordinates for this pass
+                z_full[start_idx:end_idx] = z_pass
+                r_full[start_idx:end_idx] = np.interp(z_pass, z_profile_sorted, r_profile_sorted)
+                
+                # Calculate phi progression for this pass
+                for i in range(end_idx - start_idx):
+                    phi_points[start_idx + i] = current_phi + i * phi_increment
+                
+                current_phi = phi_points[end_idx - 1]
             
-            # Forward dome: geodesic paths
-            if np.any(forward_dome_mask):
-                fwd_indices = np.where(forward_dome_mask)[0]
-                phi_range_fwd = math.pi if angle < 60 else 2 * math.pi
-                if len(cyl_indices) > 0:
-                    start_phi_fwd = phi_points[cyl_indices[-1]]
-                elif len(aft_indices) > 0:
-                    start_phi_fwd = phi_points[aft_indices[-1]]
-                else:
-                    start_phi_fwd = start_phi
-                phi_points[fwd_indices] = np.linspace(start_phi_fwd, start_phi_fwd + phi_range_fwd, len(fwd_indices))
+            # Update arrays with multi-pass trajectory
+            z_points = z_full
+            r_points = r_full
+            num_points = len(z_points)
             
             circuit_points = []
             
