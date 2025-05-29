@@ -1290,11 +1290,38 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
                         break
             
             if planned_trajectories:
-                # Convert existing planned trajectory to visualization format
+                # Debug: Show what trajectory data we actually have
+                st.write("🔍 **Debug - Found Trajectory Data:**")
                 trajectory_data = planned_trajectories.get('trajectory_data', {})
+                st.write(f"   - Keys in trajectory_data: {list(trajectory_data.keys()) if trajectory_data else 'None'}")
                 
                 # Extract trajectory points and convert to circuits format for visualization
                 path_points = trajectory_data.get('path_points', [])
+                st.write(f"   - Path points found: {len(path_points)}")
+                
+                # If no path_points, check for alternative data formats
+                if not path_points and trajectory_data:
+                    # Check for unified system format
+                    if 'x_points_m' in trajectory_data and 'y_points_m' in trajectory_data and 'z_points_m' in trajectory_data:
+                        st.write("   - Found unified format coordinates, converting...")
+                        x_points = trajectory_data['x_points_m']
+                        y_points = trajectory_data['y_points_m'] 
+                        z_points = trajectory_data['z_points_m']
+                        winding_angles = trajectory_data.get('winding_angles_deg', [45.0] * len(x_points))
+                        
+                        # Convert to path_points format
+                        path_points = []
+                        for i in range(len(x_points)):
+                            path_points.append({
+                                'x_m': x_points[i],
+                                'y_m': y_points[i],
+                                'z_m': z_points[i],
+                                'rho_m': np.sqrt(x_points[i]**2 + y_points[i]**2),
+                                'phi_rad': np.arctan2(y_points[i], x_points[i]),
+                                'alpha_deg': winding_angles[i],
+                                'arc_length_m': i * 0.01  # Simple approximation
+                            })
+                        st.write(f"   - Converted {len(path_points)} points to path_points format")
                 
                 if path_points:
                     # Convert single trajectory to circuits format expected by visualization
