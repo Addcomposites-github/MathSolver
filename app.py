@@ -2025,6 +2025,15 @@ def trajectory_planning_page():
             else:
                 st.error(f"❌ Critical issues found ({checks_passed}/{total_checks})")
                 st.info("Fix the failed checks above before proceeding")
+        
+        # Comprehensive diagnostic option
+        st.markdown("---")
+        if st.button("🔬 Run Comprehensive Diagnostic"):
+            try:
+                from modules.comprehensive_trajectory_diagnostic import run_comprehensive_diagnostic
+                run_comprehensive_diagnostic()
+            except ImportError:
+                st.error("Comprehensive diagnostic module not available")
     
     # Check if layer stack is defined for integrated planning
     if 'layer_stack_manager' in st.session_state and st.session_state.layer_stack_manager.layer_stack:
