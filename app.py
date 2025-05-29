@@ -858,6 +858,18 @@ def layer_stack_definition_page():
         layer_config = create_advanced_layer_definition_ui()
         
         if st.button("➕ Add Advanced Layer to Stack", type="primary"):
+            # Validate algorithm combination before adding
+            is_valid_combo = validate_algorithm_combination(
+                layer_config['layer_type'],
+                layer_config['physics_model'],
+                layer_config['winding_angle']
+            )
+            
+            if not is_valid_combo:
+                st.error(f"❌ Cannot add layer: {layer_config['layer_type']} + {layer_config['physics_model']} is not supported")
+                st.info("💡 Supported combinations: helical+constant_angle, geodesic+clairaut, hoop+constant_angle")
+                return layer_config
+            
             new_layer = manager.add_layer(
                 layer_type=layer_config['layer_type'],
                 fiber_material=layer_config['fiber_material'],
@@ -879,9 +891,63 @@ def layer_stack_definition_page():
     if stack_summary['layer_details']:
         st.subheader("📋 Current Layer Stack")
         
-        # Create layer stack table
+        # Create layer stack table with action buttons
         layer_df = pd.DataFrame(stack_summary['layer_details'])
-        st.dataframe(layer_df, use_container_width=True)
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.dataframe(layer_df, use_container_width=True)
+        
+        with col2:
+            st.markdown("**Actions**")
+            
+            # Layer deletion section
+            if len(stack_summary['layer_details']) > 0:
+                layer_options = [f"Layer {layer['id']}: {layer['type']} ({layer['angle']}°)" 
+                               for layer in stack_summary['layer_details']]
+                
+                selected_layer_text = st.selectbox(
+                    "Select layer to delete:",
+                    layer_options,
+                    key="delete_layer_select"
+                )
+                
+                if st.button("🗑️ Delete Layer", type="secondary", key="delete_layer_btn"):
+                    # Extract layer ID from selection
+                    layer_id = int(selected_layer_text.split(":")[0].split()[-1])
+                    
+                    # Find layer index
+                    layer_index = None
+                    for idx, layer in enumerate(manager.layer_stack):
+                        if layer.layer_set_id == layer_id:
+                            layer_index = idx
+                            break
+                    
+                    if layer_index is not None:
+                        # Remove the layer
+                        removed_layer = manager.layer_stack.pop(layer_index)
+                        
+                        # Renumber remaining layers
+                        for i, layer in enumerate(manager.layer_stack):
+                            layer.layer_set_id = i + 1
+                        
+                        # Reset mandrel if needed (if layer was applied)
+                        if layer_index < len(manager.mandrel.layers_applied):
+                            st.warning("Layer was applied to mandrel - mandrel will be reset to base geometry")
+                            manager.mandrel.reset_to_base_geometry()
+                        
+                        st.success(f"Deleted layer: {removed_layer.layer_type} at {removed_layer.winding_angle_deg}°")
+                        st.rerun()
+                    else:
+                        st.error("Could not find layer to delete")
+            
+            # Clear all layers option
+            if len(stack_summary['layer_details']) > 1:
+                if st.button("🗑️ Clear All Layers", type="secondary", key="clear_all_btn"):
+                    manager.layer_stack.clear()
+                    manager.mandrel.reset_to_base_geometry()
+                    st.success("Cleared all layers from stack")
+                    st.rerun()
         
         # Apply layers to mandrel section
         st.subheader("🔄 Apply Layers to Mandrel")

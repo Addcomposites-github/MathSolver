@@ -122,6 +122,13 @@ class MandrelGeometry:
             print(f"Error applying layer buildup: {e}")
             return False
     
+    def reset_to_base_geometry(self):
+        """Reset mandrel to initial geometry, removing all applied layers."""
+        self.current_profile = self.initial_profile.copy()
+        self.layers_applied = []
+        self.total_buildup_mm = np.zeros_like(self.initial_profile['r_inner_mm'])
+        print("Mandrel reset to base geometry")
+    
     def _calculate_layer_thickness_distribution(self, layer: LayerDefinition) -> np.ndarray:
         """
         Calculate thickness distribution for a layer using Koussios theory.
