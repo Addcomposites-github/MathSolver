@@ -912,17 +912,16 @@ def layer_stack_definition_page():
         layer_config = create_advanced_layer_definition_ui()
         
         if st.button("➕ Add Advanced Layer to Stack", type="primary"):
-            # Validate algorithm combination before adding
-            is_valid_combo = validate_algorithm_combination(
-                layer_config['layer_type'],
-                layer_config['physics_model'],
-                layer_config['winding_angle']
-            )
+            # Use the new intelligent guidance for validation
+            guidance = get_winding_guidance(layer_config['winding_angle'])
+            selected_physics = layer_config['physics_model']
+            recommended_physics = guidance['recommended_physics_model']
             
-            if not is_valid_combo:
-                st.error(f"❌ Cannot add layer: {layer_config['layer_type']} + {layer_config['physics_model']} is not supported")
-                st.info("💡 Supported combinations: helical+constant_angle, geodesic+clairaut, hoop+constant_angle")
-                return layer_config
+            # Allow the layer to be added - just warn if not optimal
+            if selected_physics != recommended_physics:
+                st.warning(f"⚠️ Added layer with override: using {selected_physics} instead of recommended {recommended_physics}")
+            
+            # No hard blocking - let the user proceed with their choice
             
             new_layer = manager.add_layer(
                 layer_type=layer_config['layer_type'],
