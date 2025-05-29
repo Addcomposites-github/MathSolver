@@ -126,11 +126,13 @@ class ContinuityManager:
         pt1_end = segment1_end_points[-1]
         pt2_start = segment2_start_points[0]
 
-        report = ContinuityReport()
+        # C0 Continuity (Position) - calculate gap first
+        c0_gap_vector_m = pt2_start.position - pt1_end.position
+        c0_gap_m = float(np.linalg.norm(c0_gap_vector_m))
 
-        # C0 Continuity (Position)
-        report.c0_gap_vector_m = pt2_start.position - pt1_end.position
-        report.c0_gap_m = float(np.linalg.norm(report.c0_gap_vector_m))
+        # Create report with required parameter
+        report = ContinuityReport(c0_gap_m=c0_gap_m)
+        report.c0_gap_vector_m = c0_gap_vector_m
         
         if report.c0_gap_m > self.c0_threshold_m:
             report.notes.append(f"C0 Fail: Position gap {report.c0_gap_m*1000:.2f}mm > threshold {self.c0_threshold_m*1000:.2f}mm.")
