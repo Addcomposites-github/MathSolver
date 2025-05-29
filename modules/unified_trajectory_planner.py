@@ -347,13 +347,23 @@ class UnifiedTrajectoryPlanner:
         try:
             # Simple helical path as fallback
             vessel_radius_m = self._get_vessel_radius()
-            cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000
             
-            z_values = np.linspace(start_z, start_z + cylinder_length, num_points)
+            # Get full vessel profile for proper Z-coordinate range
+            profile = self.vessel_geometry.get_profile_points()
+            if profile and 'z_mm' in profile:
+                z_min_m = min(profile['z_mm']) / 1000  # Convert mm to m
+                z_max_m = max(profile['z_mm']) / 1000
+            else:
+                # Fallback to centered vessel calculation
+                cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000
+                z_min_m = -cylinder_length / 2
+                z_max_m = cylinder_length / 2
+            
+            z_values = np.linspace(z_min_m, z_max_m, num_points)
             
             for i, z in enumerate(z_values):
-                # Simple helical progression
-                phi = start_phi_rad + (z - start_z) * np.tan(np.radians(target_angle_deg)) / vessel_radius_m
+                # Simple helical progression - use z_min_m as reference instead of start_z
+                phi = start_phi_rad + (z - z_min_m) * np.tan(np.radians(target_angle_deg)) / vessel_radius_m
                 
                 point = TrajectoryPoint(
                     rho=vessel_radius_m,
