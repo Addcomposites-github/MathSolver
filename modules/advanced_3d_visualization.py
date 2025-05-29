@@ -52,19 +52,37 @@ class Advanced3DVisualizer:
         return fig
     
     def _add_advanced_mandrel_surface(self, fig, vessel_geometry, quality_settings):
-        """Add properly shaped mandrel surface with accurate dome geometry"""
+        """Add mandrel surface with vessel center at origin (0,0,0)"""
         try:
-            # Get vessel parameters
-            inner_radius = vessel_geometry.inner_diameter / 2000  # Convert mm to m
-            cyl_length = vessel_geometry.cylindrical_length / 1000  # Convert mm to m
+            # Get vessel profile points (these should already be centered)
+            profile = vessel_geometry.get_profile_points()
+            if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile:
+                st.warning("Using fallback mandrel - vessel profile not available")
+                self._add_centered_mandrel_fallback(fig, vessel_geometry)
+                return
             
-            # Get dome type and parameters
-            dome_type = getattr(vessel_geometry, 'dome_type', 'Hemispherical')
+            # Convert profile data to arrays and meters
+            z_profile_mm = np.array(profile['z_mm'])
+            r_profile_mm = np.array(profile['r_inner_mm'])
             
-            # Create comprehensive vessel profile including domes
-            z_profile, r_profile = self._generate_complete_vessel_profile(
-                inner_radius, cyl_length, dome_type, vessel_geometry
-            )
+            # Convert to meters for visualization
+            z_profile_m = z_profile_mm / 1000.0
+            r_profile_m = r_profile_mm / 1000.0
+            
+            # Verify coordinate system
+            z_min, z_max = np.min(z_profile_m), np.max(z_profile_m)
+            z_center = (z_min + z_max) / 2
+            
+            # If the vessel isn't centered, adjust it
+            if abs(z_center) > 0.01:  # More than 1cm off center
+                st.warning(f"Vessel not centered - adjusting by {-z_center:.3f}m")
+                z_profile_m = z_profile_m - z_center
+                z_min, z_max = np.min(z_profile_m), np.max(z_profile_m)
+            
+            # Sort profile for proper interpolation
+            sort_indices = np.argsort(z_profile_m)
+            z_sorted = z_profile_m[sort_indices]
+            r_sorted = r_profile_m[sort_indices]
             
             # Create high-resolution surface mesh
             resolution = quality_settings.get('mandrel_resolution', 100)
@@ -73,15 +91,15 @@ class Advanced3DVisualizer:
             # Generate circumferential coordinates
             theta = np.linspace(0, 2*np.pi, surface_segments)
             
-            # Create meshgrid for surface
-            Z_mesh, Theta_mesh = np.meshgrid(z_profile, theta)
+            # Create smooth profile interpolation
+            z_smooth = np.linspace(z_sorted[0], z_sorted[-1], resolution)
+            r_smooth = np.interp(z_smooth, z_sorted, r_sorted)
             
-            # Create radius mesh by interpolating profile for each z-position
-            R_mesh = np.zeros_like(Z_mesh)
-            for i, theta_val in enumerate(theta):
-                R_mesh[i, :] = r_profile  # Each angular slice follows the radius profile
+            # Create surface mesh
+            Z_mesh, Theta_mesh = np.meshgrid(z_smooth, theta)
+            R_mesh = np.tile(r_smooth, (surface_segments, 1))
             
-            # Convert to Cartesian coordinates for proper 3D surface
+            # Convert to Cartesian coordinates
             X_mesh = R_mesh * np.cos(Theta_mesh)
             Y_mesh = R_mesh * np.sin(Theta_mesh)
             
@@ -223,22 +241,66 @@ class Advanced3DVisualizer:
         
         return r_profile
     
-    def _add_simple_mandrel_fallback(self, fig, vessel_geometry):
-        """Add simple mandrel representation as fallback"""
+    def _add_coordinate_reference(self, fig, z_min, z_max, max_radius):
+        """Add coordinate system reference markers"""
         try:
-            # Create simple cylindrical representation
-            radius = vessel_geometry.inner_diameter / 2000  # Convert to meters
-            length = vessel_geometry.cylindrical_length / 1000
+            # Add origin marker
+            fig.add_trace(go.Scatter3d(
+                x=[0], y=[0], z=[0],
+                mode='markers',
+                marker=dict(size=8, color='black', symbol='cross'),
+                name='Origin (0,0,0)',
+                hovertemplate='Origin (0,0,0)<extra></extra>'
+            ))
             
-            # Create cylinder
+            # Add Z-axis line
+            fig.add_trace(go.Scatter3d(
+                x=[0, 0], y=[0, 0], z=[z_min, z_max],
+                mode='lines',
+                line=dict(color='black', width=2, dash='dash'),
+                name='Z-Axis',
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+        except Exception:
+            pass  # Skip reference if it fails
+    
+    def _add_centered_mandrel_fallback(self, fig, vessel_geometry):
+        """Add simple centered mandrel as fallback"""
+        try:
+            # Get vessel parameters
+            inner_radius = vessel_geometry.inner_diameter / 2000  # Convert to meters
+            cyl_length = vessel_geometry.cylindrical_length / 1000  # Convert to meters
+            
+            # Calculate dome height
+            dome_height = inner_radius * 0.8  # Default dome height
+            
+            # CENTER THE VESSEL AT ORIGIN
+            # Cylinder section centered around Z=0
+            z_cyl_half = cyl_length / 2.0
+            z_cyl_start = -z_cyl_half
+            z_cyl_end = +z_cyl_half
+            
+            # Aft dome: extends backward from cylinder
+            z_aft_start = z_cyl_start - dome_height
+            z_aft_end = z_cyl_start
+            
+            # Forward dome: extends forward from cylinder
+            z_fwd_start = z_cyl_end
+            z_fwd_end = z_cyl_end + dome_height
+            
+            # Create circumferential coordinates
             theta = np.linspace(0, 2*np.pi, 32)
-            z = np.linspace(0, length, 20)
-            Theta, Z = np.meshgrid(theta, z)
-            X = radius * np.cos(Theta)
-            Y = radius * np.sin(Theta)
             
+            # Cylinder section
+            z_cyl = np.linspace(z_cyl_start, z_cyl_end, 20)
+            Theta_cyl, Z_cyl = np.meshgrid(theta, z_cyl)
+            X_cyl = inner_radius * np.cos(Theta_cyl)
+            Y_cyl = inner_radius * np.sin(Theta_cyl)
+            
+            # Add cylinder surface
             fig.add_trace(go.Surface(
-                x=X, y=Y, z=Z,
+                x=X_cyl, y=Y_cyl, z=Z_cyl,
                 colorscale='Greys',
                 opacity=0.3,
                 showscale=False,
