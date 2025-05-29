@@ -97,6 +97,15 @@ class MultiLayerTrajectoryOrchestrator:
         progress_bar.progress(1.0)
         status_text.text("✅ All layer trajectories generated!")
         
+        # Store trajectories in the correct session state for visualization
+        import streamlit as st
+        st.session_state.all_layer_trajectories = all_trajectories
+        
+        # Debug: Show what we're storing
+        print(f"DEBUG: Stored {len(all_trajectories)} trajectories in session state")
+        for i, traj in enumerate(all_trajectories):
+            print(f"DEBUG: Trajectory {i+1} - Layer ID: {traj['layer_id']}, Path points: {len(traj['trajectory_data'].get('path_points', []))}")
+        
         self.generated_trajectories = all_trajectories
         return all_trajectories
     
