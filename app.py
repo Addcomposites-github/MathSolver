@@ -2115,16 +2115,43 @@ def layer_by_layer_planning(layer_manager):
     
     st.dataframe(layer_data, use_container_width=True, hide_index=True)
     
-    if st.button("🚀 Generate All Layer Trajectories", type="primary"):
-        from modules.multi_layer_trajectory_orchestrator import MultiLayerTrajectoryOrchestrator
-        orchestrator = MultiLayerTrajectoryOrchestrator(layer_manager)
-        all_trajectories = orchestrator.generate_all_layer_trajectories(roving_width, roving_thickness)
+    # Add validation and fix buttons
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔍 Validate System", type="secondary"):
+            from modules.error_recovery_system import validate_before_trajectory_generation, quick_fix_pattern_calculation
+            
+            valid, checks = validate_before_trajectory_generation()
+            if valid:
+                st.success("System validation passed - ready for trajectory generation")
+            else:
+                st.warning("System validation found issues")
+                for check in checks:
+                    if "OK" in check:
+                        st.success(f"✅ {check}")
+                    else:
+                        st.error(f"❌ {check}")
+    
+    with col_btn2:
+        if st.button("🔧 Quick Fix Issues", type="secondary"):
+            from modules.error_recovery_system import quick_fix_pattern_calculation
+            if quick_fix_pattern_calculation():
+                st.success("System is ready for trajectory generation")
+            else:
+                st.warning("Applied fixes - please validate system again")
+
+    if st.button("🚀 Generate All Layer Trajectories (Robust)", type="primary"):
+        from modules.error_recovery_system import trajectory_generation_with_fallbacks
+        
+        all_trajectories = trajectory_generation_with_fallbacks(
+            layer_manager, roving_width, roving_thickness
+        )
         
         if all_trajectories:
             st.session_state.all_layer_trajectories = all_trajectories
-            st.success(f"🎉 Successfully generated trajectories for {len(all_trajectories)} layers!")
+            st.success(f"Successfully generated trajectories for {len(all_trajectories)} layers!")
             
-            # Show summary table
+            # Show summary table with generation method
             trajectory_summary = []
             for traj in all_trajectories:
                 trajectory_summary.append({
@@ -2132,12 +2159,13 @@ def layer_by_layer_planning(layer_manager):
                     "Type": traj['layer_type'],
                     "Angle": f"{traj['winding_angle']}°",
                     "Points": traj['trajectory_data'].get('total_points', 0) if traj['trajectory_data'] else 0,
+                    "Method": traj['trajectory_data'].get('trajectory_type', 'unified'),
                     "Status": 'Generated' if traj['trajectory_data'] and traj['trajectory_data'].get('success') else 'Failed'
                 })
             
             st.dataframe(trajectory_summary, use_container_width=True, hide_index=True)
         else:
-            st.error("❌ Failed to generate trajectories. Please check layer definitions and try again.")
+            st.error("All trajectory generation methods failed. Check your configuration.")
 
     # Planning status and next steps
     if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:

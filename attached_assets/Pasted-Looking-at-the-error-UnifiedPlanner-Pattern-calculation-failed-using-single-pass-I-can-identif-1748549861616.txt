@@ -1,0 +1,123 @@
+Looking at the error "[UnifiedPlanner] Pattern calculation failed, using single pass", I can identify several potential issues and provide solutions:
+
+## Root Causes
+
+### 1. **Vessel Geometry Compatibility Issue**
+The pattern calculator expects `vessel_geometry.inner_diameter` but your vessel geometry object might not have this attribute or it's None/zero.
+
+### 2. **Mathematical Edge Cases**
+- Zero roving width
+- Zero vessel radius  
+- Invalid winding angles
+- Division by zero in angular calculations
+
+### 3. **Diophantine Equation Solving Failure**
+The pattern solver can't find integer solutions within its search range.
+
+## Quick Fix - Add Robust Error Handling## How to Fix the Issue
+
+### 1. **Replace the Pattern Calculator**
+
+Update your `UnifiedTrajectoryPlanner` to use the robust version:
+
+```python
+# In modules/unified_trajectory_planner.py, line ~68
+# Replace this:
+self.pattern_calc = PatternCalculator()
+
+# With this:
+self.pattern_calc = RobustPatternCalculator()
+```
+
+### 2. **Add Input Validation in the Trajectory Planner**### 3. **Add Debug Information**## Prevention Strategies
+
+### 1. **Always Validate Before Trajectory Generation**
+
+Add this check to your trajectory planning workflow:
+
+```python
+# Before calling generate_trajectory
+def validate_before_trajectory_generation():
+    checks = []
+    
+    # Check vessel geometry
+    if st.session_state.vessel_geometry is None:
+        checks.append("❌ No vessel geometry")
+    elif not hasattr(st.session_state.vessel_geometry, 'inner_diameter'):
+        checks.append("❌ Vessel geometry missing inner_diameter")
+    elif st.session_state.vessel_geometry.inner_diameter <= 0:
+        checks.append("❌ Invalid vessel diameter")
+    else:
+        checks.append("✅ Vessel geometry OK")
+    
+    # Check layer stack
+    if 'layer_stack_manager' not in st.session_state:
+        checks.append("❌ No layer stack manager")
+    elif not st.session_state.layer_stack_manager.layer_stack:
+        checks.append("❌ No layers defined")
+    else:
+        checks.append("✅ Layer stack OK")
+    
+    # Display results
+    for check in checks:
+        if "❌" in check:
+            st.error(check)
+        else:
+            st.success(check)
+    
+    return all("✅" in check for check in checks)
+```
+
+### 2. **Add Error Recovery**## Complete Solution Summary
+
+### **Root Cause Analysis:**
+1. **Vessel Geometry Issues**: Missing or invalid `inner_diameter` attribute
+2. **Parameter Validation**: Zero/invalid roving width, vessel radius, or winding angles  
+3. **Mathematical Edge Cases**: Division by zero in angular calculations
+4. **Diophantine Solver Failure**: No integer solutions found within search range
+
+### **Implementation Steps:**
+
+1. **Replace Pattern Calculator** (modules/unified_pattern_calculator.py):
+   ```python
+   # Use the RobustPatternCalculator from the first artifact
+   ```
+
+2. **Update Trajectory Planner** (modules/unified_trajectory_planner.py):
+   ```python
+   # Add input validation method from second artifact
+   ```
+
+3. **Add Debug Utilities** (modules/debug_utilities.py):
+   ```python
+   # Use debugging functions from third artifact
+   ```
+
+4. **Update App with Error Recovery** (app.py):
+   ```python
+   # Replace layer_by_layer_planning with robust version from fourth artifact
+   ```
+
+### **Immediate Quick Fix:**
+
+Add this to your trajectory planning page:
+
+```python
+# Add before trajectory generation
+if st.button("🔧 Quick Fix Pattern Issues"):
+    if quick_fix_pattern_calculation():
+        st.success("✅ System validated - ready for trajectory generation")
+    else:
+        st.error("❌ Issues found - check vessel geometry and layer definitions")
+```
+
+### **Prevention Checklist:**
+
+✅ **Always validate vessel geometry has `inner_diameter` > 0**  
+✅ **Check roving width is reasonable (1-10mm)**  
+✅ **Verify winding angles are 0° < angle < 90°**  
+✅ **Ensure layer stack is properly applied to mandrel**  
+✅ **Use error recovery with fallback strategies**  
+✅ **Add debug buttons for troubleshooting**  
+
+This comprehensive solution will eliminate the "Pattern calculation failed" error and provide robust trajectory generation with multiple fallback strategies.

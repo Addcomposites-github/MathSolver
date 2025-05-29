@@ -7,7 +7,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from .unified_trajectory_core import TrajectoryPoint, TrajectoryResult
 from .unified_physics_engine import PhysicsEngine
-from .unified_pattern_calculator import PatternCalculator
+from .robust_pattern_calculator import RobustPatternCalculator
 from .unified_continuity_manager import ContinuityManager, PathQualityReport
 from .unified_turnaround_planner import TurnaroundPlanner, MachineCoords
 
@@ -69,7 +69,7 @@ class UnifiedTrajectoryPlanner:
 
         # Initialize sub-components
         self.physics_engine = PhysicsEngine(vessel_meridian_points=meridian_points)
-        self.pattern_calc = PatternCalculator()
+        self.pattern_calc = RobustPatternCalculator()
         self.continuity_mgr = ContinuityManager()
         self.turnaround_planner = TurnaroundPlanner(payout_length_m=self.payout_length_m)
 
