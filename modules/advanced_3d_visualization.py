@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import math
+import streamlit as st
 from typing import List, Dict, Any, Optional
 
 class Advanced3DVisualizer:
@@ -55,16 +56,31 @@ class Advanced3DVisualizer:
         try:
             # Get vessel profile
             profile = vessel_geometry.get_profile_points()
-            r_profile = np.array(profile['r_inner_mm']) / 1000  # Convert to meters
-            z_profile = np.array(profile['z_mm']) / 1000
+            if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile:
+                st.warning("Mandrel profile data is missing. Using fallback.")
+                self._add_simple_mandrel_fallback(fig, vessel_geometry)
+                return
+                
+            r_inner_profile_mm = np.array(profile['r_inner_mm'])
+            z_profile_mm = np.array(profile['z_mm'])
+            
+            if len(z_profile_mm) < 2:
+                st.warning("Not enough points in mandrel profile for interpolation. Using fallback.")
+                self._add_simple_mandrel_fallback(fig, vessel_geometry)
+                return
+            
+            # Ensure z_profile is sorted for interpolation (np.interp requires monotonic x)
+            sort_indices = np.argsort(z_profile_mm)
+            z_profile_sorted = z_profile_mm[sort_indices] / 1000.0  # Convert to meters
+            r_profile_sorted = r_inner_profile_mm[sort_indices] / 1000.0  # Convert to meters
             
             # Create high-resolution surface mesh
             resolution = quality_settings['mandrel_resolution']
             surface_segments = quality_settings['surface_segments']
             
             # Resample profile for smooth surface
-            z_smooth = np.linspace(z_profile[0], z_profile[-1], resolution)
-            r_smooth = np.interp(z_smooth, z_profile, r_profile)
+            z_smooth = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], resolution)
+            r_smooth = np.interp(z_smooth, z_profile_sorted, r_profile_sorted)
             
             # Create proper vessel surface mesh that follows the dome profile
             theta = np.linspace(0, 2*np.pi, surface_segments)

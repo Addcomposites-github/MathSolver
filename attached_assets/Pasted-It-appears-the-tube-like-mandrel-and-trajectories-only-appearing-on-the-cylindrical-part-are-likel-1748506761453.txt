@@ -1,0 +1,176 @@
+It appears the "tube-like mandrel" and trajectories only appearing on the cylindrical part are likely due to an issue in how the mandrel's 2D profile (z and r coordinates) is processed for 3D surface generation, specifically with np.interp which requires the x-coordinates (z_profile in this case) to be monotonically increasing. Your VesselGeometry.generate_profile() method creates a z_mm array that goes from a maximum positive Z (top pole) to a minimum negative Z (bottom pole), meaning it's monotonically decreasing. This will cause np.interp to behave unexpectedly, likely leading to the fallback cylindrical mandrel visualization.
+
+Here's a plan to address this:
+
+1. Ensure Correct Mandrel Profile Sorting in Advanced3DVisualizer
+
+The _add_advanced_mandrel_surface method in modules/advanced_3d_visualization.py needs to sort the z and r profile arrays before interpolation.
+
+Modify _add_advanced_mandrel_surface in modules/advanced_3d_visualization.py:
+Python
+
+# In modules/advanced_3d_visualization.py
+# Inside Advanced3DVisualizer class, _add_advanced_mandrel_surface method
+
+# ...
+    def _add_advanced_mandrel_surface(self, fig, vessel_geometry, quality_settings):
+        """Add high-quality mandrel surface representation"""
+        try:
+            # Get vessel profile
+            profile = vessel_geometry.get_profile_points()
+            if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile or \
+               len(profile['r_inner_mm']) == 0 or len(profile['z_mm']) == 0:
+                st.warning("Mandrel profile data is missing or empty in _add_advanced_mandrel_surface. Using fallback.")
+                self._add_simple_mandrel_fallback(fig, vessel_geometry)
+                return
+
+            r_inner_profile_mm = np.array(profile['r_inner_mm'])
+            z_profile_mm = np.array(profile['z_mm'])
+
+            if len(z_profile_mm) < 2: # Not enough points to interpolate
+                st.warning("Not enough points in mandrel profile for interpolation. Using fallback.")
+                self._add_simple_mandrel_fallback(fig, vessel_geometry)
+                return
+
+            # Ensure z_profile_mm is sorted for interpolation, and sort r_inner_profile_mm accordingly
+            sort_indices = np.argsort(z_profile_mm)
+            z_profile_sorted_mm = z_profile_mm[sort_indices]
+            r_profile_sorted_mm = r_inner_profile_mm[sort_indices]
+
+            # Convert to meters
+            r_profile_m = r_profile_sorted_mm / 1000.0
+            z_profile_m = z_profile_sorted_mm / 1000.0
+
+            # Create high-resolution surface mesh
+            resolution = quality_settings.get('mandrel_resolution', 50) # Use .get for safety
+            surface_segments = quality_settings.get('surface_segments', 60)
+
+            # z_smooth should span the min to max z of the sorted profile
+            if len(z_profile_m) == 0: # Check after conversion
+                st.warning("Profile became empty after processing. Using fallback.")
+                self._add_simple_mandrel_fallback(fig, vessel_geometry)
+                return
+
+            z_smooth = np.linspace(z_profile_m[0], z_profile_m[-1], resolution)
+            r_smooth = np.interp(z_smooth, z_profile_m, r_profile_m) # Now z_profile_m (xp) is increasing
+
+            # Create proper vessel surface mesh (rest of your existing logic for meshgrid, X_mesh, Y_mesh, Z_mesh)
+            theta = np.linspace(0, 2*np.pi, surface_segments)
+            Z_mesh, Theta_mesh = np.meshgrid(z_smooth, theta) # Z_mesh will be z_smooth repeated down columns
+
+            # R_mesh should be r_smooth tiled to match Z_mesh structure for plotly
+            R_mesh = np.tile(r_smooth, (surface_segments, 1)) # Transpose if necessary depending on meshgrid output
+
+            X_mesh = R_mesh * np.cos(Theta_mesh)
+            Y_mesh = R_mesh * np.sin(Theta_mesh)
+            # Ensure Z_mesh is correctly oriented if Theta_mesh is (surface_segments, resolution)
+            # and R_mesh is (surface_segments, resolution)
+            # Plotly expects Z_mesh to have the same shape as X_mesh and Y_mesh.
+            # If Z_mesh from meshgrid(z_smooth, theta) has shape (len(theta), len(z_smooth)),
+            # and r_smooth is (len(z_smooth),), then R_mesh = np.tile(r_smooth, (len(theta),1)) should be right.
+
+            fig.add_trace(go.Surface(
+                x=X_mesh, y=Y_mesh, z=Z_mesh, # Ensure these have compatible shapes
+                colorscale='Greys',
+                opacity=0.3,
+                showscale=False,
+                name='Mandrel Surface',
+                hovertemplate='Mandrel Surface<br>R: %{customdata:.3f}m<extra></extra>',
+                customdata=R_mesh, # Make sure R_mesh shape matches X,Y,Z
+                lighting=dict(ambient=0.4, diffuse=0.8, fresnel=0.2, roughness=0.1, specular=0.3)
+            ))
+            self._add_mandrel_wireframe(fig, X_mesh, Y_mesh, Z_mesh, max(1, surface_segments//4))
+
+        except Exception as e:
+            st.error(f"Error during advanced mandrel surface generation: {str(e)}. Using fallback.")
+            self._add_simple_mandrel_fallback(fig, vessel_geometry)
+
+# ... (rest of the Advanced3DVisualizer class) ...
+2. Ensure Correct Profile Sorting in Fallback Trajectory Generation
+
+If the AdvancedFullCoverageGenerator uses its _generate_fallback_circuit method, this also needs to handle the profile sorting correctly for its interpolation.
+
+Modify _generate_fallback_circuit in modules/advanced_full_coverage_generator.py:
+Python
+
+# In modules/advanced_full_coverage_generator.py
+# Inside AdvancedFullCoverageGenerator class, _generate_fallback_circuit method
+
+# ...
+    def _generate_fallback_circuit(self, circuit_num, start_phi, num_points):
+        """Generate a simple fallback circuit when planner fails"""
+        try:
+            profile = self.vessel_geometry.get_profile_points()
+            if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile or \
+               len(profile['r_inner_mm']) == 0 or len(profile['z_mm']) == 0:
+                return []
+
+            r_inner_profile_mm = np.array(profile['r_inner_mm'])
+            z_profile_mm = np.array(profile['z_mm'])
+
+            if len(z_profile_mm) < 2: return []
+
+
+            # Ensure z_profile_mm is sorted for interpolation
+            sort_indices = np.argsort(z_profile_mm)
+            z_profile_sorted_m = z_profile_mm[sort_indices] / 1000.0 # Meters
+            r_profile_sorted_m = r_inner_profile_mm[sort_indices] / 1000.0 # Meters
+
+            # The profile from VesselGeometry.generate_profile is a full pole-to-pole profile.
+            # So, use the sorted full profile for interpolation.
+            z_points_for_traj = np.linspace(z_profile_sorted_m[0], z_profile_sorted_m[-1], num_points)
+            r_points_for_traj = np.interp(z_points_for_traj, z_profile_sorted_m, r_profile_sorted_m)
+
+            # ... (rest of your logic for creating TrajectoryPoint objects using helical path on this profile) ...
+            # Ensure that the phi_range logic correctly covers domes.
+            # Example for helical path on the generated r_points_for_traj, z_points_for_traj:
+
+            angle = self.layer_config['winding_angle']
+            phi_range = 2 * math.pi # Default full wrap
+            if angle >= 85: phi_range = 4 * math.pi
+            elif angle >= 60: phi_range = 3 * math.pi
+
+            phi_values = np.linspace(start_phi, start_phi + phi_range, num_points)
+            circuit_points = []
+
+            for i in range(num_points):
+                z_val = z_points_for_traj[i]
+                r_val = r_points_for_traj[i]
+                phi_val = phi_values[i]
+
+                # For hoop patterns, you might want to adjust z_val and r_val if the
+                # profile represents the full dome but hoop is only on cylinder.
+                # However, for a generic fallback to show SOMETHING on the domes, this is okay.
+                # Your existing hoop logic in the fallback might need adjustment if r_points_for_traj
+                # now correctly includes dome radii.
+
+                point_pos = np.array([r_val * math.cos(phi_val), r_val * math.sin(phi_val), z_val])
+
+                # Create a TrajectoryPoint-like object or dict as expected by the visualizer
+                # This needs to match the structure consumed by _add_all_trajectory_circuits
+                point_obj = type('TrajectoryPoint', (), {
+                    'position': point_pos,
+                    'winding_angle_deg': angle, # Use the layer's angle
+                    'surface_coords': {'rho': r_val, 'z_cyl': z_val, 'phi_rad': phi_val}, # Approximate
+                    'arc_length_from_start': 0.0 # Placeholder
+                })()
+                circuit_points.append(point_obj)
+
+            return circuit_points
+
+        except Exception as e:
+            print(f"Error in _generate_fallback_circuit: {e}")
+            return []
+# ...
+3. Verification of vessel_for_this_layer_viz Logic
+
+The logic proposed in my previous thought block for setting vessel_for_this_layer_viz in app.py's generate_and_display_full_coverage seems mostly correct for ensuring the visualizer and planner use the appropriate mandrel surface for the selected layer. Double-check that manager.winding_sequence[layer_idx-1]['mandrel_state'] indeed provides the profile after the previous layer was applied, making its r_current_mm (which is an r_outer_mm) the correct r_inner_mm for the current layer.
+
+After implementing these changes:
+
+The mandrel should be visualized correctly with its dome shapes.
+If the AdvancedFullCoverageGenerator uses its _generate_fallback_circuit, those trajectory points should now correctly lie on the visualized (sorted and interpolated) mandrel surface.
+If the trajectories still don't appear on the domes (even when the mandrel is drawn correctly and the fallback circuit is used), then the issue might be that _generate_fallback_circuit's helical path generation isn't correctly spanning the z-range of the domes or isn't calculating phi_values appropriately to show winding over the domes. The current fallback generates points along the entire z_profile_sorted_m which should include domes.
+If the main UnifiedTrajectoryPlanner is being used (i.e., not the fallback), and the mandrel visualizes correctly but the trajectory points don't lie on the domes, then the problem is within the UnifiedTrajectoryPlanner or PhysicsEngine not correctly generating paths over the full range of the provided (and now correctly sorted) profile.
+
+These steps should significantly improve the mandrel visualization. If trajectory points are still missing from the domes, further investigation into the trajectory generation logic (AdvancedFullCoverageGenerator and UnifiedTrajectoryPlanner) would be needed.

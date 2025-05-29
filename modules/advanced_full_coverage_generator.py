@@ -166,17 +166,23 @@ class AdvancedFullCoverageGenerator:
         try:
             # Create simple helical path using vessel geometry
             profile = self.vessel_geometry.get_profile_points()
-            r_profile = np.array(profile['r_inner_mm']) / 1000  # Convert to meters
-            z_profile = np.array(profile['z_mm']) / 1000
+            if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile:
+                return []
+                
+            r_inner_profile_mm = np.array(profile['r_inner_mm'])
+            z_profile_mm = np.array(profile['z_mm'])
             
-            # Generate points along the complete vessel profile (including both domes)
-            # Create symmetric profile for full vessel
-            z_full = np.concatenate([-z_profile[::-1], z_profile])  # Mirror for bottom dome
-            r_full = np.concatenate([r_profile[::-1], r_profile])   # Mirror radii
+            if len(z_profile_mm) < 2:
+                return []
             
-            # Generate points along the complete vessel profile
-            z_points = np.linspace(z_full[0], z_full[-1], num_points)
-            r_points = np.interp(z_points, z_full, r_full)
+            # Ensure z_profile is sorted for interpolation
+            sort_indices = np.argsort(z_profile_mm)
+            z_profile_sorted = z_profile_mm[sort_indices] / 1000.0  # Convert to meters
+            r_profile_sorted = r_inner_profile_mm[sort_indices] / 1000.0  # Convert to meters
+            
+            # Use the complete sorted profile for full vessel coverage
+            z_points = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], num_points)
+            r_points = np.interp(z_points, z_profile_sorted, r_profile_sorted)
             
             # Create helical trajectory with proper dome coverage
             angle = self.layer_config['winding_angle']
