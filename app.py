@@ -293,14 +293,14 @@ def visualization_page():
                         
                     else:
                         # Fallback to direct coordinate extraction  
-                        trajectory_data = selected_traj.get('trajectory_data', {})
-                        path_points = trajectory_data.get('path_points', [])
+                        fallback_trajectory_data = selected_traj.get('trajectory_data', {})
+                        path_points = fallback_trajectory_data.get('path_points', [])
                         
                         if not path_points:
-                            x_points = trajectory_data.get('x_points_m', [])
-                            y_points = trajectory_data.get('y_points_m', [])
-                            z_points = trajectory_data.get('z_points_m', [])
-                            winding_angles = trajectory_data.get('winding_angles_deg', [])
+                            x_points = fallback_trajectory_data.get('x_points_m', [])
+                            y_points = fallback_trajectory_data.get('y_points_m', [])
+                            z_points = fallback_trajectory_data.get('z_points_m', [])
+                            winding_angles = fallback_trajectory_data.get('winding_angles_deg', [])
                             
                             if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
                                 # Convert coordinate arrays to path_points format
@@ -318,8 +318,16 @@ def visualization_page():
                                 st.write(f"Using fallback coordinate extraction with {len(path_points)} points")
                             else:
                                 st.error("Unable to extract trajectory coordinate data")
+                                return
                     
                     if path_points:
+                        # Determine the coverage percentage from available data
+                        coverage_percentage = 85.0  # Default value
+                        if converted_data and converted_data.get('success'):
+                            coverage_percentage = converted_data.get('coverage_percentage', 85.0)
+                        elif 'trajectory_data' in selected_traj:
+                            coverage_percentage = selected_traj['trajectory_data'].get('coverage_percentage', 85.0)
+                        
                         coverage_data = {
                             'circuits': [path_points],
                             'circuit_metadata': [{
@@ -335,7 +343,7 @@ def visualization_page():
                                 'quality_score': 95.0
                             }],
                             'total_circuits': 1,
-                            'coverage_percentage': trajectory_data.get('coverage_percentage', 85.0),
+                            'coverage_percentage': coverage_percentage,
                             'pattern_info': {
                                 'actual_pattern_type': selected_traj['layer_type'],
                                 'winding_angle': selected_traj['winding_angle']
