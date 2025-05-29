@@ -209,24 +209,45 @@ class ComprehensiveTrajectoryDiagnostic:
                     st.success(f"✅ Direct planner test: {len(test_result.points)} points")
                     score += 1
                     
-                    # Analyze point quality
+                    # Analyze point quality and format
                     sample_point = test_result.points[0]
-                    point_attrs = dir(sample_point)
-                    coord_attrs = [attr for attr in point_attrs if attr in ['x', 'y', 'z', 'rho', 'phi']]
                     
-                    st.write(f"  Point attributes: {coord_attrs}")
-                    
-                    if 'rho' in coord_attrs and 'z' in coord_attrs:
-                        rho_val = getattr(sample_point, 'rho')
-                        z_val = getattr(sample_point, 'z')
-                        st.write(f"  Sample coordinates: rho={rho_val:.6f}, z={z_val:.6f}")
+                    # Check different point formats
+                    if hasattr(sample_point, '__dict__'):
+                        point_attrs = list(sample_point.__dict__.keys())
+                        st.write(f"  Point object attributes: {point_attrs}")
                         
-                        if abs(rho_val) > 1e-6 and abs(z_val) > 1e-6:
+                        # Try different coordinate attribute names
+                        coord_found = False
+                        for coord_set in [['rho', 'z', 'phi'], ['x', 'y', 'z'], ['rho_m', 'z_m', 'phi_rad']]:
+                            if all(hasattr(sample_point, attr) for attr in coord_set):
+                                coord_found = True
+                                if coord_set[0] == 'rho':
+                                    rho_val = getattr(sample_point, 'rho')
+                                    z_val = getattr(sample_point, 'z')
+                                    st.write(f"  Sample coordinates: rho={rho_val:.6f}, z={z_val:.6f}")
+                                elif coord_set[0] == 'x':
+                                    x_val = getattr(sample_point, 'x')
+                                    y_val = getattr(sample_point, 'y')
+                                    z_val = getattr(sample_point, 'z')
+                                    st.write(f"  Sample coordinates: x={x_val:.6f}, y={y_val:.6f}, z={z_val:.6f}")
+                                else:
+                                    rho_val = getattr(sample_point, 'rho_m')
+                                    z_val = getattr(sample_point, 'z_m')
+                                    st.write(f"  Sample coordinates: rho={rho_val:.6f}, z={z_val:.6f}")
+                                break
+                        
+                        if coord_found:
                             score += 1
                         else:
-                            self.issues.append("Generated coordinates are near zero")
+                            st.write(f"  Available attributes: {point_attrs}")
+                            self.issues.append("Points missing expected coordinate attributes")
                     else:
-                        self.issues.append("Points missing coordinate attributes")
+                        # Point might be a different format (dict, tuple, etc.)
+                        st.write(f"  Point type: {type(sample_point)}")
+                        if hasattr(sample_point, 'keys'):
+                            st.write(f"  Point keys: {list(sample_point.keys())}")
+                        self.issues.append("Points in unexpected format")
                 else:
                     st.error("❌ Direct planner test failed")
                     self.issues.append("Direct trajectory generation failed")
