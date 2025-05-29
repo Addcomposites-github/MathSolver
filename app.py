@@ -270,6 +270,27 @@ def visualization_page():
                                     'arc_length_m': i * 0.01  # Simple approximation
                                 })
                             st.success(f"Using planned trajectory with {len(path_points)} points")
+                            
+                            # Debug: Check coordinate ranges to verify this is unified planner data
+                            x_vals = [p['x_m'] for p in path_points]
+                            y_vals = [p['y_m'] for p in path_points]
+                            z_vals = [p['z_m'] for p in path_points]
+                            
+                            st.write(f"Trajectory coordinate ranges:")
+                            st.write(f"  X: {min(x_vals):.3f}m to {max(x_vals):.3f}m")
+                            st.write(f"  Y: {min(y_vals):.3f}m to {max(y_vals):.3f}m") 
+                            st.write(f"  Z: {min(z_vals):.3f}m to {max(z_vals):.3f}m")
+                            
+                            # Check if this matches vessel geometry
+                            vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+                            if vessel_profile:
+                                z_vessel = vessel_profile['z_mm'] / 1000.0  # Convert to meters
+                                st.write(f"Vessel Z range: {min(z_vessel):.3f}m to {max(z_vessel):.3f}m")
+                                
+                                # Check for coordinate system mismatch
+                                z_traj_range = max(z_vals) - min(z_vals)
+                                z_vessel_range = max(z_vessel) - min(z_vessel)
+                                st.write(f"Trajectory span: {z_traj_range:.3f}m, Vessel span: {z_vessel_range:.3f}m")
                         else:
                             st.error("Unable to find trajectory coordinate data")
                     
