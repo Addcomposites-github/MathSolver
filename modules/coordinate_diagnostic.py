@@ -78,9 +78,16 @@ def diagnose_coordinate_systems(vessel_geometry, trajectory_data):
                     
                     # Calculate radial coordinates for additional check
                     if traj_x_coords and traj_y_coords:
-                        traj_r_coords = [np.sqrt(x**2 + y**2) for x, y in zip(traj_x_coords, traj_y_coords)]
-                        traj_r_min = np.min(traj_r_coords)
-                        traj_r_max = np.max(traj_r_coords)
+                        traj_r_coords = []
+                        for x, y in zip(traj_x_coords, traj_y_coords):
+                            if not (np.isnan(x) or np.isnan(y)):
+                                traj_r_coords.append(np.sqrt(x**2 + y**2))
+                        
+                        if traj_r_coords:
+                            traj_r_min = np.min(traj_r_coords)
+                            traj_r_max = np.max(traj_r_coords)
+                        else:
+                            traj_r_min = traj_r_max = float('nan')
                         
                         vessel_r_m = vessel_r_mm / 1000.0
                         vessel_r_min = np.min(vessel_r_m)
@@ -88,13 +95,18 @@ def diagnose_coordinate_systems(vessel_geometry, trajectory_data):
                         
                         st.write(f"**Radial Check:**")
                         st.write(f"  - Vessel R: {vessel_r_min:.3f}m to {vessel_r_max:.3f}m")
-                        st.write(f"  - Trajectory R: {traj_r_min:.3f}m to {traj_r_max:.3f}m")
                         
-                        r_diff = abs((vessel_r_max + vessel_r_min)/2 - (traj_r_max + traj_r_min)/2)
-                        if r_diff < 0.01:
-                            st.success("✅ Radial coordinates match vessel")
+                        if not np.isnan(traj_r_min) and not np.isnan(traj_r_max):
+                            st.write(f"  - Trajectory R: {traj_r_min:.3f}m to {traj_r_max:.3f}m")
+                            
+                            r_diff = abs((vessel_r_max + vessel_r_min)/2 - (traj_r_max + traj_r_min)/2)
+                            if r_diff < 0.01:
+                                st.success("✅ Radial coordinates match vessel")
+                            else:
+                                st.warning(f"⚠️ Radial mismatch: {r_diff:.3f}m difference")
                         else:
-                            st.warning(f"⚠️ Radial mismatch: {r_diff:.3f}m difference")
+                            st.error("❌ Trajectory contains invalid radial coordinates (NaN values)")
+                            st.info("This suggests coordinate conversion issues in the trajectory data")
                 
                 else:
                     st.error("No Z coordinates found in trajectory data")
