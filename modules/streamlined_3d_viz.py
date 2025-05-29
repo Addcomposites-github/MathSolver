@@ -283,17 +283,29 @@ class StreamlinedCOPVVisualizer:
         Extract coordinates from trajectory data in various formats
         """
         try:
-            # Method 1: Direct coordinate arrays (meters)
+            # Debug: Show available keys
+            st.info(f"Debug: Available trajectory data keys: {list(trajectory_data.keys())}")
+            
+            # Method 1: Direct coordinate arrays (meters) - top level
             if all(key in trajectory_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
                 x_m = np.array(trajectory_data['x_points_m'])
                 y_m = np.array(trajectory_data['y_points_m'])
                 z_m = np.array(trajectory_data['z_points_m'])
-                
-                # Convert to millimeters for consistent display
+                st.success(f"✅ Found direct coordinates: {len(x_m)} points")
                 return x_m * self.unit_scale, y_m * self.unit_scale, z_m * self.unit_scale
             
-            # Method 2: Path points format
-            elif 'path_points' in trajectory_data and trajectory_data['path_points']:
+            # Method 2: Nested in trajectory_data field
+            if 'trajectory_data' in trajectory_data:
+                nested_data = trajectory_data['trajectory_data']
+                if all(key in nested_data for key in ['x_points_m', 'y_points_m', 'z_points_m']):
+                    x_m = np.array(nested_data['x_points_m'])
+                    y_m = np.array(nested_data['y_points_m'])
+                    z_m = np.array(nested_data['z_points_m'])
+                    st.success(f"✅ Found nested coordinates: {len(x_m)} points")
+                    return x_m * self.unit_scale, y_m * self.unit_scale, z_m * self.unit_scale
+            
+            # Method 3: Path points format  
+            if 'path_points' in trajectory_data and trajectory_data['path_points']:
                 path_points = trajectory_data['path_points']
                 
                 x_coords = []
