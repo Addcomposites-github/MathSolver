@@ -311,132 +311,202 @@ def visualization_page():
             
         except Exception as e:
             st.error(f"Vessel visualization failed: {str(e)}")
+
+def vessel_geometry_page():
+    # Professional page header
+    st.markdown("""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
+        <h2 style="color: #1e3c72; margin: 0;">⚙️ Vessel Geometry Design</h2>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Define your composite pressure vessel dimensions and dome configuration</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        # Enhanced input section with better organization
+        st.markdown("""
+        <div style="background: #ffffff; padding: 1rem; border-radius: 8px; border: 1px solid #dee2e6;">
+            <h4 style="color: #495057; margin-top: 0;">🔧 Design Parameters</h4>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Basic vessel parameters with enhanced styling
+        with st.expander("📏 Basic Dimensions", expanded=True):
+            inner_diameter = st.number_input(
+                "Inner Diameter (mm)", 
+                min_value=10.0, 
+                value=200.0, 
+                step=1.0,
+                help="Internal diameter of the cylindrical section"
+            )
+            cylindrical_length = st.number_input(
+                "Cylindrical Length (mm)", 
+                min_value=0.0, 
+                value=300.0, 
+                step=1.0,
+                help="Length of the straight cylindrical section"
+            )
+            wall_thickness = st.number_input(
+                "Wall Thickness (mm)", 
+                min_value=0.1, 
+                value=5.0, 
+                step=0.1,
+                help="Composite wall thickness"
+            )
+        
+        # Dome parameters with visual indicators
+        with st.expander("🏛️ Dome Configuration", expanded=True):
+            dome_type = st.selectbox(
+                "Dome Type", 
+                ["Isotensoid", "Geodesic", "Elliptical", "Hemispherical"],
+                help="Select the dome end-cap geometry type"
+            )
             
-            if layer_def:
-                try:
-                    # Get the raw trajectory data
-                    raw_trajectory_data = selected_traj.get('trajectory_data', {})
-                    
-                    if not raw_trajectory_data:
-                        st.error("No trajectory data found for selected layer")
-                        return
-                    
-                    # Convert trajectory data if converter is available
-                    if converter:
-                        st.markdown("### Trajectory Data Conversion")
-                        st.write("Converting trajectory data for visualization...")
-                        converted_data = converter.convert_unified_trajectory_to_visualization_format(raw_trajectory_data)
-                        
-                        if not converted_data or not converted_data.get('success', False):
-                            st.error("Trajectory data conversion failed")
-                            st.write("Falling back to direct coordinate extraction...")
-                            converted_data = None
-                        else:
-                            st.success(f"Converted {converted_data['total_points']} trajectory points")
-                    else:
-                        converted_data = None
-                    
-                    # Use the FIXED visualization system with proper data handling
-                    from modules.fixed_coordinate_visualizer import FixedAdvanced3DVisualizer
-                    
-                    # Use converted data if available, otherwise fall back to direct extraction
-                    if converted_data and converted_data.get('success'):
-                        # COORDINATE ALIGNMENT FIX
-                        st.markdown("### 🎯 Coordinate Alignment Fix")
-                        
-                        # Get vessel coordinate system
-                        vessel_profile = st.session_state.vessel_geometry.get_profile_points()
-                        vessel_z_m = np.array(vessel_profile['z_mm']) / 1000.0
-                        vessel_z_min = np.min(vessel_z_m)
-                        vessel_z_max = np.max(vessel_z_m)
-                        vessel_z_center = (vessel_z_min + vessel_z_max) / 2
-                        
-                        # Get trajectory coordinate system
-                        traj_z = np.array(converted_data['z_points_m'])
-                        traj_z_min = np.min(traj_z)
-                        traj_z_max = np.max(traj_z)
-                        traj_z_center = (traj_z_min + traj_z_max) / 2
-                        
-                        # Calculate required offset
-                        z_offset = vessel_z_center - traj_z_center
-                        
-                        st.write(f"**Coordinate Analysis:**")
-                        st.write(f"🔹 Vessel Z center: {vessel_z_center:.3f}m (range: {vessel_z_min:.3f} to {vessel_z_max:.3f})")
-                        st.write(f"🔹 Trajectory Z center: {traj_z_center:.3f}m (range: {traj_z_min:.3f} to {traj_z_max:.3f})")
-                        st.write(f"🎯 **Required Z offset: {z_offset:.3f}m**")
-                        
-                        if abs(z_offset) > 0.01:  # More than 1cm misalignment
-                            st.warning(f"⚠️ **Applying coordinate alignment: {z_offset:.3f}m Z-offset**")
-                            
-                            # Apply correction to all trajectory coordinates
-                            corrected_z = traj_z + z_offset
-                            
-                            # Update the converted_data arrays
-                            converted_data['z_points_m'] = corrected_z.tolist()
-                            
-                            # Update path_points
-                            for i, point in enumerate(converted_data['path_points']):
-                                point['z_m'] = corrected_z[i]
-                            
-                            # Verify the fix
-                            new_z_min = np.min(corrected_z)
-                            new_z_max = np.max(corrected_z)
-                            st.success(f"✅ **Coordinates aligned!** New trajectory Z: {new_z_min:.3f}m to {new_z_max:.3f}m")
-                            
-                            # Show before/after comparison
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Before Alignment", f"{traj_z_min:.3f} to {traj_z_max:.3f}m")
-                            with col2:
-                                st.metric("After Alignment", f"{new_z_min:.3f} to {new_z_max:.3f}m")
-                        else:
-                            st.success("✅ Coordinates already properly aligned")
-                        
-                        path_points = converted_data['path_points']
-                        st.write(f"Using aligned trajectory data with {len(path_points)} points")
-                        
-                    else:
-                        # Fallback to direct coordinate extraction  
-                        fallback_trajectory_data = selected_traj.get('trajectory_data', {})
-                        path_points = fallback_trajectory_data.get('path_points', [])
-                        
-                        if not path_points:
-                            x_points = fallback_trajectory_data.get('x_points_m', [])
-                            y_points = fallback_trajectory_data.get('y_points_m', [])
-                            z_points = fallback_trajectory_data.get('z_points_m', [])
-                            winding_angles = fallback_trajectory_data.get('winding_angles_deg', [])
-                            
-                            if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
-                                # Convert coordinate arrays to path_points format
-                                path_points = []
-                                for i in range(len(x_points)):
-                                    path_points.append({
-                                        'x_m': x_points[i],
-                                        'y_m': y_points[i],
-                                        'z_m': z_points[i],
-                                        'rho_m': np.sqrt(x_points[i]**2 + y_points[i]**2),
-                                        'phi_rad': np.arctan2(y_points[i], x_points[i]),
-                                        'alpha_deg': winding_angles[i] if i < len(winding_angles) else 45.0,
-                                        'arc_length_m': i * 0.01
-                                    })
-                                st.write(f"Using fallback coordinate extraction with {len(path_points)} points")
-                            else:
-                                st.error("Unable to extract trajectory coordinate data")
-                                return
-                    
-                    if path_points:
-                        # Determine the coverage percentage from available data
-                        coverage_percentage = 85.0  # Default value
-                        if converted_data and converted_data.get('success'):
-                            coverage_percentage = converted_data.get('coverage_percentage', 85.0)
-                        elif 'trajectory_data' in selected_traj:
-                            coverage_percentage = selected_traj['trajectory_data'].get('coverage_percentage', 85.0)
-                        
-                        coverage_data = {
-                            'circuits': [path_points],
-                            'circuit_metadata': [{
-                                'circuit_number': 1,
-                                'start_phi_deg': 0.0,
+            if dome_type == "Isotensoid":
+                st.markdown("**⚡ Advanced qrs-Parameterization (Koussios Theory)**")
+                col_q, col_r = st.columns(2)
+                with col_q:
+                    q_factor = st.slider(
+                        "q-factor", 
+                        min_value=0.1, 
+                        max_value=20.0, 
+                        value=9.5, 
+                        step=0.1,
+                        help="Shape parameter controlling dome curvature"
+                    )
+                with col_r:
+                    r_factor = st.slider(
+                        "r-factor", 
+                        min_value=-1.0, 
+                        max_value=2.0, 
+                        value=0.1, 
+                        step=0.01,
+                        help="Boundary condition parameter"
+                    )
+                s_factor = st.slider(
+                    "s-factor", 
+                    min_value=0.0, 
+                    max_value=2.0, 
+                    value=0.5, 
+                    step=0.01,
+                    help="Additional shape control parameter"
+                )
+            elif dome_type == "Elliptical":
+                aspect_ratio = st.slider(
+                    "Dome Aspect Ratio (height/radius)", 
+                    min_value=0.1, 
+                    max_value=2.0, 
+                    value=0.5, 
+                    step=0.01,
+                    help="Height to radius ratio for elliptical domes"
+                )
+        
+        # Generate button
+        if st.button("🔧 Generate Vessel Geometry", type="primary"):
+            try:
+                from modules.geometry import VesselGeometry
+                
+                # Create vessel geometry with proper parameters
+                vessel_geometry = VesselGeometry(
+                    inner_diameter=inner_diameter/1000,  # Convert to meters
+                    wall_thickness=wall_thickness/1000,  # Convert to meters  
+                    cylindrical_length=cylindrical_length/1000,  # Convert to meters
+                    dome_type=dome_type
+                )
+                
+                # Set dome-specific parameters
+                if dome_type == "Isotensoid":
+                    vessel_geometry.set_qrs_parameters(q_factor, r_factor, s_factor)
+                elif dome_type == "Elliptical":
+                    vessel_geometry.set_elliptical_parameters(aspect_ratio)
+                
+                # Generate profile and store in session state
+                vessel_geometry.generate_profile()
+                st.session_state.vessel_geometry = vessel_geometry
+                
+                st.success("Vessel geometry generated successfully!")
+                
+            except Exception as e:
+                st.error(f"Error generating vessel geometry: {str(e)}")
+    
+    with col2:
+        # Visualization section
+        st.markdown("""
+        <div style="background: #ffffff; padding: 1rem; border-radius: 8px; border: 1px solid #dee2e6;">
+            <h4 style="color: #495057; margin-top: 0;">📊 Vessel Preview</h4>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
+            try:
+                from modules.streamlined_3d_viz import create_streamlined_3d_visualization
+                
+                # Create vessel visualization
+                vessel_viz_options = {
+                    'show_mandrel': True,
+                    'show_trajectory': False,
+                    'mandrel_resolution': 32,
+                    'show_wireframe': True
+                }
+                
+                fig = create_streamlined_3d_visualization(
+                    st.session_state.vessel_geometry,
+                    None,  # No trajectory data
+                    vessel_viz_options
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display vessel properties
+                props = st.session_state.vessel_geometry.get_geometric_properties()
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("Inner Diameter", f"{props['inner_diameter_mm']:.1f} mm")
+                    st.metric("Cylindrical Length", f"{props['cylindrical_length_mm']:.1f} mm")
+                with col_b:
+                    st.metric("Total Length", f"{props['total_length_mm']:.1f} mm")
+                    st.metric("Wall Thickness", f"{props['wall_thickness_mm']:.1f} mm")
+                
+            except Exception as e:
+                st.error(f"Visualization error: {str(e)}")
+        else:
+            st.info("Generate vessel geometry to see preview")
+
+def get_winding_guidance(winding_angle_deg):
+    """Get intelligent guidance based on winding angle"""
+    if winding_angle_deg <= 15:
+        return {
+            'type': 'Hoop',
+            'color': '#ff6b6b',
+            'guidance': 'Very low angle - primarily hoop strength',
+            'physics_model': 'geodesic'
+        }
+    elif winding_angle_deg <= 30:
+        return {
+            'type': 'Near-Hoop',
+            'color': '#ffd93d',
+            'guidance': 'Low angle - circumferential reinforcement',
+            'physics_model': 'geodesic'
+        }
+    elif winding_angle_deg <= 60:
+        return {
+            'type': 'Helical',
+            'color': '#6bcf7f',
+            'guidance': 'Balanced biaxial loading',
+            'physics_model': 'clairaut'
+        }
+    else:
+        return {
+            'type': 'Polar/Meridional',
+            'color': '#4ecdc4',
+            'guidance': 'High angle - axial strength focus',
+            'physics_model': 'clairaut'
+        }
+
+def create_advanced_layer_definition_ui():
+    """Create angle-driven layer definition UI with intelligent guidance"""
                                 'points_count': len(path_points),
                                 'quality_score': 95.0
                             }],
