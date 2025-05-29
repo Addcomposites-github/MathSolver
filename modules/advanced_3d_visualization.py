@@ -336,8 +336,11 @@ class Advanced3DVisualizer:
         circuits = coverage_data['circuits']
         metadata = coverage_data['metadata']
         
+        st.write(f"   🎯 **Trajectory Display Debug:**")
+        st.write(f"   📊 Total circuits to display: {len(circuits)}")
+        
         if not circuits:
-            # Add placeholder message
+            st.error("   ❌ No trajectory circuits available for visualization")
             fig.add_annotation(
                 text="No trajectory circuits available",
                 xref="paper", yref="paper",
@@ -405,6 +408,10 @@ class Advanced3DVisualizer:
                     showlegend=True
                 )
                 fig.add_trace(circuit_trace)
+                
+                # Track progress for debugging
+                if i < 5 or i % 25 == 0:  # Show progress for first 5 and every 25th circuit
+                    st.write(f"   ✅ Added circuit {i+1} with {len(x_coords)} points")
                 
                 # Add start/end markers if requested
                 if viz_options.get('show_start_end_points', True) and len(circuit_points) >= 2:
