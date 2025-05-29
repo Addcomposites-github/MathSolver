@@ -171,73 +171,138 @@ def main():
 
 def visualization_page():
     """Streamlined 3D visualization page using the new coordinate-aligned system"""
+    
     st.markdown("""
-    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
-        <h2 style="color: #1e3c72; margin: 0;">📊 3D Visualization</h2>
-        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Streamlined visualization with automatic coordinate alignment</p>
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 1.5rem; border-radius: 10px; margin-bottom: 2rem;">
+        <h2 style="color: white; margin: 0; text-align: center;">
+            🎯 3D Trajectory Visualization
+        </h2>
+        <p style="color: white; margin: 0.5rem 0 0 0; text-align: center; opacity: 0.9;">
+            Advanced 3D visualization with coordinate alignment
+        </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Check workflow prerequisites
-    if not hasattr(st.session_state, 'vessel_geometry') or not st.session_state.vessel_geometry:
-        st.error("Complete Vessel Geometry first")
-        if st.button("Go to Vessel Geometry"):
-            st.session_state.current_page = "Vessel Geometry"
-            st.rerun()
+    # Check for required data
+    if not hasattr(st.session_state, 'vessel_geometry') or st.session_state.vessel_geometry is None:
+        st.error("Please define vessel geometry first in the Vessel Geometry page")
         return
     
-    # Import the streamlined visualizer
-    from modules.streamlined_3d_viz import create_streamlined_3d_visualization
-    
-    # Configuration options
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### Visualization Settings")
-        show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
-        show_wireframe = st.checkbox("Show Wireframe", value=True)
-        mandrel_resolution = st.slider("Mandrel Resolution", 16, 64, 32, step=8)
+    if not hasattr(st.session_state, 'trajectories') or not st.session_state.trajectories:
+        st.warning("No trajectory data available. Please generate trajectories in the Trajectory Planning page first.")
         
-    with col2:
-        st.markdown("### Performance Settings")
-        decimation_factor = st.selectbox(
-            "Point Decimation (for performance)",
-            [1, 5, 10, 20, 50],
-            index=2,
-            help="Show every Nth point. Higher = faster rendering"
-        )
-        trajectory_line_width = st.slider("Trajectory Line Width", 1, 8, 4)
-    
-    # Visualization options
-    viz_options = {
-        'show_mandrel': show_mandrel,
-        'show_trajectory': True,
-        'decimation_factor': decimation_factor,
-        'mandrel_resolution': mandrel_resolution,
-        'show_wireframe': show_wireframe,
-        'trajectory_line_width': trajectory_line_width
-    }
-    
-    # Check for trajectory data
-    trajectory_data = None
-    if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
-        # Multiple layers available
-        st.markdown("### Layer Selection")
-        layer_trajectories = st.session_state.all_layer_trajectories
+        # Show vessel-only visualization
+        st.markdown("### Vessel Geometry Preview")
         
-        layer_options = []
-        for i, traj in enumerate(layer_trajectories):
-            layer_info = f"Layer {traj.get('layer_id', i+1)}: {traj.get('layer_type', 'Unknown')} ({traj.get('winding_angle', 0)}°)"
-            layer_options.append(layer_info)
-        
-        if layer_options:
-            selected_idx = st.selectbox(
-                "Select Layer to Visualize",
-                range(len(layer_options)),
-                format_func=lambda x: layer_options[x]
+        try:
+            # Import the streamlined visualizer
+            from modules.streamlined_3d_viz import create_streamlined_3d_visualization
+            
+            # Create vessel visualization without trajectories
+            vessel_viz_options = {
+                'show_mandrel': True,
+                'show_trajectory': False,
+                'mandrel_resolution': 48,
+                'show_wireframe': True,
+                'wireframe_color': '#888888',
+                'mandrel_color': '#4CAF50'
+            }
+            
+            fig = create_streamlined_3d_visualization(
+                st.session_state.vessel_geometry,
+                None,  # No trajectory data
+                vessel_viz_options
             )
             
-            if selected_idx is not None:
+            st.plotly_chart(fig, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Visualization error: {str(e)}")
+        
+        return
+    
+    # Main visualization with trajectories
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        st.markdown("### Visualization Options")
+        
+        # Trajectory selection
+        trajectory_names = list(st.session_state.trajectories.keys())
+        selected_trajectory = st.selectbox("Select Trajectory", trajectory_names)
+        
+        # Visualization options
+        st.markdown("#### Display Options")
+        show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
+        show_wireframe = st.checkbox("Show Wireframe", value=True)
+        show_trajectory = st.checkbox("Show Trajectory", value=True)
+        
+        # Quality settings
+        st.markdown("#### Quality Settings")
+        mandrel_resolution = st.slider("Mandrel Resolution", 16, 64, 32)
+        
+        # Color options
+        st.markdown("#### Colors")
+        mandrel_color = st.color_picker("Mandrel Color", "#4CAF50")
+        trajectory_color = st.color_picker("Trajectory Color", "#FF6B6B")
+    
+    with col1:
+        st.markdown("### 3D Visualization")
+        
+        if selected_trajectory and selected_trajectory in st.session_state.trajectories:
+            try:
+                # Import the streamlined visualizer
+                from modules.streamlined_3d_viz import create_streamlined_3d_visualization
+                
+                # Get trajectory data
+                trajectory_data = st.session_state.trajectories[selected_trajectory]
+                
+                # Create visualization options
+                viz_options = {
+                    'show_mandrel': show_mandrel,
+                    'show_trajectory': show_trajectory,
+                    'show_wireframe': show_wireframe,
+                    'mandrel_resolution': mandrel_resolution,
+                    'mandrel_color': mandrel_color,
+                    'trajectory_color': trajectory_color,
+                    'wireframe_color': '#888888'
+                }
+                
+                # Create the visualization
+                fig = create_streamlined_3d_visualization(
+                    st.session_state.vessel_geometry,
+                    trajectory_data,
+                    viz_options
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display trajectory information
+                if 'trajectory_data' in trajectory_data:
+                    traj_info = trajectory_data['trajectory_data']
+                    
+                    st.markdown("### Trajectory Information")
+                    col_a, col_b, col_c = st.columns(3)
+                    
+                    with col_a:
+                        if 'x_points_m' in traj_info:
+                            st.metric("Total Points", len(traj_info['x_points_m']))
+                    
+                    with col_b:
+                        if 'winding_angles_deg' in traj_info and traj_info['winding_angles_deg']:
+                            avg_angle = np.mean(traj_info['winding_angles_deg'])
+                            st.metric("Avg Winding Angle", f"{avg_angle:.1f}°")
+                    
+                    with col_c:
+                        if 'coverage_percentage' in traj_info:
+                            st.metric("Coverage", f"{traj_info['coverage_percentage']:.1f}%")
+                
+            except Exception as e:
+                st.error(f"Visualization error: {str(e)}")
+                st.write("Debug info:", str(e))
+        else:
+            st.info("Select a trajectory to visualize")
                 selected_trajectory = layer_trajectories[selected_idx]
                 trajectory_data = selected_trajectory.get('trajectory_data', {})
                 
@@ -507,35 +572,132 @@ def get_winding_guidance(winding_angle_deg):
 
 def create_advanced_layer_definition_ui():
     """Create angle-driven layer definition UI with intelligent guidance"""
-                                'points_count': len(path_points),
-                                'quality_score': 95.0
-                            }],
-                            'metadata': [{  # Add metadata alias for backward compatibility
-                                'circuit_number': 1,
-                                'start_phi_deg': 0.0,
-                                'points_count': len(path_points),
-                                'quality_score': 95.0
-                            }],
-                            'total_circuits': 1,
-                            'coverage_percentage': coverage_percentage,
-                            'pattern_info': {
-                                'actual_pattern_type': selected_traj['layer_type'],
-                                'winding_angle': selected_traj['winding_angle']
-                            },
-                            'quality_settings': {'mode': quality_level.lower()},
-                            'source': 'planned_trajectory'
-                        }
-                        
-                        layer_config = {
-                            'layer_type': layer_def.layer_type,
-                            'winding_angle_deg': layer_def.winding_angle_deg,
-                            'physics_model': getattr(layer_def, 'physics_model', 'clairaut'),
-                            'roving_width': 3.0,
-                            'coverage_mode': 'full_coverage'
-                        }
-                        
-                        visualization_options = {
-                            'quality_level': quality_level.lower(),
+    
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 1.5rem; border-radius: 10px; margin-bottom: 2rem;">
+        <h3 style="color: white; margin: 0; text-align: center;">
+            🎯 Advanced Layer Definition
+        </h3>
+        <p style="color: white; margin: 0.5rem 0 0 0; text-align: center; opacity: 0.9;">
+            Intelligent angle-driven layer configuration with real-time guidance
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([3, 2])
+    
+    with col1:
+        st.markdown("#### Layer Configuration")
+        
+        # Winding angle as primary driver
+        winding_angle = st.slider("🔄 Winding Angle", 
+                                 min_value=5.0, max_value=89.0, 
+                                 value=45.0, step=1.0,
+                                 help="Primary parameter determining trajectory type and physics model")
+        
+        # Get intelligent guidance
+        guidance = get_winding_guidance(winding_angle)
+        
+        # Display guidance
+        st.markdown(f"""
+        <div style="background: {guidance['color']}20; padding: 1rem; border-radius: 8px; 
+                    border-left: 4px solid {guidance['color']};">
+            <h5 style="color: {guidance['color']}; margin: 0;">
+                {guidance['type']} Winding
+            </h5>
+            <p style="margin: 0.5rem 0 0 0;">{guidance['guidance']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Material properties
+        st.markdown("#### Material Properties")
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            fiber_type = st.selectbox("Fiber Type", 
+                                    ["Carbon Fiber", "Glass Fiber", "Aramid", "Basalt"])
+            resin_type = st.selectbox("Resin System", 
+                                    ["Epoxy", "Polyester", "Vinyl Ester", "Phenolic"])
+        
+        with col_b:
+            fiber_volume = st.slider("Fiber Volume %", 55, 75, 65)
+            thickness = st.number_input("Layer Thickness (mm)", 
+                                      min_value=0.1, max_value=5.0, 
+                                      value=0.25, step=0.05)
+    
+    with col2:
+        st.markdown("#### Real-time Analysis")
+        
+        # Physics model recommendation
+        recommended_model = guidance['physics_model']
+        st.info(f"Recommended: {recommended_model.title()} Physics")
+        
+        # Layer metrics
+        st.metric("Winding Type", guidance['type'])
+        st.metric("Angle Category", f"{winding_angle:.1f}°")
+        
+        # Quick validation
+        if 15 <= winding_angle <= 75:
+            st.success("✅ Optimal winding range")
+        elif winding_angle < 15:
+            st.warning("⚠️ Very low angle - check slippage")
+        else:
+            st.warning("⚠️ High angle - verify coverage")
+    
+    return {
+        'winding_angle_deg': winding_angle,
+        'physics_model': recommended_model,
+        'fiber_type': fiber_type,
+        'resin_type': resin_type,
+        'fiber_volume_fraction': fiber_volume / 100,
+        'thickness_mm': thickness,
+        'guidance': guidance
+    }
+
+def add_realtime_feasibility_validation(layer_config):
+    """Validate layer configuration in real-time"""
+    issues = []
+    
+    # Check winding angle feasibility
+    winding_angle = layer_config.get('winding_angle_deg', 0)
+    if winding_angle < 5:
+        issues.append("Very low winding angle may cause fiber slippage")
+    elif winding_angle > 85:
+        issues.append("Very high winding angle may reduce coverage efficiency")
+    
+    # Check material compatibility
+    fiber_type = layer_config.get('fiber_type', '')
+    resin_type = layer_config.get('resin_type', '')
+    
+    if fiber_type == 'Aramid' and resin_type == 'Polyester':
+        issues.append("Aramid and polyester may have adhesion issues")
+    
+    return issues
+
+def validate_algorithm_combination(layer_type, physics_model, winding_angle):
+    """Validate that the algorithm combination is supported"""
+    valid_combinations = {
+        'Helical': ['geodesic', 'clairaut'],
+        'Hoop': ['geodesic'],
+        'Polar': ['clairaut', 'isotensoid']
+    }
+    
+    if layer_type in valid_combinations:
+        return physics_model in valid_combinations[layer_type]
+    return True  # Allow unknown combinations
+
+def validate_physics_compatibility(physics_model, winding_angle, friction_coeff):
+    """Validate physics model compatibility with winding parameters"""
+    if physics_model == 'clairaut' and winding_angle > 80:
+        return False, "Clairaut's theorem may not be accurate at very high angles"
+    
+    if physics_model == 'geodesic' and friction_coeff < 0.1:
+        return False, "Geodesic paths require sufficient friction"
+    
+    return True, "Compatible configuration"
+
+def validate_manufacturing_feasibility(layer_config):
                             'show_mandrel_mesh': show_mandrel,
                             'color_by_circuit': True,
                             'show_all_circuits': True
