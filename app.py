@@ -29,6 +29,15 @@ except ImportError as e:
     print(f"Unified trajectory system not available: {e}")
     UNIFIED_SYSTEM_AVAILABLE = False
 
+# Import advanced visualization modules
+try:
+    from modules.advanced_full_coverage_generator import AdvancedFullCoverageGenerator
+    from modules.advanced_3d_visualization import Advanced3DVisualizer
+    ADVANCED_VIZ_AVAILABLE = True
+except ImportError as e:
+    print(f"Advanced visualization system not available: {e}")
+    ADVANCED_VIZ_AVAILABLE = False
+
 # Configure page
 st.set_page_config(
     page_title="COPV Design Tool",
