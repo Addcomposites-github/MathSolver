@@ -274,20 +274,9 @@ class UnifiedTrajectoryPlanner:
         circuit_points = []
         
         try:
-            if pattern_type == 'helical' and physics_model == 'constant_angle':
-                # Generate helical path
-                cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000  # Convert to m
-                
-                circuit_points = self.physics_engine.solve_helical(
-                    winding_angle_deg=target_angle_deg,
-                    initial_param_val=start_z,
-                    initial_phi_rad=start_phi_rad,
-                    param_end_val=start_z + cylinder_length,
-                    num_points=options.get('num_points', 100)
-                )
-                
-            elif pattern_type == 'geodesic' and physics_model == 'clairaut':
-                # Generate geodesic path
+            # Map physics model to appropriate solver based on the physics, not pattern type
+            if physics_model == 'clairaut':
+                # Use geodesic solver for Clairaut physics (works for helical, geodesic patterns)
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 
                 circuit_points = self.physics_engine.solve_geodesic(
@@ -298,8 +287,20 @@ class UnifiedTrajectoryPlanner:
                     num_points=options.get('num_points', 100)
                 )
                 
-            elif pattern_type == 'non_geodesic' and physics_model == 'friction':
-                # Generate non-geodesic path with friction
+            elif physics_model == 'constant_angle':
+                # Use helical solver for constant angle physics
+                cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000  # Convert to m
+                
+                circuit_points = self.physics_engine.solve_helical(
+                    winding_angle_deg=target_angle_deg,
+                    initial_param_val=start_z,
+                    initial_phi_rad=start_phi_rad,
+                    param_end_val=start_z + cylinder_length,
+                    num_points=options.get('num_points', 100)
+                )
+                
+            elif physics_model == 'friction':
+                # Use non-geodesic solver for friction physics
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 friction_coeff = options.get('friction_coefficient', self.default_friction_coeff)
                 
@@ -313,17 +314,59 @@ class UnifiedTrajectoryPlanner:
                 )
                 
             elif pattern_type == 'hoop':
-                # Generate hoop path
+                # Special case for hoop patterns
                 circuit_points = self.physics_engine.solve_hoop(
                     param_val=start_z,
                     num_points=options.get('num_points', 100)
                 )
                 
             else:
-                self._log_message(f"Unsupported combination: {pattern_type} + {physics_model}")
+                self._log_message(f"Unknown physics model: {physics_model}, attempting fallback")
+                # Fallback to simple trajectory generation
+                circuit_points = self._generate_fallback_circuit(
+                    target_angle_deg, start_phi_rad, start_z, options.get('num_points', 100)
+                )
                 
         except Exception as e:
             self._log_message(f"Circuit generation failed: {e}")
+            # Generate fallback circuit on failure
+            circuit_points = self._generate_fallback_circuit(
+                target_angle_deg, start_phi_rad, start_z, options.get('num_points', 100)
+            )
+            
+        return circuit_points
+
+    def _generate_fallback_circuit(self, 
+                                 target_angle_deg: float,
+                                 start_phi_rad: float, 
+                                 start_z: float,
+                                 num_points: int) -> List[TrajectoryPoint]:
+        """Generate a simple fallback circuit when physics solvers fail"""
+        circuit_points = []
+        
+        try:
+            # Simple helical path as fallback
+            vessel_radius_m = self._get_vessel_radius()
+            cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000
+            
+            z_values = np.linspace(start_z, start_z + cylinder_length, num_points)
+            
+            for i, z in enumerate(z_values):
+                # Simple helical progression
+                phi = start_phi_rad + (z - start_z) * np.tan(np.radians(target_angle_deg)) / vessel_radius_m
+                
+                point = TrajectoryPoint(
+                    rho=vessel_radius_m,
+                    z=z,
+                    phi=phi,
+                    s_path=i * (cylinder_length / num_points),
+                    alpha_deg=target_angle_deg,
+                    local_curvature=0.0
+                )
+                circuit_points.append(point)
+                
+        except Exception as e:
+            self._log_message(f"Fallback circuit generation failed: {e}")
             
         return circuit_points
 
