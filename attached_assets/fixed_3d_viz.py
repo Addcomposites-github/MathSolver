@@ -1,6 +1,6 @@
 """
-Advanced 3D Visualization Engine for Full Coverage Patterns
-High-quality mandrel representation with complete trajectory visualization
+Fixed Advanced 3D Visualization Engine for Full Coverage Patterns
+Properly handles dome geometry and creates accurate vessel surface representation
 """
 
 import plotly.graph_objects as go
@@ -11,19 +11,17 @@ import streamlit as st
 from typing import List, Dict, Any, Optional
 
 class Advanced3DVisualizer:
-    """Advanced 3D visualization for full coverage trajectories"""
+    """Advanced 3D visualization for full coverage trajectories with proper dome geometry"""
     
     def __init__(self):
-        self.colors = px.colors.qualitative.Set3  # Color palette for circuits
+        self.colors = px.colors.qualitative.Set3
     
     def create_full_coverage_visualization(self, 
                                          coverage_data: Dict,
                                          vessel_geometry,
                                          layer_config: Dict,
                                          visualization_options: Dict = None):
-        """
-        Create comprehensive 3D visualization of full coverage pattern
-        """
+        """Create comprehensive 3D visualization of full coverage pattern with proper dome geometry"""
         if not visualization_options:
             visualization_options = {
                 'show_mandrel': True,
@@ -36,9 +34,9 @@ class Advanced3DVisualizer:
         
         fig = go.Figure()
         
-        # Add high-quality mandrel surface
+        # Add high-quality mandrel surface with proper dome geometry
         if visualization_options.get('show_mandrel', True):
-            self._add_advanced_mandrel_surface(fig, vessel_geometry, coverage_data['quality_settings'])
+            self._add_proper_dome_mandrel_surface(fig, vessel_geometry, coverage_data.get('quality_settings', {}))
         
         # Add all trajectory circuits
         self._add_all_trajectory_circuits(fig, coverage_data, visualization_options)
@@ -51,12 +49,13 @@ class Advanced3DVisualizer:
         
         return fig
     
-    def _add_advanced_mandrel_surface(self, fig, vessel_geometry, quality_settings):
+    def _add_proper_dome_mandrel_surface(self, fig, vessel_geometry, quality_settings):
         """Add properly shaped mandrel surface with accurate dome geometry"""
         try:
             # Get vessel parameters
             inner_radius = vessel_geometry.inner_diameter / 2000  # Convert mm to m
             cyl_length = vessel_geometry.cylindrical_length / 1000  # Convert mm to m
+            wall_thickness = vessel_geometry.wall_thickness / 1000  # Convert mm to m
             
             # Get dome type and parameters
             dome_type = getattr(vessel_geometry, 'dome_type', 'Hemispherical')
@@ -85,14 +84,14 @@ class Advanced3DVisualizer:
             X_mesh = R_mesh * np.cos(Theta_mesh)
             Y_mesh = R_mesh * np.sin(Theta_mesh)
             
-            # Add surface with enhanced appearance
+            # Add main vessel surface
             fig.add_trace(go.Surface(
                 x=X_mesh, y=Y_mesh, z=Z_mesh,
                 colorscale='Greys',
                 opacity=0.3,
                 showscale=False,
                 name='Mandrel Surface',
-                hovertemplate='Mandrel Surface<br>R: %{customdata:.3f}m<extra></extra>',
+                hovertemplate='Mandrel Surface<br>R: %{customdata:.3f}m<br>Z: %{z:.3f}m<extra></extra>',
                 customdata=R_mesh,
                 lighting=dict(
                     ambient=0.4,
@@ -104,36 +103,15 @@ class Advanced3DVisualizer:
             ))
             
             # Add wireframe for better definition
-            self._add_mandrel_wireframe(fig, X_mesh, Y_mesh, Z_mesh, max(1, surface_segments//4))
+            self._add_vessel_wireframe(fig, X_mesh, Y_mesh, Z_mesh, max(1, surface_segments//8))
+            
+            # Add polar openings for isotensoid/elliptical domes
+            if dome_type in ['Isotensoid', 'Elliptical']:
+                self._add_polar_openings(fig, vessel_geometry, z_profile)
             
         except Exception as e:
-            # Add simple cylinder as fallback
+            st.warning(f"Advanced mandrel surface failed: {e}. Using fallback.")
             self._add_simple_mandrel_fallback(fig, vessel_geometry)
-    
-    def _add_mandrel_wireframe(self, fig, X_mesh, Y_mesh, Z_mesh, step):
-        """Add wireframe lines for better mandrel definition"""
-        try:
-            # Meridional lines
-            for i in range(0, X_mesh.shape[0], step):
-                fig.add_trace(go.Scatter3d(
-                    x=X_mesh[i, :], y=Y_mesh[i, :], z=Z_mesh[i, :],
-                    mode='lines',
-                    line=dict(color='lightgray', width=1),
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-            
-            # Circumferential lines
-            for j in range(0, X_mesh.shape[1], step):
-                fig.add_trace(go.Scatter3d(
-                    x=X_mesh[:, j], y=Y_mesh[:, j], z=Z_mesh[:, j],
-                    mode='lines',
-                    line=dict(color='lightgray', width=1),
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-        except Exception:
-            pass  # Skip wireframe if it fails
     
     def _generate_complete_vessel_profile(self, inner_radius, cyl_length, dome_type, vessel_geometry):
         """Generate complete vessel profile including both domes and cylinder"""
@@ -147,11 +125,12 @@ class Advanced3DVisualizer:
         elif dome_type == 'Isotensoid':
             # For isotensoid, estimate based on q,r,s parameters
             q_factor = getattr(vessel_geometry, 'q_factor', 9.5)
-            dome_height = inner_radius * (0.3 + 0.1 * q_factor / 10.0)
+            dome_height = inner_radius * (0.3 + 0.1 * q_factor / 10.0)  # Empirical approximation
         else:
             dome_height = inner_radius * 0.8  # Default
         
         # Create z-coordinate array for complete vessel
+        # Aft dome (negative z) + cylinder + forward dome (positive z)
         n_dome_points = 30
         n_cyl_points = 20
         
@@ -168,7 +147,7 @@ class Advanced3DVisualizer:
         r_fwd_dome = self._calculate_dome_radius_profile(z_fwd_dome, cyl_length, cyl_length + dome_height, inner_radius, dome_type, vessel_geometry)
         
         # Combine all sections
-        z_complete = np.concatenate([z_aft_dome[:-1], z_cylinder[:-1], z_fwd_dome])
+        z_complete = np.concatenate([z_aft_dome[:-1], z_cylinder[:-1], z_fwd_dome])  # Avoid duplicate points
         r_complete = np.concatenate([r_aft_dome[:-1], r_cylinder[:-1], r_fwd_dome])
         
         return z_complete, r_complete
@@ -176,6 +155,7 @@ class Advanced3DVisualizer:
     def _calculate_dome_radius_profile(self, z_array, z_start, z_end, max_radius, dome_type, vessel_geometry):
         """Calculate radius profile for dome section"""
         
+        # Normalize z coordinate to dome parameter
         dome_length = z_end - z_start
         if dome_length == 0:
             return np.full_like(z_array, max_radius)
@@ -184,20 +164,22 @@ class Advanced3DVisualizer:
         t = (z_array - z_start) / dome_length
         
         if dome_type == 'Hemispherical':
-            # Hemispherical dome
+            # Hemispherical dome: r = sqrt(R^2 - (z-center)^2)
             center_z = (z_start + z_end) / 2
             dome_radius = dome_length / 2
             z_rel = z_array - center_z
             r_profile = np.sqrt(np.maximum(0, dome_radius**2 - z_rel**2))
+            # Scale to match vessel radius at equator
             r_profile = r_profile * (max_radius / dome_radius)
             
         elif dome_type == 'Elliptical':
             # Elliptical dome
             aspect_ratio = getattr(vessel_geometry, 'aspect_ratio', 1.0)
-            a = dome_length / 2
-            b = max_radius
+            a = dome_length / 2  # Semi-major axis
+            b = max_radius        # Semi-minor axis
             center_z = (z_start + z_end) / 2
             z_rel = z_array - center_z
+            # Ellipse equation: (z/a)^2 + (r/b)^2 = 1
             r_profile = b * np.sqrt(np.maximum(0, 1 - (z_rel / a)**2))
             
         elif dome_type == 'Isotensoid':
@@ -206,8 +188,11 @@ class Advanced3DVisualizer:
             r_factor = getattr(vessel_geometry, 'r_factor', 0.1)
             s_factor = getattr(vessel_geometry, 's_factor', 0.5)
             
-            # Simplified isotensoid profile
-            polar_opening_ratio = 0.1 + 0.05 * r_factor
+            # Simplified isotensoid profile approximation
+            # Use smooth transition from max_radius to polar opening
+            polar_opening_ratio = 0.1 + 0.05 * r_factor  # Ratio of polar opening to max radius
+            
+            # Create smooth profile using modified cosine
             r_profile = max_radius * (
                 polar_opening_ratio + 
                 (1 - polar_opening_ratio) * np.cos(t * np.pi / 2) ** (2 + s_factor)
@@ -223,38 +208,137 @@ class Advanced3DVisualizer:
         
         return r_profile
     
+    def _add_polar_openings(self, fig, vessel_geometry, z_profile):
+        """Add polar opening visualization for isotensoid domes"""
+        try:
+            if hasattr(vessel_geometry, 'q_factor'):
+                # Calculate polar opening size
+                inner_radius = vessel_geometry.inner_diameter / 2000
+                r_factor = getattr(vessel_geometry, 'r_factor', 0.1)
+                polar_radius = inner_radius * (0.05 + 0.05 * r_factor)
+                
+                # Add polar opening markers
+                z_min = np.min(z_profile)
+                z_max = np.max(z_profile)
+                
+                # Aft polar opening
+                theta_polar = np.linspace(0, 2*np.pi, 16)
+                x_polar_aft = polar_radius * np.cos(theta_polar)
+                y_polar_aft = polar_radius * np.sin(theta_polar)
+                z_polar_aft = np.full_like(x_polar_aft, z_min)
+                
+                fig.add_trace(go.Scatter3d(
+                    x=x_polar_aft, y=y_polar_aft, z=z_polar_aft,
+                    mode='lines',
+                    line=dict(color='red', width=4),
+                    name='Aft Polar Opening',
+                    showlegend=False
+                ))
+                
+                # Forward polar opening
+                z_polar_fwd = np.full_like(x_polar_aft, z_max)
+                fig.add_trace(go.Scatter3d(
+                    x=x_polar_aft, y=y_polar_aft, z=z_polar_fwd,
+                    mode='lines',
+                    line=dict(color='red', width=4),
+                    name='Forward Polar Opening',
+                    showlegend=False
+                ))
+                
+        except Exception:
+            pass  # Skip polar openings if calculation fails
+    
+    def _add_vessel_wireframe(self, fig, X_mesh, Y_mesh, Z_mesh, step):
+        """Add wireframe lines for better vessel definition"""
+        try:
+            # Meridional lines (along vessel length)
+            for i in range(0, X_mesh.shape[0], step):
+                fig.add_trace(go.Scatter3d(
+                    x=X_mesh[i, :], y=Y_mesh[i, :], z=Z_mesh[i, :],
+                    mode='lines',
+                    line=dict(color='lightgray', width=1),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+            
+            # Circumferential lines (around vessel)
+            for j in range(0, X_mesh.shape[1], max(1, step//2)):
+                fig.add_trace(go.Scatter3d(
+                    x=X_mesh[:, j], y=Y_mesh[:, j], z=Z_mesh[:, j],
+                    mode='lines',
+                    line=dict(color='lightgray', width=1),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+        except Exception:
+            pass  # Skip wireframe if it fails
+    
     def _add_simple_mandrel_fallback(self, fig, vessel_geometry):
         """Add simple mandrel representation as fallback"""
         try:
-            # Create simple cylindrical representation
+            # Create simple cylindrical representation with dome ends
             radius = vessel_geometry.inner_diameter / 2000  # Convert to meters
             length = vessel_geometry.cylindrical_length / 1000
             
-            # Create cylinder
+            # Create cylinder with hemispherical ends
             theta = np.linspace(0, 2*np.pi, 32)
-            z = np.linspace(0, length, 20)
-            Theta, Z = np.meshgrid(theta, z)
-            X = radius * np.cos(Theta)
-            Y = radius * np.sin(Theta)
+            
+            # Cylinder section
+            z_cyl = np.linspace(0, length, 20)
+            Theta_cyl, Z_cyl = np.meshgrid(theta, z_cyl)
+            X_cyl = radius * np.cos(Theta_cyl)
+            Y_cyl = radius * np.sin(Theta_cyl)
             
             fig.add_trace(go.Surface(
-                x=X, y=Y, z=Z,
+                x=X_cyl, y=Y_cyl, z=Z_cyl,
                 colorscale='Greys',
                 opacity=0.3,
                 showscale=False,
-                name='Mandrel (Simple)',
-                hovertemplate='Simple Mandrel<extra></extra>'
+                name='Cylinder Section',
+                hovertemplate='Cylinder<extra></extra>'
             ))
+            
+            # Add hemisphere ends
+            phi = np.linspace(0, np.pi/2, 16)  # Half sphere
+            Theta_dome, Phi_dome = np.meshgrid(theta, phi)
+            
+            # Aft dome (negative z)
+            X_dome_aft = radius * np.sin(Phi_dome) * np.cos(Theta_dome)
+            Y_dome_aft = radius * np.sin(Phi_dome) * np.sin(Theta_dome)
+            Z_dome_aft = -radius * np.cos(Phi_dome)
+            
+            fig.add_trace(go.Surface(
+                x=X_dome_aft, y=Y_dome_aft, z=Z_dome_aft,
+                colorscale='Greys',
+                opacity=0.3,
+                showscale=False,
+                name='Aft Dome',
+                hovertemplate='Aft Dome<extra></extra>',
+                showlegend=False
+            ))
+            
+            # Forward dome (positive z)
+            Z_dome_fwd = length + radius * np.cos(Phi_dome)
+            
+            fig.add_trace(go.Surface(
+                x=X_dome_aft, y=Y_dome_aft, z=Z_dome_fwd,
+                colorscale='Greys',
+                opacity=0.3,
+                showscale=False,
+                name='Forward Dome',
+                hovertemplate='Forward Dome<extra></extra>',
+                showlegend=False
+            ))
+            
         except Exception:
             pass  # Skip if even simple fallback fails
     
     def _add_all_trajectory_circuits(self, fig, coverage_data, viz_options):
         """Add all trajectory circuits with color coding"""
-        circuits = coverage_data['circuits']
-        metadata = coverage_data['metadata']
+        circuits = coverage_data.get('circuits', [])
+        metadata = coverage_data.get('metadata', [])
         
         if not circuits:
-            # Add placeholder message
             fig.add_annotation(
                 text="No trajectory circuits available",
                 xref="paper", yref="paper",
@@ -291,7 +375,6 @@ class Advanced3DVisualizer:
                     color = self.colors[i % len(self.colors)]
                     line_color = color
                 else:
-                    # Color by winding angle
                     line_color = angles
                 
                 # Add circuit trajectory
@@ -309,9 +392,9 @@ class Advanced3DVisualizer:
                         colorscale='Viridis' if not isinstance(line_color, str) else None,
                         showscale=False
                     ),
-                    name=f"Circuit {circuit_meta['circuit_number']} ({circuit_meta['start_phi_deg']:.1f}°)",
+                    name=f"Circuit {circuit_meta.get('circuit_number', i+1)} ({circuit_meta.get('start_phi_deg', 0):.1f}°)",
                     hovertemplate=(
-                        f'<b>Circuit {circuit_meta["circuit_number"]}</b><br>'
+                        f'<b>Circuit {circuit_meta.get("circuit_number", i+1)}</b><br>'
                         'X: %{x:.3f}m<br>'
                         'Y: %{y:.3f}m<br>'
                         'Z: %{z:.3f}m<br>'
@@ -328,8 +411,7 @@ class Advanced3DVisualizer:
                     self._add_circuit_markers(fig, circuit_points, circuit_meta, color if isinstance(line_color, str) else 'red')
                     
             except Exception as e:
-                # Skip problematic circuits
-                continue
+                continue  # Skip problematic circuits
     
     def _add_circuit_markers(self, fig, circuit_points, circuit_meta, color):
         """Add start and end markers for each circuit"""
@@ -343,6 +425,8 @@ class Advanced3DVisualizer:
             if not (hasattr(start_point, 'position') and hasattr(end_point, 'position')):
                 return
             
+            circuit_num = circuit_meta.get('circuit_number', '?')
+            
             # Start marker
             fig.add_trace(go.Scatter3d(
                 x=[start_point.position[0]], 
@@ -350,9 +434,9 @@ class Advanced3DVisualizer:
                 z=[start_point.position[2]],
                 mode='markers',
                 marker=dict(size=8, color='green', symbol='diamond'),
-                name=f'Start C{circuit_meta["circuit_number"]}',
+                name=f'Start C{circuit_num}',
                 showlegend=False,
-                hovertemplate=f'<b>Circuit {circuit_meta["circuit_number"]} Start</b><br>Angle: {getattr(start_point, "winding_angle_deg", 45):.1f}°<extra></extra>'
+                hovertemplate=f'<b>Circuit {circuit_num} Start</b><br>Angle: {getattr(start_point, "winding_angle_deg", 45):.1f}°<extra></extra>'
             ))
             
             # End marker
@@ -362,24 +446,23 @@ class Advanced3DVisualizer:
                 z=[end_point.position[2]],
                 mode='markers',
                 marker=dict(size=8, color='red', symbol='square'),
-                name=f'End C{circuit_meta["circuit_number"]}',
+                name=f'End C{circuit_num}',
                 showlegend=False,
-                hovertemplate=f'<b>Circuit {circuit_meta["circuit_number"]} End</b><br>Angle: {getattr(end_point, "winding_angle_deg", 45):.1f}°<extra></extra>'
+                hovertemplate=f'<b>Circuit {circuit_num} End</b><br>Angle: {getattr(end_point, "winding_angle_deg", 45):.1f}°<extra></extra>'
             ))
         except Exception:
-            pass  # Skip markers if they fail
+            pass
     
     def _add_pattern_annotations(self, fig, coverage_data, layer_config):
         """Add pattern analysis annotations"""
         try:
-            pattern_info = coverage_data['pattern_info']
+            pattern_info = coverage_data.get('pattern_info', {})
             
-            # Add text annotation with pattern details
             annotation_text = (
                 f"<b>Full Coverage Pattern Analysis</b><br>"
-                f"Target Angle: {layer_config['winding_angle']}°<br>"
-                f"Total Circuits: {coverage_data['total_circuits']}<br>"
-                f"Coverage: {coverage_data['coverage_percentage']:.1f}%<br>"
+                f"Target Angle: {layer_config.get('winding_angle', 'N/A')}°<br>"
+                f"Total Circuits: {coverage_data.get('total_circuits', 0)}<br>"
+                f"Coverage: {coverage_data.get('coverage_percentage', 0):.1f}%<br>"
                 f"Pattern Type: {pattern_info.get('actual_pattern_type', 'Unknown')}"
             )
             
@@ -394,16 +477,16 @@ class Advanced3DVisualizer:
                 font=dict(size=12)
             )
         except Exception:
-            pass  # Skip annotation if it fails
+            pass
     
     def _configure_advanced_layout(self, fig, coverage_data, layer_config):
         """Configure advanced layout with optimal viewing"""
         try:
-            total_points = sum(len(circuit) for circuit in coverage_data['circuits'])
+            total_points = sum(len(circuit) for circuit in coverage_data.get('circuits', []))
             
             fig.update_layout(
                 title=dict(
-                    text=f"Complete Coverage Pattern - {layer_config['winding_angle']}° Layer ({total_points:,} points)",
+                    text=f"Complete Coverage Pattern - {layer_config.get('winding_angle', 'N/A')}° Layer ({total_points:,} points)",
                     x=0.5,
                     font=dict(size=16, color='darkblue')
                 ),
@@ -437,7 +520,7 @@ class Advanced3DVisualizer:
         except Exception:
             # Use minimal layout if configuration fails
             fig.update_layout(
-                title="3D Trajectory Visualization",
+                title="3D Trajectory Visualization with Proper Dome Geometry",
                 scene=dict(aspectmode='data'),
                 width=800,
                 height=600
