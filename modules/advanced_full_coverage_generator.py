@@ -86,7 +86,7 @@ class AdvancedFullCoverageGenerator:
                     
                     trajectory_result = planner.generate_trajectory(
                         pattern_type=pattern_type,
-                        coverage_mode='full_coverage',
+                        coverage_mode='single_pass',  # Use single_pass to avoid infinite loops
                         physics_model=physics_model,
                         continuity_level=continuity_level,
                         target_params={'winding_angle_deg': winding_angle},
