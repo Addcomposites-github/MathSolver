@@ -161,7 +161,7 @@ class Advanced3DVisualizer:
                 text="No trajectory circuits available",
                 xref="paper", yref="paper",
                 x=0.5, y=0.5,
-                xanchor="center", yanchor="center",
+                xanchor="center", yanchor="middle",
                 font=dict(size=16, color="red"),
                 showarrow=False
             )

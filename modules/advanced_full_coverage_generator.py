@@ -55,10 +55,18 @@ class AdvancedFullCoverageGenerator:
                 
                 # Generate individual circuit
                 try:
+                    # Use compatible physics model for helical patterns
+                    pattern_type = self._determine_pattern_type()
+                    physics_model = self.layer_config.get('physics_model', 'clairaut')
+                    
+                    # Fix incompatible combinations
+                    if pattern_type == 'helical' and physics_model == 'clairaut':
+                        physics_model = 'constant_angle'  # Use compatible physics model
+                    
                     circuit_result = planner.generate_trajectory(
-                        pattern_type=self._determine_pattern_type(),
+                        pattern_type=pattern_type,
                         coverage_mode='single_pass',
-                        physics_model=self.layer_config.get('physics_model', 'clairaut'),
+                        physics_model=physics_model,
                         continuity_level=self.layer_config.get('continuity_level', 1),
                         num_layers_desired=1,
                         initial_conditions={'start_phi_rad': start_phi},
