@@ -303,21 +303,15 @@ def visualization_page():
                 st.write("Debug info:", str(e))
         else:
             st.info("Select a trajectory to visualize")
-                selected_trajectory = layer_trajectories[selected_idx]
-                trajectory_data = selected_trajectory.get('trajectory_data', {})
-                
-                # Add layer info for better visualization
-                if trajectory_data:
-                    trajectory_data.update({
-                        'pattern_type': selected_trajectory.get('layer_type', 'Unknown'),
-                        'layer_id': selected_trajectory.get('layer_id', selected_idx + 1),
-                        'winding_angle': selected_trajectory.get('winding_angle', 0)
-                    })
-    
-    elif hasattr(st.session_state, 'trajectory_data') and st.session_state.trajectory_data:
-        # Single trajectory available
-        trajectory_data = st.session_state.trajectory_data
-        st.info("Using single trajectory data")
+
+def vessel_geometry_page():
+    # Professional page header
+    st.markdown("""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
+        <h2 style="color: #1e3c72; margin: 0;">⚙️ Vessel Geometry Design</h2>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Define your composite pressure vessel dimensions and dome configuration</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
@@ -698,28 +692,53 @@ def validate_physics_compatibility(physics_model, winding_angle, friction_coeff)
     return True, "Compatible configuration"
 
 def validate_manufacturing_feasibility(layer_config):
-                            'show_mandrel_mesh': show_mandrel,
-                            'color_by_circuit': True,
-                            'show_all_circuits': True
-                        }
-                        
-                        # Create visualization using FIXED visualizer
-                        visualization_options.update({
-                            'show_mandrel': show_mandrel,
-                            'mandrel_opacity': 0.3,
-                            'circuit_line_width': 4,
-                            'show_start_end_points': True
-                        })
-                        
-                        visualizer = FixedAdvanced3DVisualizer()
-                        fig = visualizer.create_full_coverage_visualization(
-                            coverage_data,
-                            st.session_state.vessel_geometry,
-                            layer_config,
-                            visualization_options
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
+    """Validate manufacturing feasibility of layer configuration"""
+    issues = []
+    
+    # Check for manufacturing constraints
+    thickness = layer_config.get('thickness_mm', 0)
+    if thickness < 0.1:
+        issues.append("Layer too thin for reliable manufacturing")
+    elif thickness > 10:
+        issues.append("Layer may be too thick for proper consolidation")
+    
+    return issues
+
+def layer_stack_definition_page():
+    """Multi-layer composite stack definition and mandrel geometry management"""
+    st.markdown("""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
+        <h2 style="color: #1e3c72; margin: 0;">📚 Layer Stack Definition</h2>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Define multiple composite layers and their properties</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Initialize layer manager
+    if 'layer_manager' not in st.session_state:
+        st.session_state.layer_manager = LayerManager()
+    
+    manager = st.session_state.layer_manager
+    
+    # Layer management interface
+    st.markdown("### Layer Configuration")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Layer definition interface
+        st.markdown("#### Add New Layer")
+        layer_type = st.selectbox("Layer Type", ["Helical", "Hoop", "Polar"])
+        winding_angle = st.slider("Winding Angle (°)", 0, 90, 45)
+        
+    with col2:
+        st.markdown("#### Layer Actions")
+        if st.button("Add Layer"):
+            new_layer = LayerDefinition(
+                layer_type=layer_type,
+                winding_angle_deg=winding_angle
+            )
+            manager.add_layer(new_layer)
+            st.success(f"Added {layer_type} layer at {winding_angle}°")
                         
                         # Display trajectory information
                         st.markdown("### Trajectory Information")
