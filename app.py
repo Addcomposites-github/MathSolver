@@ -873,11 +873,41 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
                 'coverage_mode': 'full_coverage'
             }
             
-            # Generate complete coverage pattern
-            coverage_generator = AdvancedFullCoverageGenerator(vessel_geometry, layer_config)
-            coverage_data = coverage_generator.generate_complete_coverage(quality_level)
+            # Check if trajectories exist from trajectory planning workflow
+            trajectory_key = f"layer_{layer_idx}_trajectory"
+            if (hasattr(st.session_state, 'layer_trajectories') and 
+                layer_idx in st.session_state.layer_trajectories and
+                st.session_state.layer_trajectories[layer_idx]):
+                
+                # Use existing planned trajectories from workflow
+                planned_data = st.session_state.layer_trajectories[layer_idx]
+                
+                # Convert planned trajectories to visualization format
+                coverage_data = {
+                    'circuits': planned_data.get('circuits', []),
+                    'circuit_metadata': planned_data.get('metadata', []),
+                    'total_circuits': len(planned_data.get('circuits', [])),
+                    'coverage_percentage': planned_data.get('coverage_stats', {}).get('coverage_percentage', 0),
+                    'pattern_info': {
+                        'actual_pattern_type': selected_layer.layer_type,
+                        'winding_angle': selected_layer.winding_angle_deg
+                    },
+                    'quality_settings': {'mode': quality_level},
+                    'source': 'planned_trajectory'
+                }
+                st.success(f"Using planned trajectories: {coverage_data['total_circuits']} circuits from trajectory planning workflow")
+                
+            else:
+                # No planned trajectories - show error and workflow guidance
+                st.error("No planned trajectories found for this layer.")
+                st.info("Please follow the proper workflow:")
+                st.info("1. Define vessel geometry")
+                st.info("2. Configure layer stack")
+                st.info("3. Generate trajectories in Trajectory Planning")
+                st.info("4. Then visualize the results here")
+                return
             
-            # Create visualization
+            # Create visualization using planned trajectories
             visualizer = Advanced3DVisualizer()
             viz_options = {
                 'show_mandrel': show_mandrel_mesh,
