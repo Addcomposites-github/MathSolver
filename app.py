@@ -455,12 +455,55 @@ def vessel_geometry_page():
                 st.error(f"Error generating geometry: {str(e)}")
     
     with col2:
-        st.subheader("Vessel Profile Visualization")
+        st.subheader("3D Vessel Visualization")
         
         if st.session_state.vessel_geometry is not None:
-            visualizer = VesselVisualizer()
-            fig = visualizer.plot_vessel_profile(st.session_state.vessel_geometry)
-            st.pyplot(fig)
+            # Create 3D vessel visualization
+            try:
+                from modules.advanced_3d_visualization import Advanced3DVisualizer
+                
+                # Create empty coverage data for vessel-only visualization
+                vessel_only_data = {
+                    'circuits': [],
+                    'circuit_metadata': [],
+                    'total_circuits': 0,
+                    'coverage_percentage': 0,
+                    'pattern_info': {'actual_pattern_type': 'vessel_geometry'},
+                    'quality_settings': {'mode': 'standard'},
+                    'source': 'vessel_geometry'
+                }
+                
+                layer_config = {
+                    'layer_type': 'vessel_only',
+                    'winding_angle_deg': 0,
+                    'physics_model': 'none',
+                    'roving_width': 3.0,
+                    'coverage_mode': 'vessel_display'
+                }
+                
+                visualization_options = {
+                    'quality_level': 'standard',
+                    'show_mandrel_mesh': True,
+                    'color_by_circuit': False,
+                    'show_all_circuits': False
+                }
+                
+                visualizer = Advanced3DVisualizer()
+                fig = visualizer.create_full_coverage_visualization(
+                    vessel_only_data,
+                    st.session_state.vessel_geometry,
+                    layer_config,
+                    visualization_options
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+            except Exception as e:
+                # Fallback to 2D visualization if 3D fails
+                visualizer = VesselVisualizer()
+                fig = visualizer.plot_vessel_profile(st.session_state.vessel_geometry)
+                st.pyplot(fig)
+                st.info("Using 2D profile view - 3D visualization will be available after trajectory planning")
             
             # Display geometric properties
             st.subheader("Geometric Properties")
@@ -477,7 +520,7 @@ def vessel_geometry_page():
                 st.metric("Weight (Est.)", f"{props['estimated_weight']:.2f} kg")
                 st.metric("Aspect Ratio", f"{props['aspect_ratio']:.2f}")
         else:
-            st.info("Please configure and generate vessel geometry to see visualization.")
+            st.info("Please configure and generate vessel geometry to see 3D visualization.")
 
 def create_advanced_layer_definition_ui():
     """Create enhanced layer definition UI with advanced planning capabilities"""
@@ -669,6 +712,14 @@ def add_realtime_feasibility_validation(layer_config):
     
     validation_results = []
     
+    # Algorithm combination validation - enforce supported combinations
+    algorithm_valid = validate_algorithm_combination(
+        layer_config.get('layer_type', 'helical'),
+        layer_config.get('physics_model'),
+        layer_config.get('winding_angle')
+    )
+    validation_results.append(('Algorithm Combination', algorithm_valid))
+    
     # Physics model validation
     physics_valid = validate_physics_compatibility(
         layer_config.get('physics_model'),
@@ -702,6 +753,26 @@ def add_realtime_feasibility_validation(layer_config):
     else:
         st.error(f"❌ **Critical Issues**: {validation_score:.0f}% validation passed")
         return False
+
+def validate_algorithm_combination(layer_type, physics_model, winding_angle):
+    """Validate that the algorithm combination is supported"""
+    if not layer_type or not physics_model:
+        return False
+    
+    # Define supported combinations
+    supported_combinations = {
+        ('helical', 'constant_angle'),
+        ('geodesic', 'clairaut'),
+        ('hoop', 'constant_angle')
+    }
+    
+    # Check if combination is supported
+    combination_key = (layer_type.lower(), physics_model.lower())
+    
+    if combination_key not in supported_combinations:
+        return False
+    
+    return True
 
 def validate_physics_compatibility(physics_model, winding_angle, friction_coeff):
     """Validate physics model compatibility with winding parameters"""
@@ -1613,136 +1684,24 @@ def layer_by_layer_planning(layer_manager):
         else:
             st.error("❌ Failed to generate trajectories. Please check layer definitions and try again.")
 
-    # Advanced 3D Full Coverage Visualization section
-    st.markdown("---")
-    st.markdown("### 🎯 Advanced 3D Full Coverage Visualization")
-    st.info("Generate complete coverage patterns with high-quality mandrel representation for any layer")
-    
-    # Add the full coverage visualization for layer stack
-    add_full_coverage_visualization_section(layer_manager)
-
-    # 3D Visualization section - independent of generation button
+    # Planning status and next steps
     if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:
-        st.markdown("### 📊 Standard Trajectory Visualization")
-        all_trajectories = st.session_state.all_layer_trajectories
+        st.markdown("---")
+        st.success("🎯 **Trajectory Planning Complete**")
+        st.info("📊 **Next Step**: Go to the Visualization section to view your planned trajectories in 3D")
         
-        # Layer selection for visualization
-        layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
-                       for traj in all_trajectories]
+        # Show simple trajectory status
+        trajectory_status = []
+        for traj in st.session_state.all_layer_trajectories:
+            points = traj['trajectory_data'].get('total_points', 0) if traj['trajectory_data'] else 0
+            trajectory_status.append({
+                "Layer": f"Layer {traj['layer_id']}",
+                "Type": traj['layer_type'],
+                "Angle": f"{traj['winding_angle']}°",
+                "Status": "✅ Generated" if points > 0 else "❌ Failed"
+            })
         
-        selected_layer_idx = st.selectbox(
-            "Select Layer to Visualize",
-            range(len(layer_options)),
-            format_func=lambda x: layer_options[x]
-        )
-        
-        if selected_layer_idx is not None and selected_layer_idx < len(all_trajectories):
-            selected_traj = all_trajectories[selected_layer_idx]
-            
-            # Visualization controls
-            col1, col2 = st.columns(2)
-            with col1:
-                view_mode = st.selectbox(
-                    "View Mode",
-                    ("Full 3D", "Half 3D (Y+)", "2D R-Z Profile"),
-                    help="Choose visualization mode for trajectory verification"
-                )
-            with col2:
-                view_quality = st.selectbox(
-                    "3D View Quality",
-                    ("Standard (Fast)", "High Definition"),
-                    help="High Definition: More detail, slower rendering"
-                )
-            
-            # Set parameters based on quality selection
-            if view_quality == "High Definition":
-                decimation_factor = 1  # Plot all points
-                surface_segments = 80  # Smoother mandrel
-                mandrel_profile_limit = 200  # More detailed mandrel profile
-                st.info("🔬 **High Definition Mode**: Full trajectory detail with smooth mandrel surface")
-            else:
-                decimation_factor = 10  # Standard decimation
-                surface_segments = 30  # Standard surface detail
-                mandrel_profile_limit = 50  # Standard mandrel profile
-                st.info("⚡ **Standard Mode**: Optimized for fast rendering")
-            
-            # Create visualization tabs
-            viz_tab1, viz_tab2 = st.tabs(["🎯 Single Layer View", "📊 Layer Metrics"])
-            
-            with viz_tab1:
-                try:
-                    from modules.trajectory_visualization import create_3d_trajectory_visualization, create_2d_rz_trajectory_visualization, display_trajectory_metrics
-                    
-                    # Create layer info for visualization
-                    layer_info = {
-                        'layer_type': selected_traj['layer_type'],
-                        'winding_angle': selected_traj['winding_angle'],
-                        'layer_id': selected_traj['layer_id']
-                    }
-                    
-                    # Generate visualization based on selected mode
-                    if view_mode == "2D R-Z Profile":
-                        # Use 2D R-Z profile view for precise trajectory verification
-                        fig = create_2d_rz_trajectory_visualization(
-                            selected_traj['trajectory_data'],
-                            st.session_state.vessel_geometry,
-                            layer_info,
-                            decimation_factor=max(1, decimation_factor // 5)  # Less decimation for 2D
-                        )
-                        st.info("💡 **Profile Verification Mode**: This view shows if trajectory points lie precisely on the mandrel surface")
-                    else:
-                        # Use 3D visualization with appropriate view mode
-                        view_mode_3d = "full" if view_mode == "Full 3D" else "half_y_positive"
-                        fig = create_3d_trajectory_visualization(
-                            selected_traj['trajectory_data'],
-                            st.session_state.vessel_geometry,
-                            layer_info,
-                            decimation_factor=decimation_factor,
-                            surface_segments=surface_segments,
-                            view_mode=view_mode_3d,
-                            mandrel_profile_points_limit=mandrel_profile_limit
-                        )
-                        if view_mode == "Half 3D (Y+)":
-                            st.info("🔍 **Half-Section View**: Showing Y≥0 half to reduce visual clutter while preserving trajectory details")
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                except Exception as e:
-                    st.error(f"Error creating visualization: {str(e)}")
-                    st.info("Visualization temporarily unavailable - trajectory data is still valid for manufacturing")
-                
-                with viz_tab2:
-                    try:
-                        from modules.trajectory_visualization import display_trajectory_metrics
-                        
-                        display_trajectory_metrics(
-                            selected_traj['trajectory_data'],
-                            {
-                                'layer_type': selected_traj['layer_type'],
-                                'winding_angle': selected_traj['winding_angle'],
-                                'layer_id': selected_traj['layer_id']
-                            }
-                        )
-                        
-                    except Exception as e:
-                        st.error(f"Error displaying metrics: {str(e)}")
-            
-            # Multi-layer comparison option
-            if len(all_trajectories) > 1:
-                st.markdown("### 🔄 Multi-Layer Comparison")
-                if st.button("🎨 Show All Layers Together", type="secondary"):
-                    try:
-                        from modules.trajectory_visualization import create_multi_layer_comparison
-                        
-                        fig_multi = create_multi_layer_comparison(all_trajectories, st.session_state.vessel_geometry)
-                        st.plotly_chart(fig_multi, use_container_width=True)
-                        
-                        st.success(f"✅ Displaying all {len(all_trajectories)} planned layers together!")
-                        
-                    except Exception as e:
-                        st.error(f"Error creating multi-layer visualization: {str(e)}")
-        else:
-            st.error("❌ No trajectories were successfully generated")
+        st.dataframe(trajectory_status, use_container_width=True, hide_index=True)
 
 
 def complete_stack_planning(layer_manager):
