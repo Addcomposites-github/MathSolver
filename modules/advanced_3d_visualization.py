@@ -73,6 +73,17 @@ class Advanced3DVisualizer:
             z_profile_m = z_profile_mm / 1000.0
             r_profile_m = r_profile_mm / 1000.0
             
+            # Debug the profile data
+            st.write(f"   📊 Z range: {np.min(z_profile_m):.3f}m to {np.max(z_profile_m):.3f}m")
+            st.write(f"   📊 R range: {np.min(r_profile_m):.3f}m to {np.max(r_profile_m):.3f}m")
+            
+            # Check for dome geometry
+            r_variation = np.max(r_profile_m) - np.min(r_profile_m)
+            st.write(f"   🔍 Radius variation: {r_variation*1000:.1f}mm (dome indicator)")
+            
+            if r_variation < 0.001:  # Less than 1mm variation
+                st.warning("   ⚠️ Minimal radius variation detected - may appear cylindrical")
+            
             # Verify coordinate system
             z_min, z_max = np.min(z_profile_m), np.max(z_profile_m)
             z_center = (z_min + z_max) / 2

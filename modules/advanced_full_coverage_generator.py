@@ -184,18 +184,52 @@ class AdvancedFullCoverageGenerator:
             z_points = np.linspace(z_profile_sorted[0], z_profile_sorted[-1], num_points)
             r_points = np.interp(z_points, z_profile_sorted, r_profile_sorted)
             
-            # Create helical trajectory with proper dome coverage
+            # Create proper dome trajectory coverage
             angle = self.layer_config['winding_angle']
             
-            # For high angles, create more wraps to ensure full coverage
-            if angle >= 85:  # Near-hoop patterns
-                phi_range = 4 * math.pi  # Multiple wraps for hoop patterns
-            elif angle >= 60:  # High angle helical
-                phi_range = 3 * math.pi  # More wraps for better coverage
-            else:  # Low angle helical
-                phi_range = 2 * math.pi  # Standard wrap
+            # Calculate dome regions for proper trajectory generation
+            z_min, z_max = z_profile_sorted[0], z_profile_sorted[-1]
+            vessel_length = z_max - z_min
+            cylinder_start = z_min + vessel_length * 0.3  # Approximate cylinder start
+            cylinder_end = z_max - vessel_length * 0.3    # Approximate cylinder end
+            
+            # Separate into dome and cylinder regions
+            aft_dome_mask = z_points <= cylinder_start
+            cylinder_mask = (z_points > cylinder_start) & (z_points < cylinder_end)
+            forward_dome_mask = z_points >= cylinder_end
+            
+            # Generate trajectory points with proper dome coverage
+            phi_points = np.zeros(num_points)
+            
+            # Aft dome: geodesic paths
+            if np.any(aft_dome_mask):
+                aft_indices = np.where(aft_dome_mask)[0]
+                phi_range_aft = math.pi if angle < 60 else 2 * math.pi
+                phi_points[aft_indices] = np.linspace(start_phi, start_phi + phi_range_aft, len(aft_indices))
+            
+            # Cylinder: helical pattern
+            if np.any(cylinder_mask):
+                cyl_indices = np.where(cylinder_mask)[0]
+                if angle >= 85:  # Near-hoop
+                    phi_range_cyl = 6 * math.pi  # Multiple wraps
+                else:  # Helical
+                    phi_range_cyl = 2 * math.pi * (90 - angle) / 45  # More wraps for lower angles
                 
-            phi_points = np.linspace(start_phi, start_phi + phi_range, num_points)
+                if len(cyl_indices) > 0:
+                    start_phi_cyl = phi_points[aft_indices[-1]] if len(aft_indices) > 0 else start_phi
+                    phi_points[cyl_indices] = np.linspace(start_phi_cyl, start_phi_cyl + phi_range_cyl, len(cyl_indices))
+            
+            # Forward dome: geodesic paths
+            if np.any(forward_dome_mask):
+                fwd_indices = np.where(forward_dome_mask)[0]
+                phi_range_fwd = math.pi if angle < 60 else 2 * math.pi
+                if len(cyl_indices) > 0:
+                    start_phi_fwd = phi_points[cyl_indices[-1]]
+                elif len(aft_indices) > 0:
+                    start_phi_fwd = phi_points[aft_indices[-1]]
+                else:
+                    start_phi_fwd = start_phi
+                phi_points[fwd_indices] = np.linspace(start_phi_fwd, start_phi_fwd + phi_range_fwd, len(fwd_indices))
             
             circuit_points = []
             
