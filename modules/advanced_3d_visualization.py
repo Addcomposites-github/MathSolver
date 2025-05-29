@@ -66,10 +66,14 @@ class Advanced3DVisualizer:
             z_smooth = np.linspace(z_profile[0], z_profile[-1], resolution)
             r_smooth = np.interp(z_smooth, z_profile, r_profile)
             
-            # Create circular surface mesh
+            # Create proper vessel surface mesh that follows the dome profile
             theta = np.linspace(0, 2*np.pi, surface_segments)
             Z_mesh, Theta_mesh = np.meshgrid(z_smooth, theta)
-            R_mesh = np.tile(r_smooth, (surface_segments, 1))
+            
+            # Use the actual radius profile instead of tiling
+            R_mesh = np.zeros_like(Z_mesh)
+            for i, theta_val in enumerate(theta):
+                R_mesh[i, :] = r_smooth  # Each circumferential slice uses the profile radius
             
             # Convert to Cartesian coordinates
             X_mesh = R_mesh * np.cos(Theta_mesh)
