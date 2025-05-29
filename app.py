@@ -258,6 +258,12 @@ def visualization_page():
                                 'points_count': len(path_points),
                                 'quality_score': 95.0
                             }],
+                            'metadata': [{  # Add metadata alias for backward compatibility
+                                'circuit_number': 1,
+                                'start_phi_deg': 0.0,
+                                'points_count': len(path_points),
+                                'quality_score': 95.0
+                            }],
                             'total_circuits': 1,
                             'coverage_percentage': trajectory_data.get('coverage_percentage', 85.0),
                             'pattern_info': {
@@ -732,12 +738,18 @@ def add_realtime_feasibility_validation(layer_config):
     manufacturing_valid = validate_manufacturing_feasibility(layer_config)
     validation_results.append(('Manufacturing', manufacturing_valid))
     
-    # Display validation results
+    # Display validation results with specific warnings
     for validation_name, is_valid in validation_results:
         if is_valid:
             st.success(f"✅ {validation_name}: Valid")
         else:
-            st.error(f"❌ {validation_name}: Issues detected")
+            if validation_name == "Algorithm Combination":
+                layer_type = layer_config.get('layer_type', 'helical')
+                physics = layer_config.get('physics_model', 'none')
+                st.error(f"❌ {validation_name}: {layer_type}+{physics} not supported")
+                st.info("💡 Supported: helical+constant_angle, geodesic+clairaut, hoop+constant_angle")
+            else:
+                st.error(f"❌ {validation_name}: Issues detected")
     
     # Overall validation score
     valid_count = sum(1 for _, valid in validation_results if valid)
@@ -1170,6 +1182,12 @@ def generate_and_display_full_coverage(manager, selected_layer, layer_idx,
                     coverage_data = {
                         'circuits': [path_points],  # Single circuit from planned trajectory
                         'circuit_metadata': [{
+                            'circuit_number': 1,
+                            'start_phi_deg': 0.0,
+                            'points_count': len(path_points),
+                            'quality_score': 95.0
+                        }],
+                        'metadata': [{  # Add metadata alias for backward compatibility
                             'circuit_number': 1,
                             'start_phi_deg': 0.0,
                             'points_count': len(path_points),
