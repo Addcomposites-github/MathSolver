@@ -54,12 +54,16 @@ class Advanced3DVisualizer:
     def _add_advanced_mandrel_surface(self, fig, vessel_geometry, quality_settings):
         """Add mandrel surface with vessel center at origin (0,0,0)"""
         try:
+            st.write("🔧 **Mandrel Surface Generation Debug:**")
+            
             # Get vessel profile points (these should already be centered)
             profile = vessel_geometry.get_profile_points()
             if not profile or 'r_inner_mm' not in profile or 'z_mm' not in profile:
-                st.warning("Using fallback mandrel - vessel profile not available")
+                st.error("❌ Vessel profile not available - using fallback mandrel")
                 self._add_centered_mandrel_fallback(fig, vessel_geometry)
                 return
+            
+            st.write(f"   ✅ Profile data retrieved: {len(profile['z_mm'])} points")
             
             # Convert profile data to arrays and meters
             z_profile_mm = np.array(profile['z_mm'])
@@ -122,11 +126,17 @@ class Advanced3DVisualizer:
             ))
             
             # Add wireframe for better definition
-            self._add_mandrel_wireframe(fig, X_mesh, Y_mesh, Z_mesh, max(1, surface_segments//4))
+            self._add_mandrel_wireframe(fig, X_mesh, Y_mesh, Z_mesh, max(1, surface_segments//8))
+            
+            # Add coordinate system reference
+            self._add_coordinate_reference(fig, z_min, z_max, np.max(r_smooth))
+            
+            st.success(f"   ✅ Mandrel surface generated successfully")
+            st.write(f"   📊 Surface mesh: {resolution}×{surface_segments} points")
             
         except Exception as e:
-            # Add simple cylinder as fallback
-            self._add_simple_mandrel_fallback(fig, vessel_geometry)
+            st.error(f"❌ Error generating mandrel surface: {str(e)}")
+            self._add_centered_mandrel_fallback(fig, vessel_geometry)
     
     def _add_mandrel_wireframe(self, fig, X_mesh, Y_mesh, Z_mesh, step):
         """Add wireframe lines for better mandrel definition"""
