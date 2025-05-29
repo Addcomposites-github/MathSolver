@@ -529,112 +529,150 @@ def vessel_geometry_page():
             st.info("Please configure and generate vessel geometry to see 3D visualization.")
 
 def create_advanced_layer_definition_ui():
-    """Create enhanced layer definition UI with advanced planning capabilities"""
-    st.markdown("### ➕ Advanced Layer Definition & Planning")
-    
-    # Create tabs for different aspects
-    layer_tabs = st.tabs([
-        "🏗️ Layer Properties", 
-        "🔬 Winding Physics", 
-        "📊 Pattern Optimization",
-        "⚙️ Advanced Settings"
-    ])
+    """Create enhanced layer definition UI with intelligent guidance and validation"""
+    st.markdown("### ➕ Intelligent Layer Definition")
+    st.caption("Get real-time guidance for optimal trajectory planning algorithm selection")
     
     layer_config = {}
     
-    with layer_tabs[0]:  # Layer Properties
-        col1, col2 = st.columns(2)
-        with col1:
-            layer_config['layer_type'] = st.selectbox(
-                "Layer Type", 
-                ["helical", "hoop", "polar"],
-                help="Primary winding pattern classification"
-            )
-            layer_config['fiber_material'] = st.selectbox("Fiber Material", list(FIBER_MATERIALS.keys()))
-            layer_config['winding_angle'] = st.number_input("Winding Angle (°)", 0.0, 90.0, 45.0)
+    # Main layer properties with immediate feedback
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("#### 🏗️ Layer Properties")
         
-        with col2:
+        # Layer type selection
+        layer_config['layer_type'] = st.selectbox(
+            "Layer Type", 
+            ["helical", "hoop", "polar"],
+            help="• Helical: Angled layers for structural strength\n• Hoop: Near-circumferential layers\n• Polar: Boss reinforcement layers"
+        )
+        
+        # Winding angle with guidance
+        layer_config['winding_angle'] = st.number_input(
+            "Winding Angle (°)", 
+            min_value=5.0, 
+            max_value=90.0, 
+            value=45.0,
+            step=1.0,
+            help="• Low angles (5-25°): Use Geodesic (Clairaut) physics\n• Mid angles (25-75°): Flexible, multiple options\n• High angles (75-90°): Use Constant Angle physics"
+        )
+        
+        # Material selections
+        col_mat1, col_mat2 = st.columns(2)
+        with col_mat1:
+            layer_config['fiber_material'] = st.selectbox("Fiber Material", list(FIBER_MATERIALS.keys()))
+        with col_mat2:
             layer_config['resin_material'] = st.selectbox("Resin Material", list(RESIN_MATERIALS.keys()))
+        
+        # Layer dimensions
+        col_dim1, col_dim2 = st.columns(2)
+        with col_dim1:
             layer_config['num_plies'] = st.number_input("Number of Plies", 1, 20, 2)
+        with col_dim2:
             layer_config['ply_thickness'] = st.number_input("Ply Thickness (mm)", 0.05, 2.0, 0.125)
     
-    with layer_tabs[1]:  # Winding Physics
-        st.markdown("#### 🔬 Physics Model Selection")
+    with col2:
+        st.markdown("#### 💡 Smart Recommendations")
         
-        # Auto-suggest physics model based on layer type and angle
-        suggested_physics = suggest_physics_model(layer_config.get('layer_type'), layer_config.get('winding_angle', 45))
+        # Get real-time suggestions
+        suggested_physics = suggest_physics_model(
+            layer_config.get('layer_type'), 
+            layer_config.get('winding_angle', 45)
+        )
         
-        col1, col2 = st.columns(2)
-        with col1:
-            layer_config['physics_model'] = st.selectbox(
-                "Physics Model",
-                ["clairaut", "friction", "constant_angle"],
-                index=["clairaut", "friction", "constant_angle"].index(suggested_physics),
-                help="Mathematical model for trajectory calculation"
-            )
-            
-            if layer_config['physics_model'] == 'friction':
-                layer_config['friction_coefficient'] = st.slider(
-                    "Friction Coefficient", 0.0, 1.0, 0.3, 0.05,
-                    help="Enables non-geodesic paths with extreme angles"
-                )
+        # Display current guidance
+        angle = layer_config.get('winding_angle', 45)
+        layer_type = layer_config.get('layer_type', 'helical')
         
-        with col2:
-            layer_config['continuity_level'] = st.selectbox(
-                "Continuity Level", [0, 1, 2], index=1,
-                help="0=Position, 1=Velocity, 2=Acceleration continuity"
-            )
-            
-            layer_config['coverage_mode'] = st.selectbox(
-                "Coverage Strategy",
-                ["single_pass", "full_coverage", "optimized_coverage"],
-                index=1,
-                help="How to cover the mandrel surface"
-            )
+        if angle <= 25:
+            st.success("🎯 **Recommended: Geodesic (Clairaut)**")
+            st.caption("Low angles work best with natural geodesic paths")
+        elif angle >= 80:
+            st.success("🎯 **Recommended: Constant Angle**")
+            st.caption("High angles need precise angle control")
+        else:
+            st.info("🔄 **Multiple Options Available**")
+            st.caption("Mid-range angles offer flexibility in physics choice")
         
-        # Show physics recommendation
-        show_physics_recommendation(layer_config)
+        # Winding angle classification
+        if angle <= 15:
+            st.write("📊 **Classification:** Near-geodesic")
+        elif angle <= 30:
+            st.write("📊 **Classification:** Low-angle helical")
+        elif angle <= 60:
+            st.write("📊 **Classification:** Mid-angle helical")
+        elif angle <= 80:
+            st.write("📊 **Classification:** High-angle helical")
+        else:
+            st.write("📊 **Classification:** Near-hoop")
     
-    with layer_tabs[2]:  # Pattern Optimization
-        st.markdown("#### 📊 Koussios Pattern Optimization")
-        
-        enable_optimization = st.checkbox("Enable Koussios Pattern Optimization", value=True)
-        
-        if enable_optimization:
-            col1, col2 = st.columns(2)
-            with col1:
-                layer_config['optimize_roving_width'] = st.checkbox("Auto-Optimize Roving Width", value=True)
-                layer_config['target_coverage'] = st.slider("Target Coverage %", 95.0, 100.0, 98.0, 0.5)
-            
-            with col2:
-                layer_config['pattern_type_preference'] = st.selectbox(
-                    "Pattern Preference", 
-                    ["auto", "leading", "lagging"],
-                    help="Diophantine equation solution preference"
-                )
-                layer_config['max_circuits'] = st.number_input("Max Circuits", 1, 50, 20)
-        
-        # Add live pattern analysis if vessel geometry is available
-        add_live_pattern_analysis(layer_config)
+    # Physics model selection with smart defaults
+    st.markdown("#### 🔬 Physics Model Selection")
     
-    with layer_tabs[3]:  # Advanced Settings
-        st.markdown("#### ⚙️ Advanced Manufacturing Settings")
+    col_phys1, col_phys2 = st.columns([2, 1])
+    
+    with col_phys1:
+        # Physics model with recommended default
+        physics_options = ["clairaut", "constant_angle", "friction"]
+        try:
+            default_index = physics_options.index(suggested_physics)
+        except ValueError:
+            default_index = 0
         
-        col1, col2 = st.columns(2)
-        with col1:
-            layer_config['turnaround_planning'] = st.checkbox("Advanced Turnaround Planning", value=False)
-            if layer_config['turnaround_planning']:
-                layer_config['turnaround_method'] = st.selectbox(
-                    "Turnaround Method",
-                    ["smooth_transition", "minimum_time", "minimum_stress"]
-                )
+        layer_config['physics_model'] = st.selectbox(
+            "Physics Model",
+            physics_options,
+            index=default_index,
+            help="• Clairaut: Natural geodesic paths (best for low angles)\n• Constant Angle: Maintains precise angles (best for hoop)\n• Friction: Non-geodesic paths (for extreme angles)"
+        )
         
-        with col2:
-            layer_config['quality_validation'] = st.checkbox("Real-time Quality Validation", value=True)
-            layer_config['machine_constraints'] = st.checkbox("Apply Machine Constraints", value=False)
+        # Additional physics parameters
+        if layer_config['physics_model'] == 'friction':
+            layer_config['friction_coefficient'] = st.number_input(
+                "Friction Coefficient", 0.0, 1.0, 0.3,
+                help="Higher values allow steeper non-geodesic angles"
+            )
+        else:
+            layer_config['friction_coefficient'] = 0.0
         
-        # Add real-time validation
-        add_realtime_feasibility_validation(layer_config)
+        # Coverage settings
+        layer_config['coverage_percentage'] = st.slider("Coverage Percentage", 85, 100, 100, 
+                                                       help="Percentage of surface to cover")
+        
+        # Coverage mode
+        layer_config['coverage_mode'] = st.selectbox(
+            "Coverage Strategy",
+            ["single_pass", "full_coverage", "optimized_coverage"],
+            index=1,
+            help="How to cover the mandrel surface"
+        )
+    
+    with col_phys2:
+        # Real-time validation and feedback
+        is_valid_combo = validate_algorithm_combination(
+            layer_config.get('layer_type'),
+            layer_config.get('physics_model'),
+            layer_config.get('winding_angle')
+        )
+        
+        if is_valid_combo:
+            st.success("✅ **Valid Combination**")
+            st.caption("This setup will generate reliable trajectories")
+        else:
+            st.error("❌ **Unsupported Combination**")
+            st.caption(f"Try: {layer_config.get('layer_type')} + {suggested_physics}")
+            
+        # Show why this combination works or doesn't
+        selected_physics = layer_config.get('physics_model', 'clairaut')
+        angle = layer_config.get('winding_angle', 45)
+        
+        if selected_physics == 'clairaut' and angle > 70:
+            st.warning("⚠️ Clairaut physics may struggle with high angles")
+        elif selected_physics == 'constant_angle' and angle < 15:
+            st.info("ℹ️ Geodesic might be more natural for low angles")
+        elif selected_physics == 'friction' and angle < 30:
+            st.info("ℹ️ Friction physics not needed for low angles")
     
     return layer_config
 

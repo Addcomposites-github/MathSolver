@@ -1,0 +1,71 @@
+Okay, I understand. Instead of adding more complex enhancements to the Layer Stack Definition at this stage, you want to focus on providing clear guidance to the user about which trajectory planning algorithms are suitable for their desired winding angle and vessel geometry. This guidance should be at the UI level to prevent users from attempting unsupported or non-optimal combinations, thus avoiding incorrect trajectory generations.
+
+Here's a proposed approach to integrate this logic and user guidance, primarily within the "Advanced Layer Definition & Planning" UI:
+
+**1. Leverage and Enhance Existing Suggestion & Validation Logic:**
+
+Your codebase already has the foundations for this with `suggest_physics_model` and `validate_algorithm_combination` (from the UI integration plan you provided). We should make these more central to the user experience during layer definition.
+
+* **`suggest_physics_model(layer_type, winding_angle)`**: This function already provides a good starting point for recommending a physics model (`clairaut`, `friction`, `constant_angle`) based on the layer type (hoop, helical, polar) and the winding angle.
+* **`validate_algorithm_combination(layer_type, physics_model, winding_angle)`**: This function is crucial for checking if a user-selected combination is supported and makes sense. The current plan snippet indicates it checks for valid combinations like `helical` + `constant_angle`, `geodesic` + `clairaut`, and `hoop` + `constant_angle`.
+
+**2. UI Enhancements in `create_advanced_layer_definition_ui` (likely in `app.py`):**
+
+The goal is to make the implications of user choices clear *as they are making them*.
+
+* **Dynamic Physics Model Recommendation & Info:**
+    * When the user selects a "Layer Type" and inputs a "Winding Angle" in the "Layer Properties" tab, the "Winding Physics" tab should immediately reflect the suggested physics model.
+    * The `st.selectbox` for "Physics Model" should either:
+        * Default to the `suggested_physics` model.
+        * Clearly highlight the recommended option.
+    * Use `show_physics_recommendation(layer_config)` to display an informative message (e.g., using `st.info` or `st.caption`) explaining *why* a particular model is suggested for the chosen angle and layer type. For example:
+        * "For a hoop layer at 88°, 'Constant Angle' is recommended to maintain the angle precisely."
+        * "For a helical layer at 15°, 'Clairaut' (geodesic) is recommended for a natural, stable path."
+        * "For a helical layer at 65°, 'Friction' might be needed if a strict angle is required that deviates from a geodesic path."
+
+* **Interactive Validation and Warnings:**
+    * As the user makes selections for "Layer Type", "Winding Angle", and "Physics Model", the `validate_algorithm_combination` function should be called in real-time.
+    * If an unsupported or non-optimal combination is selected:
+        * Display a clear `st.warning` or `st.error` message immediately below the selection widgets. For example: "Warning: Using 'Clairaut' physics with a 90° (hoop) angle is not standard. 'Constant Angle' is recommended." or "Error: 'Clairaut' physics cannot achieve extremely high winding angles without slippage; consider 'Friction' or 'Constant Angle'."
+        * Optionally, you could disable the "Add Layer to Stack" button if a critically unsupported combination is chosen, forcing the user to correct it.
+    * The `add_realtime_feasibility_validation` function (from your UI plan) should prominently display the status of "Algorithm Combination" and "Physics Model" compatibility.
+
+* **Contextual Help and Guidance:**
+    * Enhance the `help` tooltips for each selection (`st.selectbox`, `st.number_input`, etc.) to provide more context about how it affects algorithm choice.
+        * **Winding Angle**: "Lower angles (e.g., < 25°) typically use Geodesic (Clairaut). Hoop layers (e.g., > 80°) use Constant Angle. Mid-range angles offer more flexibility."
+        * **Physics Model**:
+            * **Clairaut**: "Select for natural geodesic paths. Best for low to moderate winding angles where friction is not needed to maintain the path."
+            * **Friction**: "Select for non-geodesic paths, or when the desired winding angle is too extreme to be held by Clairaut's theorem alone. Requires setting a friction coefficient."
+            * **Constant Angle**: "Select to attempt to maintain the specified winding angle as closely as possible throughout the layer. Often used for hoop layers or specific helical patterns where angle consistency is critical."
+
+**3. Simplified Logic for Algorithm Choice based on User Input:**
+
+The core logic would look something like this (conceptually, within the UI update flow):
+
+```python
+# When layer_type, winding_angle, or physics_model changes in the UI:
+
+selected_layer_type = layer_config.get('layer_type')
+selected_winding_angle = layer_config.get('winding_angle')
+selected_physics_model = layer_config.get('physics_model')
+
+# 1. Suggest a physics model
+recommended_model = suggest_physics_model(selected_layer_type, selected_winding_angle)
+# Display recommendation and explanation (e.g., using show_physics_recommendation)
+
+# 2. Validate the CURRENTLY selected combination
+is_combo_valid = validate_algorithm_combination(selected_layer_type, selected_physics_model, selected_winding_angle)
+is_physics_compatible = validate_physics_compatibility(selected_physics_model, selected_winding_angle, layer_config.get('friction_coefficient', 0))
+
+if not is_combo_valid:
+    st.error(f"The combination of {selected_layer_type}, {selected_winding_angle}°, and {selected_physics_model} physics is not recommended or supported. Consider using '{recommended_model}'.")
+elif not is_physics_compatible:
+    st.warning(f"The physics model '{selected_physics_model}' might not be optimal for {selected_winding_angle}°.")
+else:
+    st.success("Selected planning approach is valid.")
+
+# Further guide the user based on their choices for other parameters like coverage mode.
+# E.g., "For 'Full Coverage' with a 'Geodesic' path, Koussios pattern optimization will be used."
+```
+
+By making these suggestions and validations very clear and interactive during the layer definition process, users will be naturally guided towards viable and effective trajectory planning setups, significantly reducing the chance of generating incorrect or unmakable paths. This approach focuses on leveraging the existing intelligence in your suggestion/validation functions and making it a proactive part of the UI.
