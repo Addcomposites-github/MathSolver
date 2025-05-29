@@ -68,8 +68,14 @@ class AdvancedFullCoverageGenerator:
                 try:
                     # Extract all required parameters for unified trajectory planner
                     continuity_level = self.layer_config.get('continuity_level', 1)
-                    physics_model = self.layer_config.get('physics_model', 'clairaut')
-                    pattern_type = 'helical' if winding_angle < 85 else 'hoop'
+                    
+                    # Map to supported combinations in UnifiedTrajectoryPlanner
+                    if winding_angle < 85:  # Helical patterns
+                        pattern_type = 'helical'
+                        physics_model = 'constant_angle'  # helical + constant_angle is supported
+                    else:  # Near-hoop patterns
+                        pattern_type = 'geodesic'  # Use geodesic for hoop-like behavior
+                        physics_model = 'clairaut'     # geodesic + clairaut is supported
                     
                     print(f"[AdvancedCoverage] Circuit {circuit_num + 1}: Using UnifiedPlanner with:")
                     print(f"  - Pattern: {pattern_type}")
@@ -83,23 +89,27 @@ class AdvancedFullCoverageGenerator:
                         coverage_mode='full_coverage',
                         physics_model=physics_model,
                         continuity_level=continuity_level,
-                        target_angle_deg=winding_angle,
-                        start_phi_offset=start_phi
+                        target_params={'winding_angle_deg': winding_angle},
+                        initial_conditions={'start_phi_rad': start_phi, 'start_z': 0.0},
+                        options={'num_points': 100}
                     )
                     
-                    if trajectory_result and trajectory_result.get('success', False):
-                        trajectory_points = trajectory_result.get('path_points', [])
-                        if trajectory_points:
-                            all_circuits.append(trajectory_points)
-                            circuit_metadata.append({
-                                'circuit_number': circuit_num + 1,
-                                'start_phi_deg': math.degrees(start_phi),
-                                'points_count': len(trajectory_points),
-                                'quality_score': trajectory_result.get('quality_score', 85.0)
-                            })
-                            print(f"[AdvancedCoverage] Generated circuit {circuit_num + 1}/{total_circuits} with {len(trajectory_points)} points using UnifiedPlanner")
-                        else:
-                            print(f"[AdvancedCoverage] UnifiedPlanner returned empty trajectory for circuit {circuit_num + 1}")
+                    if trajectory_result and hasattr(trajectory_result, 'points') and trajectory_result.points:
+                        trajectory_points = trajectory_result.points
+                        all_circuits.append(trajectory_points)
+                        
+                        # Get quality score from quality_metrics if available
+                        quality_score = 85.0
+                        if hasattr(trajectory_result, 'quality_metrics') and trajectory_result.quality_metrics:
+                            quality_score = trajectory_result.quality_metrics.get('overall_score', 85.0)
+                        
+                        circuit_metadata.append({
+                            'circuit_number': circuit_num + 1,
+                            'start_phi_deg': math.degrees(start_phi),
+                            'points_count': len(trajectory_points),
+                            'quality_score': quality_score
+                        })
+                        print(f"[AdvancedCoverage] Generated circuit {circuit_num + 1}/{total_circuits} with {len(trajectory_points)} points using UnifiedPlanner")
                     else:
                         print(f"[AdvancedCoverage] UnifiedPlanner failed for circuit {circuit_num + 1}, using fallback")
                         # Only use fallback if unified planner fails
