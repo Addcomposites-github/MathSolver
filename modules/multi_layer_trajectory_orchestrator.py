@@ -177,6 +177,10 @@ class MultiLayerTrajectoryOrchestrator:
                 'enhanced_quality': True
             })
             
+            # Debug: Print what data format we're returning
+            print(f"DEBUG: Returning trajectory data with keys: {list(trajectory_data.keys())}")
+            print(f"DEBUG: Path points available: {len(trajectory_data.get('path_points', []))}")
+            
             return trajectory_data
             
         except Exception as e:
