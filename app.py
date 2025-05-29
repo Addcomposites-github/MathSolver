@@ -187,6 +187,40 @@ def main():
     elif page == "Export Results":
         export_results_page()
 
+def debug_vessel_geometry():
+    """Debug vessel geometry Z-coordinate generation"""
+    st.subheader("🔍 Vessel Geometry Debug")
+    
+    if 'vessel_geometry' in st.session_state and st.session_state.vessel_geometry:
+        vessel = st.session_state.vessel_geometry
+        profile = vessel.get_profile_points()
+        
+        if profile and 'z_mm' in profile:
+            z_coords = np.array(profile['z_mm'])
+            r_coords = np.array(profile['r_inner_mm'])
+            
+            st.write(f"**Profile Points:** {len(z_coords)}")
+            st.write(f"**Z-coordinate range:** {np.min(z_coords):.3f}mm to {np.max(z_coords):.3f}mm")
+            st.write(f"**Z-coordinate span:** {np.max(z_coords) - np.min(z_coords):.3f}mm")
+            st.write(f"**R-coordinate range:** {np.min(r_coords):.3f}mm to {np.max(r_coords):.3f}mm")
+            
+            if np.max(z_coords) - np.min(z_coords) < 1.0:
+                st.error("❌ **CRITICAL ISSUE:** Z-coordinates have less than 1mm span - vessel profile is essentially flat!")
+            else:
+                st.success("✅ Vessel profile has proper Z-coordinate variation")
+                
+            # Show vessel parameters
+            st.write("**Vessel Parameters:**")
+            st.write(f"- Inner diameter: {getattr(vessel, 'inner_diameter', 'Unknown')}mm")
+            st.write(f"- Cylindrical length: {getattr(vessel, 'cylindrical_length', 'Unknown')}mm")
+            st.write(f"- Wall thickness: {getattr(vessel, 'wall_thickness', 'Unknown')}mm")
+            st.write(f"- Dome type: {getattr(vessel, 'dome_type', 'Unknown')}")
+            
+        else:
+            st.error("❌ No vessel profile found")
+    else:
+        st.warning("No vessel geometry in session state")
+
 def visualization_page():
     """Streamlined 3D visualization page using the new coordinate-aligned system"""
     
@@ -201,6 +235,22 @@ def visualization_page():
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Debug section
+    with st.expander("🔧 Debug Tools", expanded=False):
+        if st.button("Debug Vessel Geometry"):
+            debug_vessel_geometry()
+        
+        if st.button("Debug Parameter Passing"):
+            st.write("**Current trajectory generation parameters:**")
+            if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+                for i, traj in enumerate(st.session_state.all_layer_trajectories):
+                    st.write(f"Trajectory {i+1}:")
+                    if 'target_angle' in traj:
+                        st.write(f"  - Target angle: {traj['target_angle']}°")
+                    if 'winding_angles_deg' in traj and traj['winding_angles_deg']:
+                        actual_angles = np.array(traj['winding_angles_deg'])
+                        st.write(f"  - Actual angle range: {np.min(actual_angles):.1f}° to {np.max(actual_angles):.1f}°")
     
     # Sync trajectory data from layer generation to visualization format
     sync_trajectory_data()
