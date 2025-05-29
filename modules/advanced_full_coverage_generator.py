@@ -30,8 +30,17 @@ class AdvancedFullCoverageGenerator:
             circumference = 2 * math.pi * equatorial_radius
             roving_width_m = self.layer_config.get('roving_width', 3.0) / 1000
             
-            # Estimate number of circuits needed
-            total_circuits = max(1, int(circumference / roving_width_m))
+            # Estimate number of circuits needed based on winding angle
+            winding_angle = self.layer_config['winding_angle']
+            
+            # More circuits needed for high angles (hoop patterns)
+            if winding_angle >= 85:  # Near-hoop patterns
+                total_circuits = max(8, int(circumference / roving_width_m))
+            elif winding_angle >= 60:  # High angle helical
+                total_circuits = max(4, int(circumference / roving_width_m * 0.8))
+            else:  # Low angle helical
+                total_circuits = max(2, int(circumference / roving_width_m * 0.6))
+            
             angular_advancement = 2 * math.pi / total_circuits
             
             # Quality settings
@@ -198,9 +207,18 @@ class AdvancedFullCoverageGenerator:
             z_points = np.linspace(z_full[0], z_full[-1], num_points)
             r_points = np.interp(z_points, z_full, r_full)
             
-            # Create helical trajectory
+            # Create helical trajectory with proper dome coverage
             angle = self.layer_config['winding_angle']
-            phi_points = np.linspace(start_phi, start_phi + 2*math.pi, num_points)
+            
+            # For high angles, create more wraps to ensure full coverage
+            if angle >= 85:  # Near-hoop patterns
+                phi_range = 4 * math.pi  # Multiple wraps for hoop patterns
+            elif angle >= 60:  # High angle helical
+                phi_range = 3 * math.pi  # More wraps for better coverage
+            else:  # Low angle helical
+                phi_range = 2 * math.pi  # Standard wrap
+                
+            phi_points = np.linspace(start_phi, start_phi + phi_range, num_points)
             
             circuit_points = []
             for i, (z, r, phi) in enumerate(zip(z_points, r_points, phi_points)):
