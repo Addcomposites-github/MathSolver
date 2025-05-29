@@ -256,6 +256,12 @@ def visualization_page():
                         z_points = trajectory_data.get('z_points_m', [])
                         winding_angles = trajectory_data.get('winding_angles_deg', [])
                         
+                        # Debug: Show raw coordinate data
+                        st.write(f"Raw coordinate arrays found:")
+                        st.write(f"  x_points_m: {len(x_points)} values, sample: {x_points[:3] if x_points else 'None'}")
+                        st.write(f"  y_points_m: {len(y_points)} values, sample: {y_points[:3] if y_points else 'None'}")
+                        st.write(f"  z_points_m: {len(z_points)} values, sample: {z_points[:3] if z_points else 'None'}")
+                        
                         if len(x_points) > 0 and len(x_points) == len(y_points) == len(z_points):
                             # Convert coordinate arrays to path_points format
                             path_points = []
