@@ -297,6 +297,17 @@ class StreamlinedCOPVVisualizer:
                 st.info(f"Debug coordinate ranges - Y: {y_m.min():.3f} to {y_m.max():.3f}m") 
                 st.info(f"Debug coordinate ranges - Z: {z_m.min():.3f} to {z_m.max():.3f}m")
                 
+                # Check for problematic coordinate values
+                if z_m.min() == z_m.max():
+                    st.error(f"⚠️ Z-coordinates are all identical ({z_m.min():.3f}m) - coordinate system issue detected!")
+                if np.all(z_m == 0):
+                    st.error("⚠️ All Z-coordinates are zero - trajectory may not be properly generated!")
+                    
+                # Show sample coordinate values for debugging
+                st.info(f"Sample coordinates (first 5 points):")
+                for i in range(min(5, len(x_m))):
+                    st.info(f"  Point {i}: X={x_m[i]:.3f}, Y={y_m[i]:.3f}, Z={z_m[i]:.3f}"))
+                
                 st.success(f"✅ Found direct coordinates: {len(x_m)} points")
                 return x_m * self.unit_scale, y_m * self.unit_scale, z_m * self.unit_scale
             
