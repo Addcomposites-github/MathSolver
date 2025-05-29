@@ -98,7 +98,6 @@ class MultiLayerTrajectoryOrchestrator:
         status_text.text("✅ All layer trajectories generated!")
         
         # Store trajectories in the correct session state for visualization
-        import streamlit as st
         st.session_state.all_layer_trajectories = all_trajectories
         
         # Debug: Show what we're storing
