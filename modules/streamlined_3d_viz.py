@@ -218,8 +218,8 @@ class StreamlinedCOPVVisualizer:
             # Apply coordinate alignment
             z_coords_aligned = z_coords + coord_info['alignment_offset_mm']
             
-            # Apply decimation for performance
-            decimation = options.get('decimation_factor', 10)
+            # Apply decimation for performance - reduce decimation to show more points
+            decimation = options.get('decimation_factor', 3)  # Changed from 10 to 3
             if decimation > 1 and len(x_coords) > decimation:
                 indices = np.arange(0, len(x_coords), decimation)
                 # Always include the last point
@@ -291,6 +291,12 @@ class StreamlinedCOPVVisualizer:
                 x_m = np.array(trajectory_data['x_points_m'])
                 y_m = np.array(trajectory_data['y_points_m'])
                 z_m = np.array(trajectory_data['z_points_m'])
+                
+                # Debug coordinate ranges
+                st.info(f"Debug coordinate ranges - X: {x_m.min():.3f} to {x_m.max():.3f}m")
+                st.info(f"Debug coordinate ranges - Y: {y_m.min():.3f} to {y_m.max():.3f}m") 
+                st.info(f"Debug coordinate ranges - Z: {z_m.min():.3f} to {z_m.max():.3f}m")
+                
                 st.success(f"✅ Found direct coordinates: {len(x_m)} points")
                 return x_m * self.unit_scale, y_m * self.unit_scale, z_m * self.unit_scale
             
