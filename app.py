@@ -170,11 +170,11 @@ def main():
         export_results_page()
 
 def visualization_page():
-    """Dedicated visualization page that only displays planned trajectories"""
+    """Streamlined 3D visualization page using the new coordinate-aligned system"""
     st.markdown("""
     <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border-left: 4px solid #1e3c72; margin-bottom: 1.5rem;">
         <h2 style="color: #1e3c72; margin: 0;">📊 3D Visualization</h2>
-        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">View and analyze your planned trajectories in 3D</p>
+        <p style="color: #6c757d; margin: 0.5rem 0 0 0;">Streamlined visualization with automatic coordinate alignment</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -186,81 +186,131 @@ def visualization_page():
             st.rerun()
         return
     
-    if not hasattr(st.session_state, 'layer_stack_manager') or not st.session_state.layer_stack_manager:
-        st.error("Complete Layer Stack Definition first")
-        if st.button("Go to Layer Stack Definition"):
-            st.session_state.current_page = "Layer Stack Definition"
-            st.rerun()
-        return
+    # Import the streamlined visualizer
+    from modules.streamlined_3d_viz import create_streamlined_3d_visualization
     
-    if not hasattr(st.session_state, 'all_layer_trajectories') or not st.session_state.all_layer_trajectories:
-        st.error("Complete Trajectory Planning first")
-        if st.button("Go to Trajectory Planning"):
-            st.session_state.current_page = "Trajectory Planning"
-            st.rerun()
-        return
+    # Configuration options
+    col1, col2 = st.columns(2)
     
-    # Display planned trajectories
-    st.success("All prerequisites completed - ready for visualization")
-    
-    # Layer selection
-    trajectories = st.session_state.all_layer_trajectories
-    layer_options = [f"Layer {traj['layer_id']}: {traj['layer_type']} ({traj['winding_angle']}°)" 
-                    for traj in trajectories]
-    
-    selected_idx = st.selectbox(
-        "Select Layer to Visualize",
-        range(len(layer_options)),
-        format_func=lambda x: layer_options[x]
-    )
-    
-    if selected_idx is not None:
-        selected_traj = trajectories[selected_idx]
+    with col1:
+        st.markdown("### Visualization Settings")
+        show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
+        show_wireframe = st.checkbox("Show Wireframe", value=True)
+        mandrel_resolution = st.slider("Mandrel Resolution", 16, 64, 32, step=8)
         
-        # Visualization options
-        col1, col2 = st.columns(2)
-        with col1:
-            quality_level = st.selectbox(
-                "Visualization Quality",
-                ("Standard", "High Definition"),
-                help="High Definition shows more detail but renders slower"
+    with col2:
+        st.markdown("### Performance Settings")
+        decimation_factor = st.selectbox(
+            "Point Decimation (for performance)",
+            [1, 5, 10, 20, 50],
+            index=2,
+            help="Show every Nth point. Higher = faster rendering"
+        )
+        trajectory_line_width = st.slider("Trajectory Line Width", 1, 8, 4)
+    
+    # Visualization options
+    viz_options = {
+        'show_mandrel': show_mandrel,
+        'show_trajectory': True,
+        'decimation_factor': decimation_factor,
+        'mandrel_resolution': mandrel_resolution,
+        'show_wireframe': show_wireframe,
+        'trajectory_line_width': trajectory_line_width
+    }
+    
+    # Check for trajectory data
+    trajectory_data = None
+    if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+        # Multiple layers available
+        st.markdown("### Layer Selection")
+        layer_trajectories = st.session_state.all_layer_trajectories
+        
+        layer_options = []
+        for i, traj in enumerate(layer_trajectories):
+            layer_info = f"Layer {traj.get('layer_id', i+1)}: {traj.get('layer_type', 'Unknown')} ({traj.get('winding_angle', 0)}°)"
+            layer_options.append(layer_info)
+        
+        if layer_options:
+            selected_idx = st.selectbox(
+                "Select Layer to Visualize",
+                range(len(layer_options)),
+                format_func=lambda x: layer_options[x]
             )
-        with col2:
-            show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
-        
-        # Add coordinate diagnostic button
-        if st.button("🔍 Run Coordinate Diagnostic", type="secondary"):
-            from modules.coordinate_diagnostic import diagnose_coordinate_systems
             
-            # Get trajectory data for diagnostic
-            trajectory_data = selected_traj.get('trajectory_data', {})
-            if 'path_points' in trajectory_data:
-                path_points = trajectory_data['path_points']
-                coverage_data = {'circuits': [path_points]}
-                diagnose_coordinate_systems(st.session_state.vessel_geometry, coverage_data)
-            else:
-                st.warning("No path points available for coordinate diagnostic")
-
-        # Generate visualization with coordinate conversion fix
-        if st.button("Generate 3D Visualization", type="primary"):
+            if selected_idx is not None:
+                selected_trajectory = layer_trajectories[selected_idx]
+                trajectory_data = selected_trajectory.get('trajectory_data', {})
+                
+                # Add layer info for better visualization
+                if trajectory_data:
+                    trajectory_data.update({
+                        'pattern_type': selected_trajectory.get('layer_type', 'Unknown'),
+                        'layer_id': selected_trajectory.get('layer_id', selected_idx + 1),
+                        'winding_angle': selected_trajectory.get('winding_angle', 0)
+                    })
+    
+    elif hasattr(st.session_state, 'trajectory_data') and st.session_state.trajectory_data:
+        # Single trajectory available
+        trajectory_data = st.session_state.trajectory_data
+        st.info("Using single trajectory data")
+    
+    # Generate visualization
+    if st.button("Generate 3D Visualization", type="primary"):
+        try:
+            fig = create_streamlined_3d_visualization(
+                st.session_state.vessel_geometry,
+                trajectory_data,
+                viz_options
+            )
             
-            # Import the coordinate converter
-            try:
-                from modules.trajectory_data_converter import TrajectoryDataConverter
-                converter = TrajectoryDataConverter()
-                st.success("Trajectory converter loaded")
-            except ImportError:
-                st.error("Trajectory converter not found - coordinate conversion may fail")
-                converter = None
+            st.plotly_chart(fig, use_container_width=True)
             
-            layer_manager = st.session_state.layer_stack_manager
+            # Show trajectory statistics if available
+            if trajectory_data:
+                st.markdown("### Trajectory Statistics")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    total_points = trajectory_data.get('total_points', 0)
+                    if not total_points and 'path_points' in trajectory_data:
+                        total_points = len(trajectory_data['path_points'])
+                    st.metric("Total Points", f"{total_points:,}")
+                
+                with col2:
+                    pattern_type = trajectory_data.get('pattern_type', 'Unknown')
+                    st.metric("Pattern Type", pattern_type)
+                
+                with col3:
+                    layer_id = trajectory_data.get('layer_id', 'N/A')
+                    st.metric("Layer ID", layer_id)
+                
+                with col4:
+                    winding_angle = trajectory_data.get('winding_angle', 0)
+                    st.metric("Winding Angle", f"{winding_angle}°")
             
-            # Find the corresponding layer definition
-            layer_def = None
-            for layer in layer_manager.layer_stack:
-                if layer.layer_set_id == selected_traj['layer_id']:
-                    layer_def = layer
-                    break
+        except Exception as e:
+            st.error(f"Visualization failed: {str(e)}")
+            st.info("Check that vessel geometry and trajectory data are properly formatted")
+    
+    # Vessel-only visualization option
+    st.markdown("---")
+    if st.button("Show Vessel Only (No Trajectory)", type="secondary"):
+        try:
+            vessel_only_options = viz_options.copy()
+            vessel_only_options['show_trajectory'] = False
+            
+            fig = create_streamlined_3d_visualization(
+                st.session_state.vessel_geometry,
+                None,  # No trajectory data
+                vessel_only_options
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            st.success("Vessel geometry displayed")
+            
+        except Exception as e:
+            st.error(f"Vessel visualization failed: {str(e)}")
             
             if layer_def:
                 try:
