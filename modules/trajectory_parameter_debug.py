@@ -22,22 +22,22 @@ def debug_trajectory_parameters(layer_manager, roving_width, roving_thickness, d
         debug_data.append({
             "Category": "Vessel Geometry",
             "Parameter": "Inner Diameter",
-            "Value": f"{vessel.inner_diameter_mm:.1f} mm",
-            "Source": "vessel_geometry.inner_diameter_mm"
+            "Value": f"{vessel.inner_diameter:.1f} mm",
+            "Source": "vessel_geometry.inner_diameter"
         })
         
         debug_data.append({
             "Category": "Vessel Geometry", 
             "Parameter": "Wall Thickness",
-            "Value": f"{vessel.wall_thickness_mm:.1f} mm",
-            "Source": "vessel_geometry.wall_thickness_mm"
+            "Value": f"{vessel.wall_thickness:.1f} mm",
+            "Source": "vessel_geometry.wall_thickness"
         })
         
         debug_data.append({
             "Category": "Vessel Geometry",
             "Parameter": "Cylindrical Length", 
-            "Value": f"{vessel.cylindrical_length_mm:.1f} mm",
-            "Source": "vessel_geometry.cylindrical_length_mm"
+            "Value": f"{vessel.cylindrical_length:.1f} mm",
+            "Source": "vessel_geometry.cylindrical_length"
         })
         
         debug_data.append({
