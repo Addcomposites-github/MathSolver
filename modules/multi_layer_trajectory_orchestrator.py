@@ -418,6 +418,9 @@ class MultiLayerTrajectoryOrchestrator:
         
         # Force the physics engine to use the actual profile instead of generated dome geometry
         temp_vessel._use_profile_override = True
+        print(f"[DEBUG] Set profile override flag: {hasattr(temp_vessel, '_use_profile_override')} = {getattr(temp_vessel, '_use_profile_override', 'NOT_SET')}")
+        print(f"[DEBUG] temp_vessel profile_points keys: {temp_vessel.profile_points.keys()}")
+        print(f"[DEBUG] temp_vessel r_inner_mm range: {temp_vessel.profile_points['r_inner_mm'].min():.1f} to {temp_vessel.profile_points['r_inner_mm'].max():.1f}mm")
         
         # Check temp_vessel bounds after profile override
         if hasattr(temp_vessel, 'get_profile_points'):
