@@ -239,11 +239,11 @@ class MultiLayerTrajectoryOrchestrator:
                 'num_layers_desired': max(4, int(20 / max(layer_def.winding_angle_deg, 5)))
             })
         elif layer_def.winding_angle_deg < 45:
-            # Mid-angle layers: helical with some geodesic properties
+            # Mid-angle layers: helical with full coverage for proper multi-circuit generation
             base_params.update({
                 'pattern_type': 'helical',
-                'physics_model': 'clairaut',
-                'coverage_mode': 'balanced_coverage',
+                'physics_model': 'constant_angle',
+                'coverage_mode': 'full_coverage',
                 'num_layers_desired': max(6, int(30 / max(layer_def.winding_angle_deg, 10)))
             })
         elif layer_def.winding_angle_deg < 75:
