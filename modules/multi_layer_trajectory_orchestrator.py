@@ -407,13 +407,17 @@ class MultiLayerTrajectoryOrchestrator:
                 z_pre = pre_profile['z_mm']
                 print(f"[DEBUG] temp_vessel Z range BEFORE profile override: {z_pre.min():.1f} to {z_pre.max():.1f}mm")
         
-        # Override profile with current winding surface
+        # Use the actual mandrel profile directly instead of regenerating dome geometry
+        # This preserves the correct dome shape that has evolved with layer buildup
         temp_vessel.profile_points = {
             'z_mm': np.array(current_surface_profile['z_mm']),
             'r_inner_mm': np.array(current_surface_profile['r_inner_mm']),
             'r_outer_mm': np.array(current_surface_profile['r_inner_mm']) + layer_def.calculated_set_thickness_mm,
             'dome_height_mm': current_surface_profile.get('dome_height_mm', 70.0)
         }
+        
+        # Force the physics engine to use the actual profile instead of generated dome geometry
+        temp_vessel._use_profile_override = True
         
         # Check temp_vessel bounds after profile override
         if hasattr(temp_vessel, 'get_profile_points'):

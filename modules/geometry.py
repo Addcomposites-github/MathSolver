@@ -44,6 +44,9 @@ class VesselGeometry:
         self.profile_points = None
         self.geometric_properties = None
         
+        # Profile override flag for mandrel geometry
+        self._use_profile_override = False
+        
     def set_qrs_parameters(self, q: float, r: float, s: float):
         """Set qrs parameters for isotensoid dome design (Koussios method)"""
         self.q_factor = q

@@ -41,9 +41,23 @@ class UnifiedTrajectoryPlanner:
 
         # Extract meridian points from vessel geometry
         print(f"[DEBUG] Vessel geometry type: {type(vessel_geometry)}")
-        print(f"[DEBUG] Vessel geometry attributes: {dir(vessel_geometry)}")
         
-        if hasattr(vessel_geometry, 'generate_profile'):
+        # Check if this is a mandrel geometry with profile override (actual layer surface)
+        if hasattr(vessel_geometry, '_use_profile_override') and vessel_geometry._use_profile_override:
+            print(f"[DEBUG] Using profile override - actual mandrel surface geometry")
+            profile_points = vessel_geometry.profile_points
+            
+            if 'r_inner_mm' in profile_points:
+                # Use actual mandrel profile directly
+                rho_data = profile_points['r_inner_mm'] / 1000.0
+                z_data = profile_points['z_mm'] / 1000.0
+                print(f"[DEBUG] Mandrel profile Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
+                print(f"[DEBUG] Mandrel profile R range: {rho_data.min():.3f} to {rho_data.max():.3f}m")
+            else:
+                raise ValueError("Profile override set but no mandrel profile data found")
+                
+        elif hasattr(vessel_geometry, 'generate_profile'):
+            print(f"[DEBUG] Using generated vessel profile")
             vessel_geometry.generate_profile()
             profile_points = vessel_geometry.get_profile_points()
             print(f"[DEBUG] Profile points keys: {profile_points.keys()}")
@@ -58,17 +72,7 @@ class UnifiedTrajectoryPlanner:
                 z_data = profile_points['z_mm'] / 1000.0
             else:
                 raise ValueError("Unrecognized vessel geometry format")
-            
-            # Convert to [rho, z] format for physics engine and ensure proper ordering
-            # Sort by z-coordinate to ensure strictly increasing sequence
-            sort_indices = np.argsort(z_data)
-            meridian_points = np.column_stack([rho_data[sort_indices], z_data[sort_indices]])
-            
-            print(f"[DEBUG] Vessel geometry input Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
-            print(f"[DEBUG] Meridian points Z range: {meridian_points[:, 1].min():.3f} to {meridian_points[:, 1].max():.3f}m")
-            print(f"[DEBUG] Meridian points shape: {meridian_points.shape}")
-            print(f"[DEBUG] First 3 meridian points: {meridian_points[:3]}")
-            print(f"[DEBUG] Last 3 meridian points: {meridian_points[-3:]}")
+                
         else:
             # Fallback: create simple cylinder profile
             print("[DEBUG] Using fallback cylinder profile - vessel geometry missing generate_profile method")
