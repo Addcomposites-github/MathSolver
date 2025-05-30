@@ -283,15 +283,17 @@ class UnifiedTrajectoryPlanner:
                 # Use geodesic solver for Clairaut physics (works for helical, geodesic patterns)
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 
-                # Calculate full vessel height for proper geodesic coverage
+                # Calculate actual vessel Z bounds from geometry
                 vessel_z_min = self.physics_engine.z_min if hasattr(self.physics_engine, 'z_min') else -0.5
                 vessel_z_max = self.physics_engine.z_max if hasattr(self.physics_engine, 'z_max') else 0.5
+                
+                print(f"[DEBUG] Vessel Z bounds: {vessel_z_min:.3f}m to {vessel_z_max:.3f}m")
                 
                 circuit_points = self.physics_engine.solve_geodesic(
                     clairaut_constant=clairaut_constant,
                     initial_param_val=vessel_z_min,
                     initial_phi_rad=start_phi_rad,
-                    param_end_val=vessel_z_max,  # Cover full vessel height
+                    param_end_val=vessel_z_max,  # Cover actual vessel height
                     num_points=options.get('num_points', 100)
                 )
                 
