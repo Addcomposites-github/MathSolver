@@ -388,11 +388,74 @@ def vessel_geometry_page():
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
         try:
-            from modules.simple_viz_fix import create_simple_3d_visualization
-            fig = create_simple_3d_visualization(
-                st.session_state.vessel_geometry,
-                trajectory_data,
-                viz_options
+            # Create a basic 3D visualization without problematic array operations
+            import plotly.graph_objects as go
+            import numpy as np
+            
+            fig = go.Figure()
+            
+            # Add vessel geometry
+            if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
+                vessel = st.session_state.vessel_geometry
+                if hasattr(vessel, 'get_profile_points'):
+                    profile = vessel.get_profile_points()
+                    
+                    if profile and 'z_mm' in profile and 'r_inner_mm' in profile:
+                        z_profile = np.array(profile['z_mm'])
+                        r_profile = np.array(profile['r_inner_mm'])
+                        
+                        # Create mandrel surface
+                        theta = np.linspace(0, 2*np.pi, 24)
+                        Z_mesh, Theta_mesh = np.meshgrid(z_profile, theta)
+                        R_mesh = np.tile(r_profile, (len(theta), 1))
+                        
+                        X_mesh = R_mesh * np.cos(Theta_mesh)
+                        Y_mesh = R_mesh * np.sin(Theta_mesh)
+                        
+                        fig.add_trace(go.Surface(
+                            x=X_mesh, y=Y_mesh, z=Z_mesh,
+                            colorscale='Greys',
+                            opacity=0.4,
+                            name='Vessel Mandrel',
+                            showscale=False
+                        ))
+            
+            # Add trajectory if available
+            if trajectory_data and 'trajectory_data' in trajectory_data:
+                traj_nested = trajectory_data['trajectory_data']
+                if all(k in traj_nested for k in ['x_points_m', 'y_points_m', 'z_points_m']):
+                    x_coords = np.array(traj_nested['x_points_m']) * 1000  # Convert to mm
+                    y_coords = np.array(traj_nested['y_points_m']) * 1000
+                    z_coords = np.array(traj_nested['z_points_m']) * 1000
+                    
+                    # Apply coordinate alignment (simple centering)
+                    z_center_traj = (np.min(z_coords) + np.max(z_coords)) / 2
+                    z_offset = 0 - z_center_traj  # Center on origin
+                    z_coords_aligned = z_coords + z_offset
+                    
+                    # Decimate for performance
+                    step = max(1, len(x_coords) // 500)  # Show max 500 points
+                    
+                    fig.add_trace(go.Scatter3d(
+                        x=x_coords[::step], 
+                        y=y_coords[::step], 
+                        z=z_coords_aligned[::step],
+                        mode='lines',
+                        line=dict(color='red', width=6),
+                        name=f'Trajectory ({len(x_coords)} points)'
+                    ))
+            
+            # Configure layout
+            fig.update_layout(
+                scene=dict(
+                    xaxis_title='X (mm)',
+                    yaxis_title='Y (mm)', 
+                    zaxis_title='Z (mm)',
+                    aspectmode='data'
+                ),
+                title='COPV 3D Visualization - Fixed',
+                showlegend=True,
+                height=600
             )
             
             st.plotly_chart(fig, use_container_width=True)
