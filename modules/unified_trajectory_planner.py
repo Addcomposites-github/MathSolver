@@ -51,8 +51,11 @@ class UnifiedTrajectoryPlanner:
                 # Use actual mandrel profile directly
                 rho_data = profile_points['r_inner_mm'] / 1000.0
                 z_data = profile_points['z_mm'] / 1000.0
-                print(f"[DEBUG] Mandrel profile Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
-                print(f"[DEBUG] Mandrel profile R range: {rho_data.min():.3f} to {rho_data.max():.3f}m")
+                print(f"[DEBUG] MANDREL OVERRIDE - Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
+                print(f"[DEBUG] MANDREL OVERRIDE - R range: {rho_data.min():.3f} to {rho_data.max():.3f}m")
+                print(f"[DEBUG] MANDREL OVERRIDE - Polar radius: {rho_data.min():.3f}m ({rho_data.min()*1000:.1f}mm)")
+                print(f"[DEBUG] MANDREL OVERRIDE - Equatorial radius: {rho_data.max():.3f}m ({rho_data.max()*1000:.1f}mm)")
+                print(f"[DEBUG] MANDREL OVERRIDE - Profile points count: {len(rho_data)}")
             else:
                 raise ValueError("Profile override set but no mandrel profile data found")
                 
