@@ -115,7 +115,7 @@ class UnifiedTrajectoryPlanner:
     def generate_trajectory(self,
                           pattern_type: str,      # 'geodesic', 'non_geodesic', 'helical', 'hoop'
                           coverage_mode: str,     # 'single_pass', 'full_coverage', 'custom'
-                          physics_model: str,     # 'clairaut', 'friction', 'constant_angle'
+                          physics_model: str,     # 'clairaut', 'friction' (constant_angle disabled)
                           continuity_level: int,  # 0, 1, 2
                           num_layers_desired: int = 1,
                           initial_conditions: Optional[Dict[str, float]] = None,
@@ -292,14 +292,20 @@ class UnifiedTrajectoryPlanner:
                 )
                 
             elif physics_model == 'constant_angle':
-                # Use helical solver for constant angle physics
-                cylinder_length = getattr(self.vessel_geometry, 'cylindrical_length', 500) / 1000  # Convert to m
+                # DISABLED: constant_angle creates unrealistic forced helical paths
+                # Use geodesic Clairaut solver instead for proper fiber behavior
+                print("[WARNING] constant_angle physics model is disabled - using clairaut geodesic solver instead")
+                clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 
-                circuit_points = self.physics_engine.solve_helical(
-                    winding_angle_deg=target_angle_deg,
+                # Calculate appropriate end parameter for geodesic path
+                vessel_radius_m = getattr(self.vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
+                end_param = start_z + vessel_radius_m  # Use radius as path length
+                
+                circuit_points = self.physics_engine.solve_geodesic(
+                    clairaut_constant=clairaut_constant,
                     initial_param_val=start_z,
                     initial_phi_rad=start_phi_rad,
-                    param_end_val=start_z + cylinder_length,
+                    param_end_val=end_param,
                     num_points=options.get('num_points', 100)
                 )
                 
