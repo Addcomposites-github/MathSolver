@@ -151,6 +151,16 @@ class MultiLayerTrajectoryOrchestrator:
         """Generate trajectory using unified system with layer-specific parameters"""
         
         # Initialize unified planner for this layer
+        print(f"[DEBUG] Creating UnifiedTrajectoryPlanner with temp_vessel type: {type(temp_vessel)}")
+        
+        # Check vessel geometry bounds before passing to planner
+        if hasattr(temp_vessel, 'get_profile_points'):
+            profile = temp_vessel.get_profile_points()
+            if 'z_mm' in profile:
+                z_range = profile['z_mm']
+                print(f"[DEBUG] temp_vessel Z range (mm): {z_range.min():.1f} to {z_range.max():.1f}")
+                print(f"[DEBUG] temp_vessel Z range (m): {z_range.min()/1000:.3f} to {z_range.max()/1000:.3f}")
+        
         self.unified_planner = UnifiedTrajectoryPlanner(
             vessel_geometry=temp_vessel,
             roving_width_m=roving_width_mm / 1000,  # Convert mm to m
