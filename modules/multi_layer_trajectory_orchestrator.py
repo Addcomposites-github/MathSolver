@@ -326,9 +326,19 @@ class MultiLayerTrajectoryOrchestrator:
         current_surface_profile = mandrel_data['profile_points']
         equatorial_radius = mandrel_data['equatorial_radius_mm']
         
-        # Calculate cylinder length from profile
-        z_mm = current_surface_profile['z_mm']
-        cylinder_length = np.max(z_mm) - np.min(z_mm)
+        # Use original vessel's cylindrical length instead of total height
+        # (total height includes domes, but cylindrical_length parameter is just the cylinder section)
+        original_vessel = st.session_state.get('vessel_geometry')
+        if original_vessel and hasattr(original_vessel, 'cylindrical_length'):
+            cylinder_length = original_vessel.cylindrical_length
+        else:
+            # Fallback: estimate cylinder length (total height minus estimated dome heights)
+            z_mm = current_surface_profile['z_mm']
+            total_height = np.max(z_mm) - np.min(z_mm)
+            estimated_dome_height = equatorial_radius * 0.7  # Conservative estimate
+            cylinder_length = max(50, total_height - 2 * estimated_dome_height)  # Ensure minimum length
+        
+        print(f"[DEBUG] Using cylindrical_length: {cylinder_length:.1f}mm for temp_vessel")
         
         # Create temporary vessel geometry
         temp_vessel = VesselGeometry(
