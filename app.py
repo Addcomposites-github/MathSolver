@@ -323,8 +323,8 @@ def visualization_page():
         
         if selected_trajectory and selected_trajectory in st.session_state.trajectories:
             try:
-                # Import the streamlined visualizer
-                from modules.streamlined_3d_viz import create_streamlined_3d_visualization
+                # Import the coordinate alignment fix
+                from modules.coordinate_alignment_fix import create_fixed_3d_visualization
                 
                 # Get trajectory data
                 trajectory_data = st.session_state.trajectories[selected_trajectory]
@@ -337,11 +337,12 @@ def visualization_page():
                     'mandrel_resolution': mandrel_resolution,
                     'mandrel_color': mandrel_color,
                     'trajectory_color': trajectory_color,
-                    'wireframe_color': '#888888'
+                    'wireframe_color': '#888888',
+                    'decimation_factor': 5  # Show every 5th point for better performance
                 }
                 
-                # Create the visualization
-                fig = create_streamlined_3d_visualization(
+                # Create the visualization with coordinate fixes
+                fig = create_fixed_3d_visualization(
                     st.session_state.vessel_geometry,
                     trajectory_data,
                     viz_options
@@ -2555,6 +2556,129 @@ def layer_by_layer_planning(layer_manager):
             })
         
         st.dataframe(trajectory_status, use_container_width=True, hide_index=True)
+        
+        # Add CSV export functionality
+        st.markdown("### 📥 Export Trajectory Data")
+        
+        export_col1, export_col2 = st.columns(2)
+        
+        with export_col1:
+            if st.button("📊 Export All Trajectories as CSV", type="secondary"):
+                import pandas as pd
+                import io
+                
+                # Combine all trajectory data into one CSV
+                all_points_data = []
+                
+                for traj in st.session_state.all_layer_trajectories:
+                    traj_data = traj['trajectory_data']
+                    if traj_data and traj_data.get('success'):
+                        # Get the coordinate arrays
+                        x_points = traj_data.get('x_points_m', [])
+                        y_points = traj_data.get('y_points_m', [])
+                        z_points = traj_data.get('z_points_m', [])
+                        rho_points = traj_data.get('rho_points_m', [])
+                        phi_points = traj_data.get('phi_points_rad', [])
+                        angles = traj_data.get('winding_angles_deg', [])
+                        
+                        # Create DataFrame for this layer
+                        for i in range(len(x_points)):
+                            all_points_data.append({
+                                'layer_id': traj['layer_id'],
+                                'layer_type': traj['layer_type'],
+                                'target_angle_deg': traj['winding_angle'],
+                                'point_index': i,
+                                'x_m': x_points[i] if i < len(x_points) else 0,
+                                'y_m': y_points[i] if i < len(y_points) else 0,
+                                'z_m': z_points[i] if i < len(z_points) else 0,
+                                'x_mm': (x_points[i] * 1000) if i < len(x_points) else 0,
+                                'y_mm': (y_points[i] * 1000) if i < len(y_points) else 0,
+                                'z_mm': (z_points[i] * 1000) if i < len(z_points) else 0,
+                                'rho_m': rho_points[i] if i < len(rho_points) else 0,
+                                'phi_rad': phi_points[i] if i < len(phi_points) else 0,
+                                'phi_deg': (phi_points[i] * 180 / 3.14159) if i < len(phi_points) else 0,
+                                'winding_angle_deg': angles[i] if i < len(angles) else traj['winding_angle']
+                            })
+                
+                if all_points_data:
+                    df = pd.DataFrame(all_points_data)
+                    
+                    # Create CSV
+                    csv_buffer = io.StringIO()
+                    df.to_csv(csv_buffer, index=False)
+                    csv_string = csv_buffer.getvalue()
+                    
+                    st.download_button(
+                        label="💾 Download All Trajectories CSV",
+                        data=csv_string,
+                        file_name="trajectory_data_all_layers.csv",
+                        mime="text/csv"
+                    )
+                    
+                    st.success(f"📊 Prepared CSV with {len(all_points_data)} trajectory points from {len(st.session_state.all_layer_trajectories)} layers")
+                else:
+                    st.error("No trajectory data available for export")
+        
+        with export_col2:
+            # Individual layer export
+            selected_layer = st.selectbox(
+                "Export Single Layer:",
+                options=[f"Layer {traj['layer_id']}" for traj in st.session_state.all_layer_trajectories],
+                key="single_layer_export"
+            )
+            
+            if st.button("📋 Export Selected Layer CSV", type="secondary"):
+                import pandas as pd
+                import io
+                
+                # Find selected trajectory
+                layer_id = int(selected_layer.split()[1])
+                selected_traj = next((traj for traj in st.session_state.all_layer_trajectories if traj['layer_id'] == layer_id), None)
+                
+                if selected_traj and selected_traj['trajectory_data'].get('success'):
+                    traj_data = selected_traj['trajectory_data']
+                    
+                    # Create DataFrame for selected layer
+                    layer_points_data = []
+                    x_points = traj_data.get('x_points_m', [])
+                    y_points = traj_data.get('y_points_m', [])
+                    z_points = traj_data.get('z_points_m', [])
+                    rho_points = traj_data.get('rho_points_m', [])
+                    phi_points = traj_data.get('phi_points_rad', [])
+                    angles = traj_data.get('winding_angles_deg', [])
+                    
+                    for i in range(len(x_points)):
+                        layer_points_data.append({
+                            'point_index': i,
+                            'x_m': x_points[i],
+                            'y_m': y_points[i],
+                            'z_m': z_points[i],
+                            'x_mm': x_points[i] * 1000,
+                            'y_mm': y_points[i] * 1000,
+                            'z_mm': z_points[i] * 1000,
+                            'rho_m': rho_points[i] if i < len(rho_points) else 0,
+                            'phi_rad': phi_points[i] if i < len(phi_points) else 0,
+                            'phi_deg': (phi_points[i] * 180 / 3.14159) if i < len(phi_points) else 0,
+                            'winding_angle_deg': angles[i] if i < len(angles) else selected_traj['winding_angle']
+                        })
+                    
+                    df = pd.DataFrame(layer_points_data)
+                    
+                    # Create CSV
+                    csv_buffer = io.StringIO()
+                    df.to_csv(csv_buffer, index=False)
+                    csv_string = csv_buffer.getvalue()
+                    
+                    st.download_button(
+                        label=f"💾 Download {selected_layer} CSV",
+                        data=csv_string,
+                        file_name=f"trajectory_layer_{layer_id}_angle_{selected_traj['winding_angle']}deg.csv",
+                        mime="text/csv"
+                    )
+                    
+                    st.success(f"📊 Prepared CSV with {len(layer_points_data)} points for {selected_layer}")
+                else:
+                    st.error(f"No data available for {selected_layer}")
 
 
 def complete_stack_planning(layer_manager):
