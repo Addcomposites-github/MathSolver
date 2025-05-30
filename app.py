@@ -3074,34 +3074,60 @@ def generate_single_layer_trajectory(layer_manager, layer_idx, override_angle, r
     layer = layer_manager.layer_stack[layer_idx]
     
     try:
-        from modules.missing_module_stubs import TrajectoryPlanner
+        # Use the multi-layer orchestrator to get correct mandrel geometry
+        from modules.multi_layer_trajectory_orchestrator import MultiLayerTrajectoryOrchestrator
+        orchestrator = MultiLayerTrajectoryOrchestrator(layer_manager)
         
-        # Create trajectory planner with override parameters
-        layer_planner = TrajectoryPlanner(
-            st.session_state.vessel_geometry,
-            dry_roving_width_m=roving_width/1000,
-            dry_roving_thickness_m=roving_thickness/1000,
-            roving_eccentricity_at_pole_m=0.0,
-            target_cylinder_angle_deg=override_angle,  # Use override angle
-            mu_friction_coefficient=0.0
+        # Generate trajectory using the correct evolved mandrel geometry
+        trajectory_result = orchestrator._generate_single_layer_trajectory(
+            layer_idx, layer, roving_width, roving_thickness
         )
         
-        # Generate trajectory
-        trajectory_data = layer_planner.generate_trajectory(
-            pattern_name="geodesic_spiral",
-            coverage_option="single_circuit",
-            user_circuits=1
-        )
-        
-        if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
-            st.session_state.trajectory_data = trajectory_data
-            st.success(f"✅ Generated trajectory for Layer {layer.layer_set_id} with {override_angle}° angle")
-            st.info(f"📊 **Points Generated**: {len(trajectory_data['path_points'])}")
-        else:
-            st.error("❌ Failed to generate trajectory")
+        if trajectory_result and trajectory_result.get('trajectory_data'):
+            trajectory_data = trajectory_result['trajectory_data']
             
+            if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                st.session_state.trajectory_data = trajectory_data
+                st.success(f"✅ Generated trajectory for Layer {layer.layer_set_id} with evolved mandrel geometry")
+                st.info(f"📊 **Points Generated**: {len(trajectory_data['path_points'])}")
+                return
+        
+        st.error("❌ Failed to generate trajectory with evolved mandrel geometry")
+        
     except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
+        st.error(f"❌ Error with evolved mandrel geometry: {str(e)}")
+        st.info("Falling back to basic trajectory generation...")
+        
+        # Fallback to basic trajectory planner
+        try:
+            from modules.missing_module_stubs import TrajectoryPlanner
+            
+            # Create trajectory planner with override parameters
+            layer_planner = TrajectoryPlanner(
+                st.session_state.vessel_geometry,
+                dry_roving_width_m=roving_width/1000,
+                dry_roving_thickness_m=roving_thickness/1000,
+                roving_eccentricity_at_pole_m=0.0,
+                target_cylinder_angle_deg=override_angle,  # Use override angle
+                mu_friction_coefficient=0.0
+            )
+            
+            # Generate trajectory
+            trajectory_data = layer_planner.generate_trajectory(
+                pattern_name="geodesic_spiral",
+                coverage_option="single_circuit",
+                user_circuits=1
+            )
+            
+            if trajectory_data and len(trajectory_data.get('path_points', [])) > 0:
+                st.session_state.trajectory_data = trajectory_data
+                st.success(f"✅ Generated trajectory for Layer {layer.layer_set_id} with {override_angle}° angle")
+                st.info(f"📊 **Points Generated**: {len(trajectory_data['path_points'])}")
+            else:
+                st.error("❌ Failed to generate trajectory")
+                
+        except Exception as fallback_error:
+            st.error(f"❌ Fallback trajectory generation also failed: {str(fallback_error)}")
         
         # Winding pattern type
         pattern_options = ["Geodesic", "Non-Geodesic", "Multi-Circuit Pattern", "🔬 Refactored Engine (Test)", "Helical", "Hoop", "Polar", "Transitional"]
