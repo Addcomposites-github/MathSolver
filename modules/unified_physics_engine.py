@@ -185,6 +185,7 @@ class PhysicsEngine:
             rho = props["rho"]
 
             if rho <= clairaut_constant or rho < 1e-6:
+                print(f"[DEBUG] Geodesic hit boundary: rho={rho:.6f} <= clairaut={clairaut_constant:.6f} at param={param:.6f}")
                 return [np.inf, np.inf]
 
             sin_alpha = clairaut_constant / rho
@@ -209,9 +210,13 @@ class PhysicsEngine:
         y0 = [initial_phi_rad, 0.0]
 
         try:
+            print(f"[DEBUG] Starting geodesic ODE integration: param {initial_param_val:.6f} to {param_end_val:.6f}, clairaut={clairaut_constant:.6f}")
+            
             # Use robust ODE solver
             sol = solve_ivp(geodesic_ode, [initial_param_val, param_end_val], y0, 
                           t_eval=eval_params, method='RK45', atol=1e-8, rtol=1e-8)
+            
+            print(f"[DEBUG] ODE solver completed: success={sol.success}, message='{sol.message}'")
             
             if sol.success:
                 for i, p_eval in enumerate(eval_params):
