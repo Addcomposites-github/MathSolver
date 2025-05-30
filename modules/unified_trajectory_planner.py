@@ -79,10 +79,20 @@ class UnifiedTrajectoryPlanner:
             radius = getattr(vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
             length = getattr(vessel_geometry, 'cylindrical_length', 500) / 1000  # Convert mm to m
             print(f"[DEBUG] Fallback cylinder: radius={radius:.3f}m, length={length:.3f}m")
-            z_points = np.linspace(-length/2, length/2, 50)
-            rho_points = np.full_like(z_points, radius)
-            meridian_points = np.column_stack([rho_points, z_points])
-            print(f"[DEBUG] Fallback Z range: {z_points.min():.3f} to {z_points.max():.3f}m")
+            z_data = np.linspace(-length/2, length/2, 50)
+            rho_data = np.full_like(z_data, radius)
+            print(f"[DEBUG] Fallback Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
+        
+        # Convert to [rho, z] format for physics engine and ensure proper ordering
+        # Sort by z-coordinate to ensure strictly increasing sequence
+        sort_indices = np.argsort(z_data)
+        meridian_points = np.column_stack([rho_data[sort_indices], z_data[sort_indices]])
+        
+        print(f"[DEBUG] Vessel geometry input Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
+        print(f"[DEBUG] Meridian points Z range: {meridian_points[:, 1].min():.3f} to {meridian_points[:, 1].max():.3f}m")
+        print(f"[DEBUG] Meridian points shape: {meridian_points.shape}")
+        print(f"[DEBUG] First 3 meridian points: {meridian_points[:3]}")
+        print(f"[DEBUG] Last 3 meridian points: {meridian_points[-3:]}")
 
         # Initialize sub-components
         self.physics_engine = PhysicsEngine(vessel_meridian_points=meridian_points)
