@@ -215,43 +215,26 @@ class PhysicsEngine:
             
             if sol.success:
                 for i, p_eval in enumerate(eval_params):
-                    # Check if p_eval is within vessel geometry bounds
-                    if hasattr(self, 'z_min') and hasattr(self, 'z_max'):
-                        if p_eval < self.z_min or p_eval > self.z_max:
-                            print(f"[DEBUG] Skipping point outside vessel bounds: {p_eval:.3f}m (bounds: {self.z_min:.3f} to {self.z_max:.3f})")
-                            continue
-                    
                     phi_val = sol.y[0][i]
                     s_path_val = sol.y[1][i]
                     
-                    # Clamp p_eval to vessel bounds to prevent extrapolation errors
-                    if hasattr(self, 'z_min') and hasattr(self, 'z_max'):
-                        p_eval_clamped = np.clip(p_eval, self.z_min, self.z_max)
-                    else:
-                        p_eval_clamped = p_eval
+                    props = self._calculate_surface_properties(p_eval)
+                    rho_val = props["rho"]
+                    z_pos = p_eval if self.parameterization_var == 'z' else self._z_of_s(p_eval)
                     
-                    try:
-                        props = self._calculate_surface_properties(p_eval_clamped)
-                        rho_val = props["rho"]
-                        z_pos = p_eval_clamped if self.parameterization_var == 'z' else self._z_of_s(p_eval_clamped)
-                        
-                        pos_3d = np.array([rho_val * np.cos(phi_val), rho_val * np.sin(phi_val), z_pos])
-                        
-                        current_winding_angle_rad = np.arcsin(np.clip(clairaut_constant / rho_val, -1.0, 1.0)) if rho_val > 1e-9 else np.pi/2
-                        
-                        surf_coords = {'rho': rho_val, self.parameterization_var: p_eval_clamped, 'phi_rad': phi_val}
-                        
-                        point = TrajectoryPoint(
-                            position=pos_3d,
-                            surface_coords=surf_coords,
-                            winding_angle_deg=np.degrees(current_winding_angle_rad),
-                            arc_length_from_start=s_path_val
-                        )
-                        trajectory_points.append(point)
-                        
-                    except Exception as e:
-                        print(f"[DEBUG] Skipping invalid point at {p_eval:.3f}m: {e}")
-                        continue
+                    pos_3d = np.array([rho_val * np.cos(phi_val), rho_val * np.sin(phi_val), z_pos])
+                    
+                    current_winding_angle_rad = np.arcsin(np.clip(clairaut_constant / rho_val, -1.0, 1.0)) if rho_val > 1e-9 else np.pi/2
+                    
+                    surf_coords = {'rho': rho_val, self.parameterization_var: p_eval, 'phi_rad': phi_val}
+                    
+                    point = TrajectoryPoint(
+                        position=pos_3d,
+                        surface_coords=surf_coords,
+                        winding_angle_deg=np.degrees(current_winding_angle_rad),
+                        arc_length_from_start=s_path_val
+                    )
+                    trajectory_points.append(point)
             
         except Exception as e:
             print(f"Warning: Geodesic integration failed: {e}")

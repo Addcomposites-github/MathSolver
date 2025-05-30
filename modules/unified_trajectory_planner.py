@@ -59,6 +59,12 @@ class UnifiedTrajectoryPlanner:
             # Sort by z-coordinate to ensure strictly increasing sequence
             sort_indices = np.argsort(z_data)
             meridian_points = np.column_stack([rho_data[sort_indices], z_data[sort_indices]])
+            
+            print(f"[DEBUG] Vessel geometry input Z range: {z_data.min():.3f} to {z_data.max():.3f}m")
+            print(f"[DEBUG] Meridian points Z range: {meridian_points[:, 1].min():.3f} to {meridian_points[:, 1].max():.3f}m")
+            print(f"[DEBUG] Meridian points shape: {meridian_points.shape}")
+            print(f"[DEBUG] First 3 meridian points: {meridian_points[:3]}")
+            print(f"[DEBUG] Last 3 meridian points: {meridian_points[-3:]}")
         else:
             # Fallback: create simple cylinder profile
             radius = getattr(vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
@@ -287,7 +293,9 @@ class UnifiedTrajectoryPlanner:
                 vessel_z_min = self.physics_engine.z_min if hasattr(self.physics_engine, 'z_min') else -0.5
                 vessel_z_max = self.physics_engine.z_max if hasattr(self.physics_engine, 'z_max') else 0.5
                 
-                print(f"[DEBUG] Vessel Z bounds: {vessel_z_min:.3f}m to {vessel_z_max:.3f}m")
+                print(f"[DEBUG] Physics engine Z bounds: {vessel_z_min:.3f}m to {vessel_z_max:.3f}m")
+                print(f"[DEBUG] Physics engine z_coords range: {self.physics_engine.z_coords.min():.3f} to {self.physics_engine.z_coords.max():.3f}")
+                print(f"[DEBUG] Physics engine rho_coords range: {self.physics_engine.rho_coords.min():.3f} to {self.physics_engine.rho_coords.max():.3f}")
                 
                 circuit_points = self.physics_engine.solve_geodesic(
                     clairaut_constant=clairaut_constant,
