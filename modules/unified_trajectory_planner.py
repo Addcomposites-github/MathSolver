@@ -228,6 +228,9 @@ class UnifiedTrajectoryPlanner:
                     options=options
                 )
                 
+                # Debug circuit point generation
+                print(f"[DEBUG] Circuit {circuit_num + 1} generated {len(circuit_points) if circuit_points else 0} points")
+                
                 # Apply continuity management if needed
                 if circuit_points and all_points and continuity_level > 0:
                     circuit_points = self._ensure_continuity(
@@ -236,6 +239,7 @@ class UnifiedTrajectoryPlanner:
                     )
                 
                 all_points.extend(circuit_points)
+                print(f"[DEBUG] Total points after circuit {circuit_num + 1}: {len(all_points)}")
                 
                 # Update starting position for next circuit
                 if coverage_mode == 'full_coverage' and pattern_advancement_rad > 0:
