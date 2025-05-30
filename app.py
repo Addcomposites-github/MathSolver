@@ -388,45 +388,10 @@ def vessel_geometry_page():
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
         try:
-            # Apply trajectory array fixes first
-            from modules.trajectory_array_fix import apply_trajectory_array_fix_to_session, extract_safe_coordinates
+            # Use error-safe visualization to prevent numpy boolean issues
+            from modules.numpy_boolean_fix import create_error_safe_visualization
             
-            # Auto-fix trajectory arrays if needed
-            apply_trajectory_array_fix_to_session()
-            
-            # Create visualization
-            import plotly.graph_objects as go
-            import numpy as np
-            
-            fig = go.Figure()
-            
-            # Add vessel geometry
-            if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
-                vessel = st.session_state.vessel_geometry
-                if hasattr(vessel, 'get_profile_points'):
-                    profile = vessel.get_profile_points()
-                    
-                    if profile and 'z_mm' in profile and 'r_inner_mm' in profile:
-                        z_profile = np.array(profile['z_mm'])
-                        r_profile = np.array(profile['r_inner_mm'])
-                        
-                        # Create mandrel surface
-                        theta = np.linspace(0, 2*np.pi, 24)
-                        Z_mesh, Theta_mesh = np.meshgrid(z_profile, theta)
-                        R_mesh = np.tile(r_profile, (len(theta), 1))
-                        
-                        X_mesh = R_mesh * np.cos(Theta_mesh)
-                        Y_mesh = R_mesh * np.sin(Theta_mesh)
-                        
-                        fig.add_trace(go.Surface(
-                            x=X_mesh, y=Y_mesh, z=Z_mesh,
-                            colorscale='Greys',
-                            opacity=0.4,
-                            name='Vessel Mandrel',
-                            showscale=False
-                        ))
-            
-            # Add trajectory using safe coordinate extraction
+            # Get trajectory data safely
             trajectory_source = None
             if hasattr(st.session_state, 'trajectory_data') and st.session_state.trajectory_data:
                 trajectory_source = st.session_state.trajectory_data
@@ -434,60 +399,10 @@ def vessel_geometry_page():
                 if st.session_state.all_layer_trajectories[0].get('trajectory_data'):
                     trajectory_source = st.session_state.all_layer_trajectories[0]['trajectory_data']
             
-            if trajectory_source:
-                coords = extract_safe_coordinates(trajectory_source)
-                if coords:
-                    x_coords, y_coords, z_coords = coords
-                    
-                    # Convert to mm and apply coordinate alignment
-                    x_mm = x_coords * 1000
-                    y_mm = y_coords * 1000
-                    z_mm = z_coords * 1000
-                    
-                    # Center trajectory on vessel
-                    z_center_traj = (np.min(z_mm) + np.max(z_mm)) / 2
-                    z_offset = 0 - z_center_traj
-                    z_mm_aligned = z_mm + z_offset
-                    
-                    # Decimate for performance
-                    step = max(1, len(x_mm) // 500)
-                    
-                    fig.add_trace(go.Scatter3d(
-                        x=x_mm[::step], 
-                        y=y_mm[::step], 
-                        z=z_mm_aligned[::step],
-                        mode='lines',
-                        line=dict(color='red', width=6),
-                        name=f'Trajectory ({len(x_mm)} points)'
-                    ))
-                    
-                    # Show trajectory quality metrics
-                    rho = np.sqrt(x_coords**2 + y_coords**2)
-                    radius_var_pct = (np.std(rho) / np.mean(rho) * 100) if np.mean(rho) > 0 else 0
-                    
-                    st.info(f"""
-                    **Trajectory Quality:**
-                    - Total points: {len(x_coords)}
-                    - Z span: {np.max(z_mm_aligned) - np.min(z_mm_aligned):.1f} mm
-                    - Radius variation: {radius_var_pct:.3f}%
-                    - Status: {'✅ Good' if radius_var_pct > 1.0 else '⚠️ Low variation' if radius_var_pct > 0.1 else '❌ Constant radius'}
-                    """)
-                else:
-                    st.warning("Could not extract trajectory coordinates")
-            else:
-                st.warning("No trajectory data available")
-            
-            # Configure layout
-            fig.update_layout(
-                scene=dict(
-                    xaxis_title='X (mm)',
-                    yaxis_title='Y (mm)', 
-                    zaxis_title='Z (mm)',
-                    aspectmode='data'
-                ),
-                title='COPV 3D Visualization - Enhanced',
-                showlegend=True,
-                height=600
+            # Create safe visualization
+            fig = create_error_safe_visualization(
+                st.session_state.vessel_geometry if hasattr(st.session_state, 'vessel_geometry') else None,
+                trajectory_source
             )
             
             st.plotly_chart(fig, use_container_width=True)

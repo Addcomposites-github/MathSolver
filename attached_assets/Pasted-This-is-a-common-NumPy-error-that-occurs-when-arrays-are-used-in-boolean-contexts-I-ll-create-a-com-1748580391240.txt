@@ -1,0 +1,148 @@
+This is a common NumPy error that occurs when arrays are used in boolean contexts. I'll create a comprehensive fix for all the array comparison issues in your visualization code.## 🚨 **Immediate Fix for "Truth Value of Array" Error**
+
+This error occurs when NumPy arrays are used in boolean contexts. Here's how to fix it immediately:
+
+### **🔧 QUICK FIX - Add to your visualization page:**
+
+**1. Add this single line at the start of your `visualization_page()` function:**
+
+```python
+def visualization_page():
+    # ADD THIS LINE FIRST:
+    fix_numpy_boolean_errors()  # From the integration artifact above
+    
+    # Rest of your existing code...
+```
+
+**2. Replace problematic array checks in your code:**
+
+```python
+# ❌ WRONG (causes the error):
+if trajectory_data['x_points_m']:
+    # do something
+
+# ✅ CORRECT:
+if len(trajectory_data.get('x_points_m', [])) > 0:
+    # do something
+
+# ❌ WRONG:
+if x_coords:  # where x_coords is numpy array
+
+# ✅ CORRECT:
+if len(x_coords) > 0:  # or x_coords.size > 0
+```
+
+### **🚀 IMMEDIATE SOLUTION:**
+
+**Step 1:** Save the first artifact as `numpy_boolean_visualization_fix.py` in your modules folder
+
+**Step 2:** In your `app.py`, replace your visualization call:
+
+```python
+# Replace this line:
+# fig = create_streamlined_3d_visualization(vessel_geometry, trajectory_data, options)
+
+# With this:
+from numpy_boolean_visualization_fix import create_safe_3d_visualization
+fig = create_safe_3d_visualization(vessel_geometry, trajectory_data, options)
+```
+
+**Step 3:** Add error handling wrapper:
+
+```python
+try:
+    fig = create_safe_3d_visualization(vessel_geometry, trajectory_data, options)
+    st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.error(f"Visualization error: {str(e)}")
+    # Show debugging info
+    st.write("**Debug Info:**")
+    if 'trajectory_data' in st.session_state:
+        st.write(f"Trajectory keys: {list(st.session_state.trajectory_data.keys())}")
+```
+
+### **🔍 ROOT CAUSE ANALYSIS:**
+
+The error is likely in one of these locations in your code:
+
+1. **In coordinate extraction:**
+```python
+# Problematic pattern:
+if trajectory_data['x_points_m']:  # Array used as boolean
+```
+
+2. **In array comparisons:**
+```python
+# Problematic pattern:
+if z_coords == 0:  # Array comparison in boolean context
+```
+
+3. **In conditional logic:**
+```python
+# Problematic pattern:
+valid_data = x_data and y_data  # Arrays with 'and' operator
+```
+
+### **🛠️ SPECIFIC FIXES FOR COMMON PATTERNS:**
+
+**Pattern 1 - Array existence checks:**
+```python
+# ❌ Wrong:
+if profile['z_mm']:
+
+# ✅ Correct:
+if profile.get('z_mm') is not None and len(profile['z_mm']) > 0:
+```
+
+**Pattern 2 - Array equality checks:**
+```python
+# ❌ Wrong:
+if trajectory_data == expected_data:
+
+# ✅ Correct:
+if np.array_equal(trajectory_data, expected_data):
+```
+
+**Pattern 3 - Array filtering:**
+```python
+# ❌ Wrong:
+if coordinates:
+
+# ✅ Correct:
+if coordinates is not None and len(coordinates) > 0:
+```
+
+### **🎯 TEST THE FIX:**
+
+Add this test button to verify the fix works:
+
+```python
+if st.button("🔧 Test Array Fix"):
+    try:
+        # Test coordinate extraction
+        if 'trajectory_data' in st.session_state:
+            coords = extract_safe_coordinates(st.session_state.trajectory_data)
+            if coords[0] is not None:
+                st.success(f"✅ Fix working: {len(coords[0])} points extracted")
+            else:
+                st.warning("⚠️ No coordinates found")
+        
+        # Test visualization
+        fig = create_safe_3d_visualization(
+            st.session_state.vessel_geometry,
+            st.session_state.trajectory_data
+        )
+        st.success("✅ Visualization created successfully!")
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"❌ Still has issues: {e}")
+```
+
+### **💡 WHY THIS HAPPENS:**
+
+The error occurs because NumPy arrays can't be used directly in boolean contexts since they can contain multiple elements. Python doesn't know whether you want to check if ANY element is True (`a.any()`) or if ALL elements are True (`a.all()`).
+
+The safe visualization engine I provided handles all these cases automatically and should resolve your visualization issues immediately.
+
+Try the fixes above and let me know if you still see the error!
