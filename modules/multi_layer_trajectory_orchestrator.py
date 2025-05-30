@@ -340,13 +340,39 @@ class MultiLayerTrajectoryOrchestrator:
         
         print(f"[DEBUG] Using cylindrical_length: {cylinder_length:.1f}mm for temp_vessel")
         
-        # Create temporary vessel geometry
-        temp_vessel = VesselGeometry(
-            inner_diameter=equatorial_radius * 2,
-            wall_thickness=0.1,  # Nominal value
-            cylindrical_length=cylinder_length,
-            dome_type="Isotensoid"
-        )
+        # Create temporary vessel geometry using original vessel parameters
+        if original_vessel:
+            # Copy dome parameters from original vessel to ensure consistency
+            temp_vessel = VesselGeometry(
+                inner_diameter=equatorial_radius * 2,
+                wall_thickness=0.1,  # Nominal value
+                cylindrical_length=cylinder_length,
+                dome_type=getattr(original_vessel, 'dome_type', "Isotensoid")
+            )
+            
+            # Copy dome-specific parameters if they exist
+            if hasattr(original_vessel, 'q_factor'):
+                temp_vessel.set_qrs_parameters(
+                    original_vessel.q_factor,
+                    original_vessel.r_factor, 
+                    original_vessel.s_factor
+                )
+                print(f"[DEBUG] Copied QRS parameters: q={original_vessel.q_factor}, r={original_vessel.r_factor}, s={original_vessel.s_factor}")
+        else:
+            # Fallback without original vessel
+            temp_vessel = VesselGeometry(
+                inner_diameter=equatorial_radius * 2,
+                wall_thickness=0.1,
+                cylindrical_length=cylinder_length,
+                dome_type="Isotensoid"
+            )
+        
+        # Check temp_vessel bounds before profile override
+        if hasattr(temp_vessel, 'get_profile_points'):
+            pre_profile = temp_vessel.get_profile_points()
+            if 'z_mm' in pre_profile:
+                z_pre = pre_profile['z_mm']
+                print(f"[DEBUG] temp_vessel Z range BEFORE profile override: {z_pre.min():.1f} to {z_pre.max():.1f}mm")
         
         # Override profile with current winding surface
         temp_vessel.profile_points = {
@@ -355,6 +381,15 @@ class MultiLayerTrajectoryOrchestrator:
             'r_outer_mm': np.array(current_surface_profile['r_inner_mm']) + layer_def.calculated_set_thickness_mm,
             'dome_height_mm': current_surface_profile.get('dome_height_mm', 70.0)
         }
+        
+        # Check temp_vessel bounds after profile override
+        if hasattr(temp_vessel, 'get_profile_points'):
+            post_profile = temp_vessel.get_profile_points()
+            if 'z_mm' in post_profile:
+                z_post = post_profile['z_mm']
+                print(f"[DEBUG] temp_vessel Z range AFTER profile override: {z_post.min():.1f} to {z_post.max():.1f}mm")
+        
+        print(f"[DEBUG] current_surface_profile Z range: {current_surface_profile['z_mm'].min():.1f} to {current_surface_profile['z_mm'].max():.1f}mm")
         
         return temp_vessel
     
