@@ -300,7 +300,7 @@ class StreamlinedCOPVVisualizer:
                 # Check for problematic coordinate values
                 if z_m.min() == z_m.max():
                     st.error(f"⚠️ Z-coordinates are all identical ({z_m.min():.3f}m) - coordinate system issue detected!")
-                if np.all(z_m == 0):
+                if np.allclose(z_m, 0.0):
                     st.error("⚠️ All Z-coordinates are zero - trajectory may not be properly generated!")
                     
                 # Show sample coordinate values for debugging
