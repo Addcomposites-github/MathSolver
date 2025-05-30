@@ -191,10 +191,31 @@ class MultiLayerTrajectoryOrchestrator:
                 target_params={'winding_angle_deg': target_angle}
             )
             
+            # Debug the result before conversion
+            print(f"[DEBUG] UnifiedPlanner result type: {type(result)}")
+            if hasattr(result, 'points'):
+                print(f"[DEBUG] UnifiedPlanner generated {len(result.points)} points")
+            else:
+                print(f"[DEBUG] UnifiedPlanner result has no 'points' attribute")
+                print(f"[DEBUG] Result attributes: {dir(result)}")
+            
             # Convert to visualization-compatible format
-            trajectory_data = self.viz_adapter.convert_trajectory_result_for_viz(
-                result, f"{layer_def.layer_type}_{layer_def.winding_angle_deg}deg"
-            )
+            try:
+                trajectory_data = self.viz_adapter.convert_trajectory_result_for_viz(
+                    result, f"{layer_def.layer_type}_{layer_def.winding_angle_deg}deg"
+                )
+                print(f"[DEBUG] Conversion successful, trajectory_data keys: {list(trajectory_data.keys())}")
+            except Exception as conv_error:
+                print(f"[ERROR] Trajectory conversion failed: {conv_error}")
+                import traceback
+                print(f"[ERROR] Conversion traceback:")
+                print(traceback.format_exc())
+                # Return error data to prevent fallback
+                trajectory_data = {
+                    'success': False,
+                    'error': f'Conversion failed: {conv_error}',
+                    'path_points': []
+                }
             
             # Add layer-specific metadata
             trajectory_data.update({
