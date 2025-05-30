@@ -168,8 +168,18 @@ class MultiLayerTrajectoryOrchestrator:
         print(f"Coverage: {layer_params['coverage_mode']}")
         
         try:
-            # Generate trajectory using unified system
-            result = self.unified_planner.generate_trajectory(**layer_params)
+            # Extract target angle and create proper target_params
+            target_angle = layer_params.pop('target_angle_deg', 45.0)
+            
+            # Generate trajectory using unified system with proper parameter format
+            result = self.unified_planner.generate_trajectory(
+                pattern_type=layer_params['pattern_type'],
+                coverage_mode=layer_params['coverage_mode'],
+                physics_model=layer_params['physics_model'],
+                continuity_level=layer_params['continuity_level'],
+                num_layers_desired=layer_params['num_layers_desired'],
+                target_params={'winding_angle_deg': target_angle}
+            )
             
             # Convert to visualization-compatible format
             trajectory_data = self.viz_adapter.convert_trajectory_result_for_viz(
