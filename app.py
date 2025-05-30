@@ -2683,6 +2683,39 @@ def layer_by_layer_planning(layer_manager):
     st.markdown("### 🎯 Layer-by-Layer Trajectory Planning")
     st.info("Each layer gets its own trajectory planner instance with correct mandrel geometry and parameters")
     
+    # Debug section for parameter inspection
+    with st.expander("🔍 Debug: Trajectory Parameter Inspector", expanded=False):
+        from modules.trajectory_parameter_debug import (
+            debug_trajectory_parameters, 
+            debug_unified_planner_call,
+            show_trajectory_generation_flow,
+            analyze_trajectory_output
+        )
+        
+        st.markdown("**Current Layer Stack Parameters:**")
+        for i, layer in enumerate(layer_manager.layer_stack):
+            st.write(f"Layer {layer.layer_set_id}:")
+            st.write(f"  - Type: {layer.layer_type}")
+            st.write(f"  - Winding Angle: {layer.winding_angle_deg}°")
+            st.write(f"  - Physics Model: {getattr(layer, 'physics_model', 'Not set')}")
+            st.write(f"  - Plies: {layer.num_plies}")
+            st.write(f"  - Thickness: {layer.single_ply_thickness_mm}mm")
+        
+        # Add detailed parameter debugging
+        st.markdown("---")
+        debug_trajectory_parameters(layer_manager, 3.0, 0.2, 150, 20)
+        
+        # Show trajectory generation flow
+        st.markdown("---")
+        show_trajectory_generation_flow()
+        
+        # Analyze existing trajectory output if available
+        if 'all_layer_trajectories' in st.session_state and st.session_state.all_layer_trajectories:
+            st.markdown("---")
+            first_traj = st.session_state.all_layer_trajectories[0]
+            if first_traj and 'trajectory_data' in first_traj:
+                analyze_trajectory_output(first_traj['trajectory_data'])
+    
     # Configuration options
     col1, col2 = st.columns(2)
     with col1:
