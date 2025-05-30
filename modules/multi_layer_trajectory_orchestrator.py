@@ -68,7 +68,19 @@ class MultiLayerTrajectoryOrchestrator:
                            f"({layer_def.layer_type} at {layer_def.winding_angle_deg}°)...")
             
             try:
-                # Get current mandrel surface for this layer
+                # Apply previous layers to mandrel BEFORE generating this layer's trajectory
+                # This ensures each layer uses the correct evolved mandrel surface
+                while len(self.layer_manager.mandrel.layers_applied) < layer_index:
+                    layer_to_apply_index = len(self.layer_manager.mandrel.layers_applied)
+                    print(f"[DEBUG] Applying layer {layer_to_apply_index} to mandrel before generating trajectory for layer {layer_index}")
+                    self.layer_manager.apply_layer_to_mandrel(layer_to_apply_index)
+                
+                # Get current mandrel surface for this layer (after previous layers applied)
+                current_mandrel = self.layer_manager.get_current_mandrel_for_trajectory()
+                print(f"[DEBUG] Generating trajectory for layer {layer_index} using mandrel with {len(self.layer_manager.mandrel.layers_applied)} previous layers applied")
+                print(f"[DEBUG] Current mandrel equatorial radius: {current_mandrel['equatorial_radius_mm']:.1f}mm")
+                print(f"[DEBUG] Current mandrel polar radius: {current_mandrel['polar_opening_radius_mm']:.1f}mm")
+                
                 trajectory_data = self._generate_single_layer_trajectory(
                     layer_index, layer_def, roving_width_mm, roving_thickness_mm
                 )
@@ -80,13 +92,10 @@ class MultiLayerTrajectoryOrchestrator:
                         'layer_type': layer_def.layer_type,
                         'winding_angle': layer_def.winding_angle_deg,
                         'trajectory_data': trajectory_data,
-                        'mandrel_state': self.layer_manager.get_current_mandrel_for_trajectory()
+                        'mandrel_state': current_mandrel
                     }
                     all_trajectories.append(wrapped_trajectory)
-                    st.success(f"✅ Layer {layer_def.layer_set_id} trajectory generated")
-                
-                # Apply layer to mandrel for next iteration
-                self.layer_manager.apply_layer_to_mandrel(layer_index)
+                    st.success(f"✅ Layer {layer_def.layer_set_id} trajectory generated using evolved mandrel")
                 
             except Exception as e:
                 st.error(f"❌ Error generating trajectory for Layer {layer_def.layer_set_id}: {str(e)}")
