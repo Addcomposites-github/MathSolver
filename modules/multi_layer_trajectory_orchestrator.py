@@ -132,6 +132,18 @@ class MultiLayerTrajectoryOrchestrator:
         # Get current mandrel surface
         mandrel_data = self.layer_manager.get_current_mandrel_for_trajectory()
         
+        # Debug mandrel data being passed
+        print(f"[DEBUG] Mandrel data keys: {list(mandrel_data.keys())}")
+        if 'profile_points' in mandrel_data:
+            profile = mandrel_data['profile_points']
+            if 'z_mm' in profile:
+                z_range = profile['z_mm']
+                print(f"[DEBUG] Mandrel profile Z range: {z_range.min():.1f} to {z_range.max():.1f}mm")
+            if 'r_inner_mm' in profile:
+                r_range = profile['r_inner_mm']
+                print(f"[DEBUG] Mandrel profile R range: {r_range.min():.1f} to {r_range.max():.1f}mm")
+        print(f"[DEBUG] Mandrel equatorial radius: {mandrel_data.get('equatorial_radius_mm', 'N/A')}mm")
+        
         # Create temporary VesselGeometry for this layer's winding surface
         temp_vessel = self._create_layer_vessel_geometry(mandrel_data, layer_def)
         
