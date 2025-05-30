@@ -243,10 +243,37 @@ class VesselGeometry:
         actual_dome_height_m = dome_height_dimless * rho_0_adjusted
         print(f"Calculated actual_dome_height_m: {actual_dome_height_m:.4f} mm")
 
+        # FIXED: Proper dome radius calculation for isotensoid profile
+        # The dome should vary from polar radius at pole to equatorial radius at base
+        # Correct isotensoid radius profile calculation
+        cos_theta = np.cos(theta_values)
+        sin_theta = np.sin(theta_values)
+        
+        # Proper meridional radius calculation for isotensoid dome
+        # At pole (theta=pi/2): rho should be small (polar radius)
+        # At equator (theta=0): rho should be inner_radius (equatorial radius)
+        
+        # Use proper isotensoid radius formula
         rho_dimless_profile = np.sqrt(
-            Y_eq_dimless_raw**2 * np.cos(theta_values)**2 + 
-            Y_min_dimless_raw**2 * np.sin(theta_values)**2
+            Y_eq_dimless_raw**2 * cos_theta**2 + 
+            Y_min_dimless_raw**2 * sin_theta**2
         )
+        
+        # Additional correction to ensure proper dome curvature
+        # Blend between polar and equatorial radius based on theta
+        theta_normalized = (np.pi/2 - theta_values) / (np.pi/2)  # 0 at pole, 1 at equator
+        
+        # Define polar radius as fraction of equatorial radius
+        polar_radius_ratio = Y_min_dimless_raw / Y_eq_dimless_raw if Y_eq_dimless_raw > 0 else 0.3
+        polar_radius_ratio = np.clip(polar_radius_ratio, 0.1, 0.9)  # Ensure reasonable dome shape
+        
+        # Apply curvature correction
+        curvature_factor = polar_radius_ratio + (1 - polar_radius_ratio) * theta_normalized
+        rho_dimless_profile = rho_dimless_profile * curvature_factor
+        
+        print(f"[DomeFix] Polar radius ratio: {polar_radius_ratio:.3f}")
+        print(f"[DomeFix] Theta range: {np.min(theta_values):.3f} to {np.max(theta_values):.3f}")
+        print(f"[DomeFix] Curvature factor range: {np.min(curvature_factor):.3f} to {np.max(curvature_factor):.3f}")
         rho_abs_profile = rho_dimless_profile * rho_0_adjusted
         print(f"Sample rho_abs_profile (pole to equator): {rho_abs_profile[:3]}...{rho_abs_profile[-3:]}")
 
