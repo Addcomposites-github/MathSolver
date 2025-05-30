@@ -263,14 +263,12 @@ class MultiLayerTrajectoryOrchestrator:
         """Fallback trajectory generation using legacy system"""
         
         # Set up trajectory planner for this specific layer
-        # Use unified trajectory planner instead of streamlined
+        # Use unified trajectory planner with correct parameters
         layer_planner = UnifiedTrajectoryPlanner(
             vessel_geometry=temp_vessel,
-            dry_roving_width_m=roving_width_mm / 1000.0,
-            dry_roving_thickness_m=layer_def.single_ply_thickness_mm / 1000.0,
-            roving_eccentricity_at_pole_m=0.0,  # Default value
-            target_cylinder_angle_deg=layer_def.winding_angle_deg,
-            mu_friction_coefficient=0.0  # Default value
+            roving_width_m=roving_width_mm / 1000.0,
+            payout_length_m=0.5,  # Default payout length
+            default_friction_coeff=0.1
         )
         
         # Calculate winding pattern for this layer
