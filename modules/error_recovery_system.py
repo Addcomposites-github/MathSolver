@@ -8,71 +8,36 @@ from typing import Dict, List, Any, Optional
 
 def trajectory_generation_with_fallbacks(layer_manager, roving_width_mm=3.0, roving_thickness_mm=0.125):
     """
-    Robust trajectory generation with multiple fallback strategies
+    Use ONLY the sophisticated unified trajectory generation system - NO FALLBACKS
     """
     
-    # Strategy 1: Try unified system with full coverage
+    # ONLY use the unified system - disable all fallbacks that create 100-point junk trajectories
     try:
-        st.info("Attempting unified trajectory generation...")
+        st.info("Using sophisticated unified trajectory generation (fallbacks disabled)...")
         from modules.multi_layer_trajectory_orchestrator import MultiLayerTrajectoryOrchestrator
         
         orchestrator = MultiLayerTrajectoryOrchestrator(layer_manager)
         trajectories = orchestrator.generate_all_layer_trajectories(roving_width_mm, roving_thickness_mm)
         
         if trajectories and len(trajectories) > 0:
-            st.success(f"Unified system succeeded: {len(trajectories)} trajectories")
+            # Validate that we got proper multi-circuit trajectories, not 100-point fallbacks
+            for traj in trajectories:
+                traj_data = traj.get('trajectory_data', {})
+                point_count = traj_data.get('total_points', 0)
+                
+                if point_count < 500:  # Reject any trajectory with too few points
+                    st.error(f"Layer {traj['layer_id']}: Only {point_count} points - this is a fallback trajectory, not sophisticated solver output")
+                    return []
+                    
+            st.success(f"✅ Sophisticated trajectory generation succeeded: {len(trajectories)} trajectories with proper multi-circuit coverage")
             return trajectories
         else:
-            st.warning("Unified system returned no trajectories")
+            st.error("❌ Unified system returned no trajectories - check your configuration")
+            return []
             
     except Exception as e:
-        st.warning(f"Unified system failed: {str(e)}")
-    
-    # Strategy 2: Try simplified single-layer approach
-    try:
-        st.info("Attempting simplified single-layer generation...")
-        
-        trajectories = []
-        for i, layer in enumerate(layer_manager.layer_stack):
-            simple_trajectory = generate_simple_layer_trajectory(
-                layer, layer_manager, roving_width_mm
-            )
-            if simple_trajectory:
-                trajectories.append({
-                    'layer_id': layer.layer_set_id,
-                    'layer_type': layer.layer_type,
-                    'winding_angle': layer.winding_angle_deg,
-                    'trajectory_data': simple_trajectory
-                })
-        
-        if trajectories:
-            st.success(f"Simplified approach succeeded: {len(trajectories)} trajectories")
-            return trajectories
-            
-    except Exception as e:
-        st.warning(f"Simplified approach failed: {str(e)}")
-    
-    # Strategy 3: Generate basic geometric trajectories
-    try:
-        st.info("Generating basic geometric trajectories...")
-        
-        trajectories = []
-        for layer in layer_manager.layer_stack:
-            basic_trajectory = generate_basic_geometric_trajectory(
-                layer, st.session_state.vessel_geometry
-            )
-            trajectories.append({
-                'layer_id': layer.layer_set_id,
-                'layer_type': layer.layer_type,
-                'winding_angle': layer.winding_angle_deg,
-                'trajectory_data': basic_trajectory
-            })
-        
-        st.warning(f"Using basic geometric trajectories: {len(trajectories)} layers")
-        return trajectories
-        
-    except Exception as e:
-        st.error(f"All fallback strategies failed: {str(e)}")
+        st.error(f"❌ Sophisticated trajectory generation failed: {str(e)}")
+        st.error("❌ NO FALLBACKS ALLOWED - Fix the unified system instead of using 100-point junk trajectories")
         return []
 
 def generate_simple_layer_trajectory(layer_def, layer_manager, roving_width_mm):
