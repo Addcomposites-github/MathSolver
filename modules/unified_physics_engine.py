@@ -204,16 +204,55 @@ class PhysicsEngine:
             
             return [d_phi_d_param, d_s_path_d_param]
 
-        # Integration parameters
-        param_span = np.sort([initial_param_val, param_end_val])
+        # Find valid integration bounds where rho > clairaut_constant
+        valid_param_min = initial_param_val
+        valid_param_max = param_end_val
+        
+        # Check if initial bounds are valid
+        initial_props = self._calculate_surface_properties(initial_param_val)
+        final_props = self._calculate_surface_properties(param_end_val)
+        
+        print(f"[DEBUG] Initial rho: {initial_props['rho']:.6f}, Final rho: {final_props['rho']:.6f}")
+        
+        # If initial position is invalid, find valid starting point
+        if initial_props['rho'] <= clairaut_constant:
+            # Search for valid starting point moving inward from pole
+            search_range = np.linspace(initial_param_val, (initial_param_val + param_end_val)/2, 50)
+            for test_param in search_range:
+                test_props = self._calculate_surface_properties(test_param)
+                if test_props['rho'] > clairaut_constant:
+                    valid_param_min = test_param
+                    print(f"[DEBUG] Found valid start at param={test_param:.6f}, rho={test_props['rho']:.6f}")
+                    break
+        
+        # If final position is invalid, find valid ending point
+        if final_props['rho'] <= clairaut_constant:
+            # Search for valid ending point moving inward from pole
+            search_range = np.linspace((initial_param_val + param_end_val)/2, param_end_val, 50)
+            for test_param in reversed(search_range):
+                test_props = self._calculate_surface_properties(test_param)
+                if test_props['rho'] > clairaut_constant:
+                    valid_param_max = test_param
+                    print(f"[DEBUG] Found valid end at param={test_param:.6f}, rho={test_props['rho']:.6f}")
+                    break
+        
+        # If no valid range found, return empty
+        if valid_param_min >= valid_param_max:
+            print(f"[DEBUG] No valid integration range found for clairaut={clairaut_constant:.6f}")
+            return trajectory_points
+        
+        print(f"[DEBUG] Valid integration range: {valid_param_min:.6f} to {valid_param_max:.6f}")
+        
+        # Integration parameters using valid range
+        param_span = np.sort([valid_param_min, valid_param_max])
         eval_params = np.linspace(param_span[0], param_span[1], num_points)
         y0 = [initial_phi_rad, 0.0]
 
         try:
-            print(f"[DEBUG] Starting geodesic ODE integration: param {initial_param_val:.6f} to {param_end_val:.6f}, clairaut={clairaut_constant:.6f}")
+            print(f"[DEBUG] Starting geodesic ODE integration: param {valid_param_min:.6f} to {valid_param_max:.6f}, clairaut={clairaut_constant:.6f}")
             
-            # Use robust ODE solver
-            sol = solve_ivp(geodesic_ode, [initial_param_val, param_end_val], y0, 
+            # Use robust ODE solver with valid parameter range
+            sol = solve_ivp(geodesic_ode, [valid_param_min, valid_param_max], y0, 
                           t_eval=eval_params, method='RK45', atol=1e-8, rtol=1e-8)
             
             print(f"[DEBUG] ODE solver completed: success={sol.success}, message='{sol.message}'")
