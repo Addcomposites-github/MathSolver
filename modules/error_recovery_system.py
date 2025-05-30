@@ -11,9 +11,22 @@ def trajectory_generation_with_fallbacks(layer_manager, roving_width_mm=3.0, rov
     Use ONLY the sophisticated unified trajectory generation system - NO FALLBACKS
     """
     
+    # Clear any cached trajectories to force regeneration with evolved mandrel geometry
+    if 'all_layer_trajectories' in st.session_state:
+        del st.session_state['all_layer_trajectories']
+    if 'trajectory_data' in st.session_state:
+        del st.session_state['trajectory_data']
+    
+    print(f"[DEBUG] Starting trajectory generation for {len(layer_manager.layer_stack)} layers")
+    print(f"[DEBUG] Current mandrel has {len(layer_manager.mandrel.layers_applied)} layers applied")
+    
+    # Reset mandrel to base state to ensure clean layer evolution
+    layer_manager.mandrel.reset_to_base_geometry()
+    print(f"[DEBUG] Reset mandrel to base geometry")
+    
     # ONLY use the unified system - disable all fallbacks that create 100-point junk trajectories
     try:
-        st.info("Using sophisticated unified trajectory generation (fallbacks disabled)...")
+        st.info("Using sophisticated unified trajectory generation with evolved mandrel geometry...")
         from modules.multi_layer_trajectory_orchestrator import MultiLayerTrajectoryOrchestrator
         
         orchestrator = MultiLayerTrajectoryOrchestrator(layer_manager)
