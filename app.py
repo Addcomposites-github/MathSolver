@@ -388,7 +388,8 @@ def vessel_geometry_page():
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
         try:
-            fig = create_streamlined_3d_visualization(
+            from modules.simple_viz_fix import create_simple_3d_visualization
+            fig = create_simple_3d_visualization(
                 st.session_state.vessel_geometry,
                 trajectory_data,
                 viz_options
