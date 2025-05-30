@@ -388,24 +388,142 @@ def vessel_geometry_page():
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
         try:
-            # Use error-safe visualization to prevent numpy boolean issues
-            from modules.numpy_boolean_fix import create_error_safe_visualization
+            # Create completely isolated visualization to avoid array issues
+            import plotly.graph_objects as go
+            import numpy as np
             
-            # Get trajectory data safely
-            trajectory_source = None
-            if hasattr(st.session_state, 'trajectory_data') and st.session_state.trajectory_data:
-                trajectory_source = st.session_state.trajectory_data
-            elif hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
-                if st.session_state.all_layer_trajectories[0].get('trajectory_data'):
-                    trajectory_source = st.session_state.all_layer_trajectories[0]['trajectory_data']
+            fig = go.Figure()
+            success_count = 0
             
-            # Create safe visualization
-            fig = create_error_safe_visualization(
-                st.session_state.vessel_geometry if hasattr(st.session_state, 'vessel_geometry') else None,
-                trajectory_source
+            # Add vessel geometry with isolated handling
+            try:
+                if hasattr(st.session_state, 'vessel_geometry') and st.session_state.vessel_geometry:
+                    vessel = st.session_state.vessel_geometry
+                    if hasattr(vessel, 'get_profile_points'):
+                        profile = vessel.get_profile_points()
+                        
+                        if profile and isinstance(profile, dict):
+                            z_data = profile.get('z_mm')
+                            r_data = profile.get('r_inner_mm')
+                            
+                            if z_data is not None and r_data is not None:
+                                # Convert to simple Python lists to avoid array issues
+                                z_list = [float(x) for x in z_data]
+                                r_list = [float(x) for x in r_data]
+                                
+                                if len(z_list) > 1 and len(r_list) > 1:
+                                    # Create surface mesh
+                                    theta = np.linspace(0, 2*np.pi, 24)
+                                    z_arr = np.array(z_list)
+                                    r_arr = np.array(r_list)
+                                    
+                                    Z_mesh, Theta_mesh = np.meshgrid(z_arr, theta)
+                                    R_mesh = np.tile(r_arr, (24, 1))
+                                    
+                                    X_mesh = R_mesh * np.cos(Theta_mesh)
+                                    Y_mesh = R_mesh * np.sin(Theta_mesh)
+                                    
+                                    fig.add_trace(go.Surface(
+                                        x=X_mesh, y=Y_mesh, z=Z_mesh,
+                                        colorscale='Greys',
+                                        opacity=0.4,
+                                        name='Vessel',
+                                        showscale=False
+                                    ))
+                                    success_count += 1
+                                    st.success(f"Vessel geometry added ({len(z_list)} profile points)")
+            except Exception as e:
+                st.warning(f"Could not add vessel geometry: {e}")
+            
+            # Add trajectory with completely isolated handling
+            try:
+                trajectory_added = False
+                
+                # Try session state trajectory data
+                if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+                    layer_traj = st.session_state.all_layer_trajectories[0]
+                    if 'trajectory_data' in layer_traj:
+                        traj_data = layer_traj['trajectory_data']
+                        
+                        if isinstance(traj_data, dict):
+                            # Look for coordinate arrays in nested structure
+                            coord_source = traj_data.get('trajectory_data', traj_data)
+                            
+                            x_raw = coord_source.get('x_points_m')
+                            y_raw = coord_source.get('y_points_m') 
+                            z_raw = coord_source.get('z_points_m')
+                            
+                            if x_raw is not None and y_raw is not None and z_raw is not None:
+                                # Convert to simple lists
+                                x_coords = [float(x) for x in x_raw]
+                                y_coords = [float(y) for y in y_raw]
+                                z_coords = [float(z) for z in z_raw]
+                                
+                                if len(x_coords) > 0 and len(y_coords) > 0 and len(z_coords) > 0:
+                                    # Convert to mm and center
+                                    x_mm = [x * 1000 for x in x_coords]
+                                    y_mm = [y * 1000 for y in y_coords]
+                                    z_mm = [z * 1000 for z in z_coords]
+                                    
+                                    # Center trajectory
+                                    z_min, z_max = min(z_mm), max(z_mm)
+                                    z_center = (z_min + z_max) / 2
+                                    z_mm_centered = [z - z_center for z in z_mm]
+                                    
+                                    # Decimate for performance
+                                    step = max(1, len(x_mm) // 500)
+                                    x_plot = x_mm[::step]
+                                    y_plot = y_mm[::step]
+                                    z_plot = z_mm_centered[::step]
+                                    
+                                    fig.add_trace(go.Scatter3d(
+                                        x=x_plot, y=y_plot, z=z_plot,
+                                        mode='lines',
+                                        line=dict(color='red', width=4),
+                                        name=f'Trajectory ({len(x_plot)} points)'
+                                    ))
+                                    
+                                    # Calculate quality metrics
+                                    radii = [np.sqrt(x**2 + y**2) for x, y in zip(x_coords, y_coords)]
+                                    r_mean = sum(radii) / len(radii)
+                                    r_std = np.sqrt(sum([(r - r_mean)**2 for r in radii]) / len(radii))
+                                    radius_var_pct = (r_std / r_mean * 100) if r_mean > 0 else 0
+                                    
+                                    st.info(f"""
+                                    **Trajectory Quality:**
+                                    - Total points: {len(x_coords)}
+                                    - Z span: {max(z_mm_centered) - min(z_mm_centered):.1f} mm
+                                    - Radius variation: {radius_var_pct:.3f}%
+                                    - Status: {'Good' if radius_var_pct > 1.0 else 'Low variation' if radius_var_pct > 0.1 else 'Constant radius'}
+                                    """)
+                                    
+                                    success_count += 1
+                                    trajectory_added = True
+                
+                if not trajectory_added:
+                    st.warning("No valid trajectory coordinates found")
+                    
+            except Exception as e:
+                st.warning(f"Could not add trajectory: {e}")
+            
+            # Configure layout
+            fig.update_layout(
+                scene=dict(
+                    xaxis_title='X (mm)',
+                    yaxis_title='Y (mm)', 
+                    zaxis_title='Z (mm)',
+                    aspectmode='data'
+                ),
+                title='COPV 3D Visualization (Isolated Mode)',
+                showlegend=True,
+                height=700
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            if success_count > 0:
+                st.plotly_chart(fig, use_container_width=True)
+                st.success(f"Visualization completed successfully ({success_count} components added)")
+            else:
+                st.error("Could not create visualization - no valid data found")
             
             # Show trajectory statistics if available
             if trajectory_data:
