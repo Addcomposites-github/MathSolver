@@ -388,7 +388,13 @@ def vessel_geometry_page():
     # Generate visualization
     if st.button("Generate 3D Visualization", type="primary"):
         try:
-            # Create a basic 3D visualization without problematic array operations
+            # Apply trajectory array fixes first
+            from modules.trajectory_array_fix import apply_trajectory_array_fix_to_session, extract_safe_coordinates
+            
+            # Auto-fix trajectory arrays if needed
+            apply_trajectory_array_fix_to_session()
+            
+            # Create visualization
             import plotly.graph_objects as go
             import numpy as np
             
@@ -420,30 +426,56 @@ def vessel_geometry_page():
                             showscale=False
                         ))
             
-            # Add trajectory if available
-            if trajectory_data and 'trajectory_data' in trajectory_data:
-                traj_nested = trajectory_data['trajectory_data']
-                if all(k in traj_nested for k in ['x_points_m', 'y_points_m', 'z_points_m']):
-                    x_coords = np.array(traj_nested['x_points_m']) * 1000  # Convert to mm
-                    y_coords = np.array(traj_nested['y_points_m']) * 1000
-                    z_coords = np.array(traj_nested['z_points_m']) * 1000
+            # Add trajectory using safe coordinate extraction
+            trajectory_source = None
+            if hasattr(st.session_state, 'trajectory_data') and st.session_state.trajectory_data:
+                trajectory_source = st.session_state.trajectory_data
+            elif hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
+                if st.session_state.all_layer_trajectories[0].get('trajectory_data'):
+                    trajectory_source = st.session_state.all_layer_trajectories[0]['trajectory_data']
+            
+            if trajectory_source:
+                coords = extract_safe_coordinates(trajectory_source)
+                if coords:
+                    x_coords, y_coords, z_coords = coords
                     
-                    # Apply coordinate alignment (simple centering)
-                    z_center_traj = (np.min(z_coords) + np.max(z_coords)) / 2
-                    z_offset = 0 - z_center_traj  # Center on origin
-                    z_coords_aligned = z_coords + z_offset
+                    # Convert to mm and apply coordinate alignment
+                    x_mm = x_coords * 1000
+                    y_mm = y_coords * 1000
+                    z_mm = z_coords * 1000
+                    
+                    # Center trajectory on vessel
+                    z_center_traj = (np.min(z_mm) + np.max(z_mm)) / 2
+                    z_offset = 0 - z_center_traj
+                    z_mm_aligned = z_mm + z_offset
                     
                     # Decimate for performance
-                    step = max(1, len(x_coords) // 500)  # Show max 500 points
+                    step = max(1, len(x_mm) // 500)
                     
                     fig.add_trace(go.Scatter3d(
-                        x=x_coords[::step], 
-                        y=y_coords[::step], 
-                        z=z_coords_aligned[::step],
+                        x=x_mm[::step], 
+                        y=y_mm[::step], 
+                        z=z_mm_aligned[::step],
                         mode='lines',
                         line=dict(color='red', width=6),
-                        name=f'Trajectory ({len(x_coords)} points)'
+                        name=f'Trajectory ({len(x_mm)} points)'
                     ))
+                    
+                    # Show trajectory quality metrics
+                    rho = np.sqrt(x_coords**2 + y_coords**2)
+                    radius_var_pct = (np.std(rho) / np.mean(rho) * 100) if np.mean(rho) > 0 else 0
+                    
+                    st.info(f"""
+                    **Trajectory Quality:**
+                    - Total points: {len(x_coords)}
+                    - Z span: {np.max(z_mm_aligned) - np.min(z_mm_aligned):.1f} mm
+                    - Radius variation: {radius_var_pct:.3f}%
+                    - Status: {'✅ Good' if radius_var_pct > 1.0 else '⚠️ Low variation' if radius_var_pct > 0.1 else '❌ Constant radius'}
+                    """)
+                else:
+                    st.warning("Could not extract trajectory coordinates")
+            else:
+                st.warning("No trajectory data available")
             
             # Configure layout
             fig.update_layout(
@@ -453,7 +485,7 @@ def vessel_geometry_page():
                     zaxis_title='Z (mm)',
                     aspectmode='data'
                 ),
-                title='COPV 3D Visualization - Fixed',
+                title='COPV 3D Visualization - Enhanced',
                 showlegend=True,
                 height=600
             )
