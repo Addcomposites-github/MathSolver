@@ -283,11 +283,15 @@ class UnifiedTrajectoryPlanner:
                 # Use geodesic solver for Clairaut physics (works for helical, geodesic patterns)
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 
+                # Calculate full vessel height for proper geodesic coverage
+                vessel_z_min = self.physics_engine.z_min if hasattr(self.physics_engine, 'z_min') else -0.5
+                vessel_z_max = self.physics_engine.z_max if hasattr(self.physics_engine, 'z_max') else 0.5
+                
                 circuit_points = self.physics_engine.solve_geodesic(
                     clairaut_constant=clairaut_constant,
-                    initial_param_val=start_z,
+                    initial_param_val=vessel_z_min,
                     initial_phi_rad=start_phi_rad,
-                    param_end_val=start_z + vessel_radius_m,  # Simplified path length
+                    param_end_val=vessel_z_max,  # Cover full vessel height
                     num_points=options.get('num_points', 100)
                 )
                 
@@ -297,15 +301,15 @@ class UnifiedTrajectoryPlanner:
                 print("[WARNING] constant_angle physics model is disabled - using clairaut geodesic solver instead")
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 
-                # Calculate appropriate end parameter for geodesic path
-                vessel_radius_m = getattr(self.vessel_geometry, 'inner_diameter', 200) / 2000  # Convert mm to m
-                end_param = start_z + vessel_radius_m  # Use radius as path length
+                # Calculate full vessel height for proper geodesic coverage
+                vessel_z_min = self.physics_engine.z_min if hasattr(self.physics_engine, 'z_min') else -0.5
+                vessel_z_max = self.physics_engine.z_max if hasattr(self.physics_engine, 'z_max') else 0.5
                 
                 circuit_points = self.physics_engine.solve_geodesic(
                     clairaut_constant=clairaut_constant,
-                    initial_param_val=start_z,
+                    initial_param_val=vessel_z_min,
                     initial_phi_rad=start_phi_rad,
-                    param_end_val=end_param,
+                    param_end_val=vessel_z_max,  # Cover full vessel height
                     num_points=options.get('num_points', 100)
                 )
                 
@@ -314,12 +318,16 @@ class UnifiedTrajectoryPlanner:
                 clairaut_constant = self._determine_clairaut_constant(target_angle_deg, vessel_radius_m)
                 friction_coeff = options.get('friction_coefficient', self.default_friction_coeff)
                 
+                # Calculate full vessel height for proper non-geodesic coverage
+                vessel_z_min = self.physics_engine.z_min if hasattr(self.physics_engine, 'z_min') else -0.5
+                vessel_z_max = self.physics_engine.z_max if hasattr(self.physics_engine, 'z_max') else 0.5
+                
                 circuit_points = self.physics_engine.solve_non_geodesic(
                     clairaut_constant=clairaut_constant,
                     friction_coefficient=friction_coeff,
-                    initial_param_val=start_z,
+                    initial_param_val=vessel_z_min,
                     initial_phi_rad=start_phi_rad,
-                    param_end_val=start_z + vessel_radius_m,
+                    param_end_val=vessel_z_max,  # Cover full vessel height
                     num_points=options.get('num_points', 100)
                 )
                 
