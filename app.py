@@ -222,7 +222,13 @@ def debug_vessel_geometry():
         st.warning("No vessel geometry in session state")
 
 def visualization_page():
-    """Streamlined 3D visualization page using the new coordinate-aligned system"""
+    """Streamlined 3D visualization page using safe array operations"""
+    import numpy as np
+    import plotly.graph_objects as go
+    from modules.safe_array_operations import (
+        safe_array_check, safe_array_length, safe_boolean_condition,
+        safe_array_min_max, safe_array_mean
+    )
     
     st.markdown("""
     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -231,26 +237,10 @@ def visualization_page():
             🎯 3D Trajectory Visualization
         </h2>
         <p style="color: white; margin: 0.5rem 0 0 0; text-align: center; opacity: 0.9;">
-            Advanced 3D visualization with coordinate alignment
+            Advanced 3D visualization with safe array handling
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Debug section
-    with st.expander("🔧 Debug Tools", expanded=False):
-        if st.button("Debug Vessel Geometry"):
-            debug_vessel_geometry()
-        
-        if st.button("Debug Parameter Passing"):
-            st.write("**Current trajectory generation parameters:**")
-            if hasattr(st.session_state, 'all_layer_trajectories') and st.session_state.all_layer_trajectories:
-                for i, traj in enumerate(st.session_state.all_layer_trajectories):
-                    st.write(f"Trajectory {i+1}:")
-                    if 'target_angle' in traj:
-                        st.write(f"  - Target angle: {traj['target_angle']}°")
-                    if 'winding_angles_deg' in traj and traj['winding_angles_deg']:
-                        actual_angles = np.array(traj['winding_angles_deg'])
-                        st.write(f"  - Actual angle range: {np.min(actual_angles):.1f}° to {np.max(actual_angles):.1f}°")
     
     # Sync trajectory data from layer generation to visualization format
     sync_trajectory_data()
@@ -267,29 +257,51 @@ def visualization_page():
         st.markdown("### Vessel Geometry Preview")
         
         try:
-            # Import the streamlined visualizer
-            from modules.streamlined_3d_viz import create_streamlined_3d_visualization
+            # Create simple vessel visualization
+            fig = go.Figure()
             
-            # Create vessel visualization without trajectories
-            vessel_viz_options = {
-                'show_mandrel': True,
-                'show_trajectory': False,
-                'mandrel_resolution': 48,
-                'show_wireframe': True,
-                'wireframe_color': '#888888',
-                'mandrel_color': '#4CAF50'
-            }
-            
-            fig = create_streamlined_3d_visualization(
-                st.session_state.vessel_geometry,
-                None,  # No trajectory data
-                vessel_viz_options
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            # Get vessel profile
+            vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+            if vessel_profile and safe_array_check(vessel_profile.get('z_mm')):
+                z_mm = np.array(vessel_profile['z_mm'])
+                r_mm = np.array(vessel_profile['r_inner_mm'])
+                
+                # Convert to meters and center at origin
+                z_m = z_mm / 1000.0
+                r_m = r_mm / 1000.0
+                
+                # Create 3D surface
+                theta = np.linspace(0, 2*np.pi, 32)
+                Z_mesh, Theta_mesh = np.meshgrid(z_m, theta)
+                R_interp = np.interp(Z_mesh.flatten(), z_m, r_m).reshape(Z_mesh.shape)
+                
+                X_mesh = R_interp * np.cos(Theta_mesh)
+                Y_mesh = R_interp * np.sin(Theta_mesh)
+                
+                fig.add_trace(go.Surface(
+                    x=X_mesh * 1000, y=Y_mesh * 1000, z=Z_mesh * 1000,
+                    colorscale='Viridis',
+                    opacity=0.7,
+                    name='Vessel Surface'
+                ))
+                
+                fig.update_layout(
+                    scene=dict(
+                        xaxis_title='X (mm)',
+                        yaxis_title='Y (mm)',
+                        zaxis_title='Z (mm)',
+                        aspectmode='data'
+                    ),
+                    title='Vessel Geometry',
+                    height=600
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("No vessel profile data available")
             
         except Exception as e:
-            st.error(f"Visualization error: {str(e)}")
+            st.error(f"Vessel visualization error: {str(e)}")
         
         return
     
@@ -306,12 +318,13 @@ def visualization_page():
         # Visualization options
         st.markdown("#### Display Options")
         show_mandrel = st.checkbox("Show Mandrel Surface", value=True)
-        show_wireframe = st.checkbox("Show Wireframe", value=True)
+        show_wireframe = st.checkbox("Show Wireframe", value=False)
         show_trajectory = st.checkbox("Show Trajectory", value=True)
         
         # Quality settings
         st.markdown("#### Quality Settings")
         mandrel_resolution = st.slider("Mandrel Resolution", 16, 64, 32)
+        decimation_factor = st.slider("Point Decimation", 1, 20, 5)
         
         # Color options
         st.markdown("#### Colors")
@@ -323,52 +336,131 @@ def visualization_page():
         
         if selected_trajectory and selected_trajectory in st.session_state.trajectories:
             try:
-                # Import the coordinate alignment fix
-                from modules.coordinate_alignment_fix import create_fixed_3d_visualization
+                # Get trajectory data safely
+                trajectory_container = st.session_state.trajectories[selected_trajectory]
+                trajectory_data = trajectory_container.get('trajectory_data', {})
                 
-                # Get trajectory data
-                trajectory_data = st.session_state.trajectories[selected_trajectory]
+                # Create figure
+                fig = go.Figure()
+                success_count = 0
                 
-                # Create visualization options
-                viz_options = {
-                    'show_mandrel': show_mandrel,
-                    'show_trajectory': show_trajectory,
-                    'show_wireframe': show_wireframe,
-                    'mandrel_resolution': mandrel_resolution,
-                    'mandrel_color': mandrel_color,
-                    'trajectory_color': trajectory_color,
-                    'wireframe_color': '#888888',
-                    'decimation_factor': 5  # Show every 5th point for better performance
-                }
+                # Add vessel surface if requested
+                if show_mandrel:
+                    try:
+                        vessel_profile = st.session_state.vessel_geometry.get_profile_points()
+                        if vessel_profile and safe_array_check(vessel_profile.get('z_mm')):
+                            z_mm = np.array(vessel_profile['z_mm'])
+                            r_mm = np.array(vessel_profile['r_inner_mm'])
+                            
+                            # Convert to meters and center
+                            z_m = z_mm / 1000.0
+                            r_m = r_mm / 1000.0
+                            
+                            # Create surface mesh
+                            theta = np.linspace(0, 2*np.pi, mandrel_resolution)
+                            Z_mesh, Theta_mesh = np.meshgrid(z_m, theta)
+                            R_interp = np.interp(Z_mesh.flatten(), z_m, r_m).reshape(Z_mesh.shape)
+                            
+                            X_mesh = R_interp * np.cos(Theta_mesh)
+                            Y_mesh = R_interp * np.sin(Theta_mesh)
+                            
+                            fig.add_trace(go.Surface(
+                                x=X_mesh * 1000, y=Y_mesh * 1000, z=Z_mesh * 1000,
+                                colorscale='Viridis',
+                                opacity=0.3,
+                                name='Mandrel Surface',
+                                showscale=False
+                            ))
+                            success_count += 1
+                    except Exception as e:
+                        st.warning(f"Could not add mandrel surface: {e}")
                 
-                # Create the visualization with coordinate fixes
-                fig = create_fixed_3d_visualization(
-                    st.session_state.vessel_geometry,
-                    trajectory_data,
-                    viz_options
+                # Add trajectory if available and requested
+                if show_trajectory and trajectory_data:
+                    try:
+                        # Extract coordinates safely
+                        x_raw = trajectory_data.get('x_points_m')
+                        y_raw = trajectory_data.get('y_points_m')
+                        z_raw = trajectory_data.get('z_points_m')
+                        
+                        if safe_array_check(x_raw) and safe_array_check(y_raw) and safe_array_check(z_raw):
+                            # Convert to safe arrays
+                            x_coords = np.array(x_raw)
+                            y_coords = np.array(y_raw)
+                            z_coords = np.array(z_raw)
+                            
+                            # Check array lengths match
+                            min_len = min(len(x_coords), len(y_coords), len(z_coords))
+                            if min_len > 0:
+                                x_coords = x_coords[:min_len]
+                                y_coords = y_coords[:min_len]
+                                z_coords = z_coords[:min_len]
+                                
+                                # Convert to mm
+                                x_mm = x_coords * 1000
+                                y_mm = y_coords * 1000
+                                z_mm = z_coords * 1000
+                                
+                                # Apply decimation for performance
+                                if decimation_factor > 1:
+                                    step = decimation_factor
+                                    x_plot = x_mm[::step]
+                                    y_plot = y_mm[::step]
+                                    z_plot = z_mm[::step]
+                                else:
+                                    x_plot = x_mm
+                                    y_plot = y_mm
+                                    z_plot = z_mm
+                                
+                                fig.add_trace(go.Scatter3d(
+                                    x=x_plot, y=y_plot, z=z_plot,
+                                    mode='lines',
+                                    line=dict(color=trajectory_color, width=4),
+                                    name=f'Trajectory ({len(x_plot)} points)'
+                                ))
+                                
+                                success_count += 1
+                    except Exception as e:
+                        st.warning(f"Could not add trajectory: {e}")
+                
+                # Configure layout
+                fig.update_layout(
+                    scene=dict(
+                        xaxis_title='X (mm)',
+                        yaxis_title='Y (mm)',
+                        zaxis_title='Z (mm)',
+                        aspectmode='data'
+                    ),
+                    title='COPV 3D Visualization',
+                    showlegend=True,
+                    height=700
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Display trajectory information
-                if 'trajectory_data' in trajectory_data:
-                    traj_info = trajectory_data['trajectory_data']
+                if success_count > 0:
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.success(f"Visualization completed successfully ({success_count} components)")
                     
-                    st.markdown("### Trajectory Information")
-                    col_a, col_b, col_c = st.columns(3)
-                    
-                    with col_a:
-                        if 'x_points_m' in traj_info:
-                            st.metric("Total Points", len(traj_info['x_points_m']))
-                    
-                    with col_b:
-                        if 'winding_angles_deg' in traj_info and traj_info['winding_angles_deg']:
-                            avg_angle = np.mean(traj_info['winding_angles_deg'])
-                            st.metric("Avg Winding Angle", f"{avg_angle:.1f}°")
-                    
-                    with col_c:
-                        if 'coverage_percentage' in traj_info:
-                            st.metric("Coverage", f"{traj_info['coverage_percentage']:.1f}%")
+                    # Display trajectory information safely
+                    if trajectory_data:
+                        st.markdown("### Trajectory Information")
+                        col_a, col_b, col_c = st.columns(3)
+                        
+                        with col_a:
+                            x_points = trajectory_data.get('x_points_m')
+                            if safe_array_check(x_points):
+                                st.metric("Total Points", safe_array_length(x_points))
+                        
+                        with col_b:
+                            winding_angles = trajectory_data.get('winding_angles_deg')
+                            if safe_array_check(winding_angles):
+                                avg_angle = safe_array_mean(winding_angles)
+                                st.metric("Avg Winding Angle", f"{avg_angle:.1f}°")
+                        
+                        with col_c:
+                            coverage = trajectory_data.get('coverage_percentage', 0)
+                            st.metric("Coverage", f"{coverage:.1f}%")
+                else:
+                    st.error("Could not create visualization - no valid data found")
                 
             except Exception as e:
                 st.error(f"Visualization error: {str(e)}")
