@@ -35,13 +35,79 @@ def fix_trajectory_coordinates(trajectory_data: Dict, vessel_geometry) -> Dict:
     print(f"[CoordFix] Vessel Z range: {vessel_z_min:.1f} to {vessel_z_max:.1f} mm")
     print(f"[CoordFix] Vessel Z center: {vessel_z_center:.1f} mm, span: {vessel_z_span:.1f} mm")
     
-    # Extract trajectory coordinates
-    x_points_m = trajectory_data.get('x_points_m', [])
-    y_points_m = trajectory_data.get('y_points_m', [])
-    z_points_m = trajectory_data.get('z_points_m', [])
+    # Extract trajectory coordinates - check multiple data formats
+    x_points_m = []
+    y_points_m = []
+    z_points_m = []
+    
+    # Method 1: Direct coordinate arrays
+    if 'x_points_m' in trajectory_data and 'y_points_m' in trajectory_data and 'z_points_m' in trajectory_data:
+        x_points_m = trajectory_data['x_points_m']
+        y_points_m = trajectory_data['y_points_m']
+        z_points_m = trajectory_data['z_points_m']
+        print(f"[CoordFix] Found direct coordinate arrays: {len(x_points_m)} points")
+    
+    # Method 2: Check inside trajectory_data sub-dict
+    elif 'trajectory_data' in trajectory_data:
+        traj_data = trajectory_data['trajectory_data']
+        if 'x_points_m' in traj_data and 'y_points_m' in traj_data and 'z_points_m' in traj_data:
+            x_points_m = traj_data['x_points_m']
+            y_points_m = traj_data['y_points_m']
+            z_points_m = traj_data['z_points_m']
+            print(f"[CoordFix] Found coordinate arrays in sub-dict: {len(x_points_m)} points")
+    
+    # Method 3: Extract from path_points if coordinate arrays not found
+    if not x_points_m and 'path_points' in trajectory_data:
+        path_points = trajectory_data['path_points']
+        print(f"[CoordFix] Extracting coordinates from {len(path_points)} path points")
+        
+        for point in path_points:
+            if hasattr(point, 'position') and len(point.position) >= 3:
+                # Position array format [x, y, z]
+                x_points_m.append(point.position[0])
+                y_points_m.append(point.position[1])
+                z_points_m.append(point.position[2])
+            elif hasattr(point, 'x') and hasattr(point, 'y') and hasattr(point, 'z'):
+                # Direct coordinate attributes
+                x_points_m.append(point.x)
+                y_points_m.append(point.y)
+                z_points_m.append(point.z)
+            elif hasattr(point, 'rho') and hasattr(point, 'phi') and hasattr(point, 'z'):
+                # Cylindrical coordinates - convert to Cartesian
+                x = point.rho * np.cos(point.phi)
+                y = point.rho * np.sin(point.phi)
+                z = point.z
+                x_points_m.append(x)
+                y_points_m.append(y)
+                z_points_m.append(z)
+    
+    # Method 4: Check trajectory_data sub-dict for path_points
+    elif not x_points_m and 'trajectory_data' in trajectory_data and 'path_points' in trajectory_data['trajectory_data']:
+        path_points = trajectory_data['trajectory_data']['path_points']
+        print(f"[CoordFix] Extracting coordinates from {len(path_points)} path points in sub-dict")
+        
+        for point in path_points:
+            if hasattr(point, 'position') and len(point.position) >= 3:
+                x_points_m.append(point.position[0])
+                y_points_m.append(point.position[1])
+                z_points_m.append(point.position[2])
+            elif hasattr(point, 'x') and hasattr(point, 'y') and hasattr(point, 'z'):
+                x_points_m.append(point.x)
+                y_points_m.append(point.y)
+                z_points_m.append(point.z)
+            elif hasattr(point, 'rho') and hasattr(point, 'phi') and hasattr(point, 'z'):
+                x = point.rho * np.cos(point.phi)
+                y = point.rho * np.sin(point.phi)
+                z = point.z
+                x_points_m.append(x)
+                y_points_m.append(y)
+                z_points_m.append(z)
     
     if not x_points_m or not y_points_m or not z_points_m:
-        print("[CoordFix] No coordinate arrays found in trajectory data")
+        print("[CoordFix] No coordinate data found in any format")
+        print(f"[CoordFix] Available keys in trajectory_data: {list(trajectory_data.keys())}")
+        if 'trajectory_data' in trajectory_data:
+            print(f"[CoordFix] Available keys in sub-dict: {list(trajectory_data['trajectory_data'].keys())}")
         return trajectory_data
     
     # Convert to mm and numpy arrays
