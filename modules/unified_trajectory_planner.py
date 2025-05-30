@@ -272,11 +272,16 @@ class UnifiedTrajectoryPlanner:
             )
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             self._log_message(f"Trajectory generation failed: {e}")
+            print(f"[ERROR] Full trajectory generation exception:")
+            print(error_details)
+            print(f"[ERROR] Points generated before failure: {len(all_points)}")
             return TrajectoryResult(
                 points=[], 
                 metadata=metadata_log, 
-                quality_metrics={'error': str(e), 'success': False}
+                quality_metrics={'error': str(e), 'success': False, 'error_details': error_details}
             )
 
     def _generate_single_circuit(self,
